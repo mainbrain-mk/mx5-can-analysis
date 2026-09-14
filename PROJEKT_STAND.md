@@ -4964,6 +4964,30 @@ Outputs aktualisiert: `results/corner_speed_model.png`,
 `results/corner_speed_model_summary.json` (neues Feld
 `reference_events_gps_gyro_only`).
 
+## Kurvenmodell auf alle CAN-Logs erweitert (2026-09-14)
+
+`corner_speed_model.py` liest jetzt ALLE `results/can_corner_event_summary_
+candump-*.json` (Glob statt fest verdrahteter Einzel-Log-Pfad) -
+`can_corner_event_analysis.py` laeuft inzwischen automatisch im taeglichen
+Pipeline-Lauf fuer jedes CAN-Log, dadurch waren neben 211833 bereits 6
+weitere Logs mit Kurvendaten vorhanden (u.a. die 3 frisch vom Pi
+nachgeholten von heute). Die urspruengliche Nutzer-Review (S-Kurven-Trennung,
+Geradeaus-Ausschluss) steckt in `can_corner_event_analysis.py` selbst und
+gilt automatisch fuer alle Logs mit.
+
+**Ergebnis: 220 Kurven aus 7 Fahrten** (vorher 43 aus 1 Fahrt) - max
+weiterhin 0,83g (kaum veraendert gegenueber 0,82g vorher), Trend
+Geschwindigkeit-vs-Grip-Nutzung schwaecht sich mit mehr Daten leicht ab
+(r=-0,38 -> -0,16, "kein klarer Trend"). **Weiterhin konsistent mit dem
+Lap-Sim-Bracket mu=1,0-1,3**, keine Aenderung an der Kernaussage - die
+groessere Datenbasis macht die Untergrenze aber deutlich robuster (7
+unabhaengige Fahrten statt 1). Der ESP-Referenzpunkt aus 170146 bleibt der
+einzige Punkt oberhalb der unteren Bracket-Grenze.
+
+Outputs aktualisiert: `results/corner_speed_model.png`,
+`results/corner_speed_model_summary.json` (`source_logs`-Feld statt
+`source_events`).
+
 ## Automatischer Lauf: 1 neue CAN-Logs uebernommen (2026-09-14)
 
 - `candump-2026-09-11_200735`

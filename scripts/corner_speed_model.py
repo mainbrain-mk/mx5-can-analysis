@@ -3,12 +3,20 @@ Erstes empirisches Kurvengeschwindigkeitsmodell (MX-5 Projekt) - v_max(R)
 aus real gefahrenen, CAN-validierten Kurven statt dem bisherigen Literatur-
 Bracket mu=1.0-1.3 in spreewaldring_lap_simulation.py.
 
-Datenbasis: die 43 nutzerbestaetigten Kurven aus
-`can_corner_event_analysis.py` (Y-Splitter-Log candump-2026-09-12_211833,
-siehe PROJEKT_STAND.md "Kurvenmodell"). Aus Speed+a_lat am jeweiligen Peak-
-Sample wird der implizite Kurvenradius R = v^2/a_lat berechnet (kinematische
-Definition der Zentripetalbeschleunigung, kein Fit - v und a_lat sind beide
-direkt aus dem validierten CAN-RCM-Signal gemessen).
+Datenbasis: ALLE `results/can_corner_event_summary_candump-*.json` (von
+`can_corner_event_analysis.py`, laeuft inzwischen automatisch fuer jedes
+CAN-Log im taeglichen Pipeline-Lauf) - urspruenglich nur die 43
+nutzerbestaetigten Kurven aus dem Y-Splitter-Log candump-2026-09-12_211833,
+seit 2026-09-14 auf alle vorhandenen CAN-Logs mit echten Kurven erweitert
+(6 Fahrten, 220 Kurven insgesamt - siehe PROJEKT_STAND.md "Kurvenmodell").
+Die urspruengliche manuelle Nutzer-Review (S-Kurven-Trennung, Geradeaus-
+Ausschluss) betraf nur den 211833-Log und steckt bereits in
+`can_corner_event_analysis.py`s `EXCLUDED_EVENTS`/Vorzeichen-Logik - gilt
+automatisch fuer alle Logs mit, keine Log-spezifische Nacharbeit noetig.
+Aus Speed+a_lat am jeweiligen Peak-Sample wird der implizite Kurvenradius
+R = v^2/a_lat berechnet (kinematische Definition der Zentripetal-
+beschleunigung, kein Fit - v und a_lat sind beide direkt aus dem
+validierten CAN-RCM-Signal gemessen).
 
 WICHTIGE EINSCHRAENKUNG (siehe auch mx5_tires-Memory): das sind ganz
 normale Landstrassen-/Autobahnauffahrt-Kurven, KEINE Grenzbereichsfahrt
@@ -26,7 +34,7 @@ Methodik:
      nicht das Fenstermittel - fuer eine korrekte R=v^2/a_lat-Berechnung
      muessen beide Groessen zum selben Zeitpunkt gehoeren),
      a_lat_peak [m/s^2], R_implied = v_peak^2/a_lat_peak [m].
-  2. Empirische Grip-Obergrenze: max(|a_lat_peak_g|) ueber alle 43 Kurven -
+  2. Empirische Grip-Obergrenze: max(|a_lat_peak_g|) ueber alle Kurven -
      das ist die staerkste sicher gefahrene Kurve im Datensatz.
   3. Trendpruefung v vs. a_lat_peak_g (Pearson r) - prueft, ob die
      Grip-Nutzung mit der Geschwindigkeit systematisch variiert (z.B.
@@ -39,6 +47,7 @@ Methodik:
 
 Aufruf: python scripts/corner_speed_model.py
 """
+import glob
 import json
 import os
 import numpy as np
@@ -47,7 +56,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 RESULTS_DIR = "results"
-CORNER_JSON = "results/can_corner_event_summary_candump-2026-09-12_211833.json"
+CORNER_JSON_GLOB = "results/can_corner_event_summary_candump-*.json"
 G = 9.81
 LAP_SIM_MU_RANGE = (1.0, 1.3)  # siehe spreewaldring_lap_simulation.py
 
@@ -76,17 +85,27 @@ REFERENCE_EVENTS = [
 ]
 
 
+def load_all_events():
+    events = []
+    for path in sorted(glob.glob(CORNER_JSON_GLOB)):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        for ev in data["events"]:
+            events.append({**ev, "log_id": data["log_id"]})
+    return events
+
+
 def main():
-    with open(CORNER_JSON, encoding="utf-8") as f:
-        data = json.load(f)
-    events = data["events"]
+    events = load_all_events()
+    source_logs = sorted({ev["log_id"] for ev in events})
+    print(f"Quell-Logs ({len(source_logs)}): {', '.join(source_logs)}")
 
     v_peak_ms = np.array([ev["speed_at_peak_kmh"] / 3.6 for ev in events])
     a_lat_g = np.array([abs(ev["a_lat_peak_g"]) for ev in events])
     a_lat_ms2 = a_lat_g * G
     r_implied_m = v_peak_ms ** 2 / a_lat_ms2
 
-    print(f"Datenbasis: {len(events)} Kurven aus {CORNER_JSON}")
+    print(f"Datenbasis: {len(events)} Kurven aus {len(source_logs)} Logs")
     print(f"v_peak: {v_peak_ms.min()*3.6:.0f}-{v_peak_ms.max()*3.6:.0f} km/h")
     print(f"a_lat_peak: {a_lat_g.min():.2f}-{a_lat_g.max():.2f}g (max = staerkste sicher gefahrene Kurve)")
     print(f"R_implied: {r_implied_m.min():.0f}-{r_implied_m.max():.0f}m")
@@ -102,7 +121,7 @@ def main():
     print(f"  p90      = {a_lat_p90_g:.2f}g")
     print(f"  Bestehende Lap-Sim-Annahme: mu={LAP_SIM_MU_RANGE[0]:.1f}-{LAP_SIM_MU_RANGE[1]:.1f}")
     if a_lat_max_g < LAP_SIM_MU_RANGE[0]:
-        print(f"  -> Konsistent: alle 43 Kurven liegen unter der unteren Lap-Sim-Grenze "
+        print(f"  -> Konsistent: alle {len(events)} Kurven liegen unter der unteren Lap-Sim-Grenze "
               f"({LAP_SIM_MU_RANGE[0]:.1f}g), keine Anpassung noetig, Bracket bleibt eine gueltige Obergrenze.")
     else:
         print(f"  -> ACHTUNG: mindestens eine Kurve ({a_lat_max_g:.2f}g) erreicht/uebersteigt "
@@ -158,7 +177,7 @@ def main():
     plt.close(fig)
 
     out = {
-        "source_events": CORNER_JSON, "n_events": len(events),
+        "source_logs": source_logs, "n_events": len(events),
         "a_lat_peak_g_max": a_lat_max_g, "a_lat_peak_g_p90": a_lat_p90_g,
         "v_vs_a_lat_trend_r": r_trend,
         "lap_sim_mu_range": LAP_SIM_MU_RANGE,
