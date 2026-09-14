@@ -213,6 +213,23 @@ CAN_SIGNAL_MAP = {
     # Position_raw), Umrechnung erst anwenden wenn ueber mehrere Fahrten
     # bestaetigt.
     "Fuel_Tank": ("FuelTank_CAN_raw", ""),
+    # TPMS (0x728, HS_IC_TPMS_Response, aktiver UDS-Request per tpms_poller.py,
+    # kein periodischer Broadcast - siehe mx5_tpms-Memory): DBC dekodiert
+    # bereits korrekt skaliert (Druck in bar, Temp mit -50 Offset trotz
+    # "_maybe"-Suffix, gegen den Y-Splitter-Log gegen OBD-Referenzwerte
+    # bestaetigt). Tire3=hinten links/Tire4=hinten rechts bestaetigt (siehe
+    # Memory), Tire1/Tire2=Vorderachse aber Reihenfolge NOCH NICHT bestaetigt -
+    # deshalb bei der Rohnummerierung 1-4 belassen statt VL/VR/HL/HR zu
+    # erfinden. Nur in Logs vorhanden, in denen der Pi beim Fahren lief
+    # (seit 2026-09-11, sporadisch je nach Session).
+    "Tire1_Pressure": ("TirePressure_CAN_Tire1", "bar"),
+    "Tire2_Pressure": ("TirePressure_CAN_Tire2", "bar"),
+    "Tire3_Pressure": ("TirePressure_CAN_Tire3", "bar"),
+    "Tire4_Pressure": ("TirePressure_CAN_Tire4", "bar"),
+    "Tire1_Temp_maybe": ("TireTemp_CAN_Tire1", "°C"),
+    "Tire2_Temp_maybe": ("TireTemp_CAN_Tire2", "°C"),
+    "Tire3_Temp_maybe": ("TireTemp_CAN_Tire3", "°C"),
+    "Tire4_Temp_maybe": ("TireTemp_CAN_Tire4", "°C"),
 }
 GPX_NS = {"g": "http://www.topografix.com/GPX/1/0"}
 TICKS_OFFSET = 621355968000000000  # .NET-Ticks -> Unix-Referenz
