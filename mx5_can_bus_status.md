@@ -156,6 +156,33 @@ Aktuell im Datalake sind nur die ✓-markierten, durchgehend numerischen Telemet
 integriert (siehe `CAN_SIGNAL_MAP` in `scripts/build_datalake.py`) – Schalter/Status-Signale
 sind genauso dekodierbar, aber bisher nicht übernommen (bei Bedarf leicht ergänzbar).
 
+### Neue Analyse-Tools (2026-09-14, portiert aus CSS-Electronics/can-bus-reverse-engineering-skills)
+Nach Durchsicht des CSS-Electronics-Artikels/-Repos zwei reine, hardwareunabhängige
+Analysebausteine übernommen (Plan + Details siehe `mx5_can_bus_logging.md`):
+- **`scripts/can_re_toolkit.py`** – agnostische Sentinel-/Ausreißer-Erkennung
+  (`detect_extreme_outliers`, Median±MAD/Gap/Teleport, wert-/vorzeichenunabhängig),
+  referenzfreie Plausibilität (`plausibility`), und bias-gated (nicht R²-gated)
+  Scale/Offset-Nachkorrektur (`propose_round_calibration`, `propose_anchor_calibration`
+  für Ruhezustand-Refits). Selbsttest: `python scripts/can_re_toolkit.py`.
+- **`scripts/can_bitsearch.py`** – exhaustive Sub-Byte-Feldsuche (Startbit×Länge×
+  Endianness×Sign) für eine einzelne CAN-ID gegen eine Referenz (OBD-DID oder anderes
+  DBC-Signal), mit Parsimonie-Regel gegen Over-Wide-Reads (genau der TM_GEST-Dual-Column-
+  Bug-Typ). Schließt die Lücke, dass `can_byte_search.py` nur ganze Bytes/Byte-Paare
+  scannt. **Bekannte Grenze:** ohne Resolution-Refinement (bewusst nicht portiert, braucht
+  Live-Sweep-Daten) kann bei glatten Signalen eine kürzere, kaum schlechter fittende
+  Teilspanne gewinnen – das Tool druckt dann einen `[Auflösungshinweis]` mit dem
+  längeren Alternativkandidaten. Selbsttest: `python scripts/can_bitsearch.py --demo`.
+- **Sanity-Check der neuen Funktionen gegen bestehende Kalibrierungen:** BrakePressure-
+  Offset (32,7986→33,0) und YawRate_Corr-Offset (-68,1→-68,0) könnten mit <0,5% bzw.
+  <0,1% Bias aufgerundet werden (beide "auto"-sicher, niedrige Priorität, nicht
+  angewendet). BrakePressure zeigt einen 15,3%-"Ausreißer"-Cluster bei mittlerer
+  Konfidenz über einen breiten Wertebereich (33-114 bar) – sieht nach echten
+  Bremsereignissen aus (bimodales Signal: meist ~0, selten hoch), nicht nach Sentinels;
+  bei "medium confidence" bewusst nicht automatisch verworfen. Fuel_Tank/
+  Clutch_Pedal_Position_raw ließen sich nicht sinnvoll prüfen – ihre DBC-Signal-Definition
+  trägt noch die alte/rohe Skala (0,2 bzw. 1), die tatsächlich genutzten Formeln
+  (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
+
 ### Bekannte offene Punkte
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
