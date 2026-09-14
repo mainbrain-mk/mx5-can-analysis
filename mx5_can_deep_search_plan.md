@@ -247,6 +247,46 @@ HS-CAN sind der billigere Hebel.
 - Status: Pi (`car`, 192.168.0.247) erreichbar, aber kein CAN-Traffic - Fahrzeug aus.
   Ausfuehrung bei der naechsten Gelegenheit.
 
+## Nachtrag: zwei Detailergebnisse
+
+### `0x240` Byte0 = Lenkmoment (als `SteeringTorque_maybe` in die DBC uebernommen)
+Ausgangspunkt war opendbcs `STEER_TORQUE_SENSOR`. Eigene Pruefung ueber 5 Logs:
+Rohwert-127 liegt im Median sowohl im Stand als auch geradeaus bei >40 km/h exakt bei 0
+(Offset bestaetigt). Korrelation gegen den Lenkwinkel ist stark geschwindigkeitsabhaengig -
+ueber das ganze Log nur r=0,23-0,52, gefiltert auf >40 km/h dagegen **r=0,78-0,86 in allen
+5 Logs**. Genau das erwartet man bei einem Moment und nicht bei einem skalierten Winkel:
+bei Parkiergeschwindigkeit dominiert der Reifenscrub. Zwei weitere Indizien: die Streuung
+ist im Stand mehr als doppelt so gross wie bei Geradeausfahrt (14,1 vs 6,0), und das Signal
+**laeuft dem Lenkwinkel voraus** (r steigt von 0,86 bei Lag 0 auf 0,88 bei -0,4 s).
+
+Einschraenkung, bewusst im DBC-Kommentar festgehalten: nach Herausrechnen des Lenkwinkels
+bleibt nur r=0,14 Restkorrelation mit der Querbeschleunigung - das Signal ist also
+weitgehend durch den Winkel erklaerbar, keine unabhaengige Querkraftmessung. Eine
+physikalische Einheit ist nicht kalibrierbar, weil es im Fahrzeug keinen Referenz-
+Momentenkanal gibt. Deshalb `_maybe` und Rohwert-Durchreichung `(1,-127)`.
+
+Nebenbei geklaert: das bereits vorhandene `SteeringTorque_related` auf **Byte1** ist eine
+ANDERE Groesse - r=-0,04 bis -0,40 gegen den Winkel, und mit Byte0 praktisch unkorreliert
+(r≈0). Byte1 ist durchgehend positiv (0..59), also eher ein Betrag/Unterstuetzungsgrad.
+
+### AFR_MZ gegen den echten Lambda-PID: unentschieden, kein Urteil
+Naheliegender Test mit dem neuen Kanal: deckt sich `AFR_MZ` (Mode-22 DID 0xDA85) mit dem
+Standard-Lambda (Mode-1 PID 0x44)? Ueber den vollen Bereich r=0,76-0,94 - aber das kommt
+fast nur daher, dass **beide gemeinsam saettigen** (AFR_MZ bei 255, Lambda bei exakt 2,000,
+beides Schubabschaltung). Im unsaettigten Bereich faellt der lineare Fit auf R²=0,10-0,37.
+
+**Daraus folgt aber NICHT, dass AFR_MZ kein Lambda ist.** Beide Kanaele werden mit nur
+~1,8 Hz und unabhaengig voneinander gepollt; ein Lambda schwingt im Regelbetrieb schneller.
+Ein Lag-Scan hebt r von 0,42 auf 0,58 bei -0,25 s und faellt beidseitig steil ab - genau das
+Bild, das man bei Aliasing zweier unabhaengig getakteter Abtastungen derselben schnellen
+Groesse erwartet. Punktweiser Vergleich ist bei dieser Abtastrate schlicht nicht
+aussagekraeftig.
+
+Praktische Konsequenz trotzdem klar: fuer WOT-Erkennung und alles Lambda-Bezogene **den
+Standard-PID 0x44 verwenden**, nicht eine aus AFR_MZ abgeleitete Schaetzung - 0x44 hat eine
+bekannte SAE-Formel und braucht keine projekteigene Kalibrierung. Die bestehende
+WOT-Schwelle (ETC_ACT>80% UND Lambda<0,9) sollte damit einmal nachgerechnet werden.
+
 ## Offene Punkte / naechste Schritte
 
 1. DID-Sweep ausfuehren, sobald das Fahrzeug an ist - Prioritaet auf `0x760/22 2B xx` und
