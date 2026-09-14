@@ -5179,3 +5179,43 @@ jeden neuen CAN-Log, danach `corner_peak_tracker.py`; neuer Check
 vorher/nachher je Richtung und meldet jede Verbesserung als "info"-Finding
 im Report. Aktueller Stand (2026-09-14, alle 7 Logs): rechts 0.81g, links
 0.82g (beide aus dem Y-Splitter-Log `candump-2026-09-12_211833`).
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-09-14)
+
+- `candump-2026-09-13_135400`
+- `candump-2026-09-13_144611`
+- `candump-2026-09-14_081105`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
+- script_error: .venv/bin/python scripts/build_datalake.py: exit code 1: 
+  File "/home/manuel/claude/scripts/build_datalake.py", line 670, in main
+    con = duckdb.connect(DB_PATH)
+          ^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 755850) by user manuel. However, you would be able to open this database in read-only mode, e.g. by using the -readonly parameter in the CLI. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-09-13_135400: exit code 1: Kein LateralAcc_CAN fuer log_id='candump-2026-09-13_135400'
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-09-13_144611: exit code 1: Kein LateralAcc_CAN fuer log_id='candump-2026-09-13_144611'
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-09-14_081105: exit code 1: Kein LateralAcc_CAN fuer log_id='candump-2026-09-14_081105'
+
+
+## Automatischer Lauf: 3 neue Logs verarbeitet (2026-09-14)
+
+- `2026-09-14 081132`, Dauer=48min, Masse=1171.2kg (FLI ~38.3%->~34.4%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-14 163745`, Dauer=48min, Masse=1168.5kg (FLI ~34.4%->~22.1%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-14 173044`, Dauer=3min, Masse=1167.1kg (FLI ~23.8%->~24.4%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-14 081132: Resonanz auf AccelerationX bei 7.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-14 163745: Resonanz auf AccelerationZ bei 16.1 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-14 173044: Resonanz auf AccelerationX bei 5.7 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-14 173044: Resonanz auf AccelerationY bei 5.7 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-14 173044: Resonanz auf AccelerationZ bei 15.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-14 081132 t=236-241s: a_lat_peak/mean-Verhaeltnis 2.0 > 2.0 (peak=-0.19g, mean=-0.10g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-14 163745 t=2817-2820s: a_lat_peak/mean-Verhaeltnis 2.1 > 2.0 (peak=+0.63g, mean=+0.29g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: .venv/bin/python scripts/drivetrain_model_validation.py: Exception: Command '['.venv/bin/python', 'scripts/drivetrain_model_validation.py']' timed out after 300 seconds
+- script_error: .venv/bin/python scripts/top_speed_validation.py: Exception: Command '['.venv/bin/python', 'scripts/top_speed_validation.py']' timed out after 300 seconds
