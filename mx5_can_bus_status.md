@@ -10,7 +10,7 @@ Um höher aufgelöste Rohdaten als über OBD-Fusion-Polling zu bekommen, logge i
 Antriebsstrang, Teillast, Ausrollversuche, Vmax, IMU/Vibration etc.) steht in
 [`PROJEKT_STAND.md`](PROJEKT_STAND.md).
 
-## Kurzüberblick: aktueller Stand (2026-09-13)
+## Kurzüberblick: aktueller Stand (2026-09-14)
 
 **Status:** Vollautomatisches CAN-Logging läuft produktiv seit 2026-09-11 (KeyState-getriggert,
 ein Log pro Fahrt, kein manueller Schritt nötig). Die DBC-Dekodierung deckt praktisch alle
@@ -18,7 +18,15 @@ bekannten Signale fehlerfrei ab (mehrere stille Decode-Fehler gefunden und behob
 Kupplung, Tankfüllstand und Bremsdruck sind gegen echte OBD-Referenzwerte kalibriert. Erste
 CAN-Kanäle (Drehzahl, Speed, Gas, Bremse, Lenkwinkel, Kupplung, Radgeschwindigkeiten) sind ins
 bestehende Fahrleistungsmodell integriert und über mehrere Modelle (Beschleunigung, Bremsen, Vmax)
-validiert.
+validiert. TPMS ist jetzt live am Fahrzeug bestätigt (siehe unten). Ein zweiter, bisher
+unentdeckter Fall des Pi-Uhr-ohne-RTC-Bugs wurde gefunden und behoben (zwei CAN-Logs waren
+~2:43-2:45h falsch datiert). Das Touchdisplay-GUI hatte einen >2s-Gauge-Lag, der auf zwei
+konkrete Ursachen zurückgeführt und gefixt wurde (noch nicht live verifiziert). **Größter Sprung
+heute:** OBD-Werte lassen sich jetzt direkt aus jedem CAN-Log dekodieren (kein Handy/`.dlg`
+mehr nötig, framegenau statt zeitversatz-geschätzt) — darauf aufbauend ein wiederverwendbares
+Byte-Sweep-Tool gebaut, das 3 neue CAN-Signale gefunden und die `SteeringAngle_related`-
+"schwaches Signal"-Frage als Messmethoden-Artefakt aufgelöst hat (siehe Logbuch, Abschnitt
+"CAN-Byte-Search-Projekt").
 
 ### Hardware & Infrastruktur
 - **Adapter:** DSD TECH SH-C31A (CANable 2.0) am OBD-Port, nur HS-CAN (`can0`), 500 kbit,
@@ -33,7 +41,9 @@ validiert.
   - `can-logger.service` (systemd, root, device-bound an `can0`) startet `session_logger.py`,
     das per `KeyState` (0x050) automatisch pro Fahrt ein `candump -l`-Log startet/stoppt/gzippt.
   - 10"-Touchdisplay: `status_gui.py` (Tkinter) zeigt Live-Status, eine Testmodus-Checkliste und
-    Live-Gauges (Gas/Bremse/Kupplung/Lenkwinkel/Speed).
+    Live-Gauges (Gas/Bremse/Kupplung/Lenkwinkel/Speed). **2026-09-14: >2s-Gauge-Lag gefixt** –
+    zwei Ursachen (pgrep-Fork pro Sekunde direkt in der Tk-Mainloop, ungefilterter CAN-Read)
+    behoben, deployt, aber noch NICHT bei einer echten Fahrt live verifiziert.
 - **DBC:** `data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc` ist die primäre, laufend gepflegte
   Datei (alle Fixes/Funde). `_HSCAN.dbc` bleibt bewusst unverändertes Upstream-Original
   (`berumiya/CAN_DBC_6thGenMazda`, CC-BY-4.0).
@@ -49,10 +59,16 @@ vertrauen, Details im Logbuch unten.
   Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-7, Gang, Reverse=7 noch nicht
   zuverlässig bestätigt), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
   Getriebe-Rohsignale), Clutch_Pedal_Position_raw✓ (0-199 roh, **kalibriert:**
-  `CPP_PER_MZ% ≈ 0,4665·raw+0,56`), Fuel_Tank✓ (roh 0x09E, **kalibriert:**
-  `FLI% ≈ 2,486·raw-0,02`), EngineLoad_or_Torque_pct_maybe (0x167, **kalibriert:**
-  `Torque% ≈ raw·3,17-185,3`, nur an einem Log geprüft, ersetzt die frühere Fehlannahme
-  "MassAirFlowRate").
+  `CPP_PER_MZ% ≈ 0,4665·raw+0,56`, sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
+  2026-09-14 über alle 4 Logs mit OBD-Traffic bestätigt, r=0,999), Fuel_Tank✓ (roh 0x09E,
+  **kalibriert:** `FLI% ≈ 2,486·raw-0,02`), EngineLoad_or_Torque_pct_maybe (0x167,
+  **kalibriert:** `Torque% ≈ raw·3,17-185,3`, ersetzt die frühere Fehlannahme
+  "MassAirFlowRate", **2026-09-14 cross-log bestätigt** (3-4/4 Logs, korreliert mit
+  Gaspedal/MAP) – vorher nur an einem Log geprüft), EngineLoad_related_maybe (0x200,
+  ebenfalls 2026-09-14 cross-log bestätigt, gleiche Last-Domäne, kein reines Duplikat),
+  EngineRPM_related_3_maybe (0x42B, **neu 2026-09-14**, Byte1-2, bisher komplett leere
+  Botschaft – korreliert mit EngineRPM aber nur R²=0,44, kein reines Duplikat des
+  bekannten "Drehzahl×2"-Signals auf 0x130, Rohwert-Durchreichung ohne Formel).
 - **Fahrdynamik (IMU, RCM):** Longitudinal_Acc_Raw✓ (G), Lateral_Acc_Raw✓ (G), YawRate_Raw✓
   (deg/s) – **2026-09-13: Vorzeichen korrigiert** (DBC nutzt SAE-Konvention +=links, Datalake
   jetzt durchgängig +=Rechtskurve wie der Rest des Projekts, siehe PROJEKT_STAND.md
@@ -61,16 +77,32 @@ vertrauen, Details im Logbuch unten.
   OBD-Lenkwinkelmodell bestätigt: Lateral_Acc_Raw r=0,91/slope=1,05, YawRate_Raw
   r=0,95/slope=0,78 (Modell flacht bei schnellen Lenkumkehrungen ab, bekannter Caveat,
   siehe mx5_steering_angle-Memory), beide RCM-Signale intern konsistent (r=0,965). ⚠
-  Longi_Acc_Corr/YawRate_Corr/Lateral_Acc_Corr_maybe (HS_ABS, 0x78/0x79) –
-  nachweislich fehlerhaft skaliert, RCM-Werte oben nutzen statt dieser. ⚠ AmbientTemp –
-  Skala unplausibel, ungeklärt.
+  Longi_Acc_Corr/Lateral_Acc_Corr_maybe (HS_ABS, 0x78/0x79) – nachweislich fehlerhaft
+  skaliert, RCM-Werte oben nutzen statt dieser. **YawRate_Corr (0x79) 2026-09-14 REPARIERT** –
+  war keine echte Fehlmessung wie seine Geschwister, sondern eine nie überprüfte Formel aus
+  der ursprünglichen Community-DBC; per Regression gegen YawRate_Raw neu kalibriert
+  (`(0,133,-68,1)`, R²=0,89-0,92, cross-log r=0,94-1,00). **YawRate_related (0x78, neu
+  2026-09-14):** Byte2-3, eigenständiges ABS-Modul-Gierratensignal, `≈0,0011·raw` deg/s,
+  R²=0,91-0,96, über 5/5 Logs bestätigt – interessanter Ansatzpunkt für einen künftigen
+  ABS/DSC-Eingriffsindikator (noch nicht gefunden). ⚠ AmbientTemp – Skala unplausibel,
+  ungeklärt.
 - **Bremse/ABS:** BrakePressure✓ (bar) – Vorzeichen- UND Offsetfehler der Community-DBC
   gefunden und behoben (2026-09-12, jetzt `(0,0012413, +32,7986)`, R²=0,986 gegen
   echten OBD-Referenzkanal), kein Rollover-Sonderfall mehr nötig. BBP_Brake_Booster_Pressure_2/
   BARO_Barometric_pressure (kPa), WheelSpeed_1-4✓ (km/h, Sentinel 0xFFFF gefiltert),
   DSC_Status (nur System an/aus, kein Regelungseingriff), VehicleSpeed✓ (km/h).
 - **Lenkung:** Steering_Wheel_Absolute_Angle✓ (deg) – Nullpunkt per GPS bestätigt (0,0°
-  Median-Offset), Lock-to-Lock-Range ±490° bestätigt.
+  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. `SteeringAngle_related` (0x86,
+  EPAS-Schätzung) – **2026-09-14 GEKLÄRT:** die seit Wochen offene "bleibt schwach
+  korreliert (r≈0,56)"-Frage war ein Messmethoden-Artefakt, kein reales schwaches Signal.
+  Mit Spearman statt Pearson: r=0,987 – die Beziehung ist monoton, aber stark nichtlinear
+  (sehr flach/grobauflösend um 0°, steiler außen), ein linearer Fit bewertet das
+  zwangsläufig als schwach. Nichtlineare Isotonic-Regression-Lookup-Tabelle gebaut
+  (`scripts/can_steering_angle_0x86.py`), Out-of-Sample-Validierung auf einem komplett
+  unbeteiligten Log: R²=0,90, RMSE=10,5°. `SteeringAngle_related_3` (0x86 Byte4-5, **neu
+  2026-09-14**) – zweites, unabhängiges Signal in derselben Botschaft (überschneidet sich
+  nicht bitweise mit dem ersten), r=0,88 mit dem echten Winkel, ebenfalls nichtlinear,
+  noch keine Umrechnung gebaut.
 - **Zündung/Fahrzustand:** KeyState✓/KeyStateInv (OFF/ACC/ON/START), StarterInterLockSW
   (Anlasssperren-Schalter), Parking_Brake (springt bei Zündung ACC/OFF fest auf "Applied",
   nur bei Motor ON aussagekräftig), CC_SetSpeed (km/h, Tempomat-Soll).
@@ -93,63 +125,89 @@ vertrauen, Details im Logbuch unten.
 - **Berechnete Ersatzgrößen (kein eigenes CAN-Byte, aber validiert):** echter Luftmassenstrom
   `MAF(g/s) ≈ 0,00019·(RPM·MAP) - 8,08` (R²=0,945); Drosselklappenstellung nur als Schätzung
   aus Pedal+Drehzahl (R²≈0,89), kein Broadcast-Signal gefunden.
-- **TPMS (Reifendruck/-temperatur, 2026-09-13):** einziges Signal in diesem Projekt, das
-  NICHT periodisch gebroadcastet wird – wird per aktivem UDS-Request (`scripts/tpms_poller.py`,
-  Header 0x720, Mode 0x22, Poll-Intervall bewusst 120s) abgefragt, Antwort auf `0x728`
-  (BO_ 1832, DBC-Multiplex nach PID). Läuft automatisch als zweiter Kindprozess in
-  `session_logger.py` bei jeder Fahrt mit; Kollision mit dem Handy-OBD-Adapter am Y-Kabel
-  geprüft und für unkritisch befunden (Handy sendet selbst durchgehend ~16-17 Requests/s auf
-  anderen Headern). Werte erscheinen zusätzlich in vier GUI-Bildschirmecken
-  (`TpmsCornersPanel` in `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt;
-  Tire1/Tire2=Vorderachse, Reihenfolge offen (im GUI mit "*" markiert). Temperatur-PIDs
-  (0x2A0A-0D) nur vom Nutzer per OBD getestet, noch nicht per CAN bestätigt.
+- **OBD-Kanäle direkt aus dem CAN-Log (neu 2026-09-14):** wann immer das Y-Splitter-Kabel
+  genutzt wird, sind die Handy-OBD-Requests/-Antworten (`0x7E0`/`0x7E8`) selbst im CAN-Log
+  enthalten – `scripts/obd_from_can.py` dekodiert sie direkt daraus, ganz ohne `.dlg`-Datei
+  und ohne die bisherige Zeitversatz-Schätzung zwischen zwei unabhängig getakteten Dateien.
+  6 Mode-22-DIDs über 4 unabhängige Logs identisch zugeordnet (`scripts/map_obd_dids.py`):
+  `AFR_MZ`, `BFP_PRE_MZ`, `ETC_ACT`, `CPP_PER_MZ`, `FLI` (alle mit klarer Formel, R²=0,99+),
+  plus `TM_GEST` (vermutlich eine Bitmask, kein linearer Kanal). Das Y-Kabel ist inzwischen
+  offenbar Standard bei jeder Fahrt, nicht mehr nur eine einmalige Kalibrierfahrt – 3 von 4
+  Logs mit OBD-Traffic stammen vom 14.09.
+- **TPMS (Reifendruck/-temperatur, 2026-09-13, live bestätigt 2026-09-14):** einziges Signal
+  in diesem Projekt, das NICHT periodisch gebroadcastet wird – wird per aktivem UDS-Request
+  (`scripts/tpms_poller.py`, Header 0x720, Mode 0x22, Poll-Intervall bewusst 120s) abgefragt,
+  Antwort auf `0x728` (BO_ 1832, DBC-Multiplex nach PID). Läuft automatisch als zweiter
+  Kindprozess in `session_logger.py` bei jeder Fahrt mit; Kollision mit dem Handy-OBD-Adapter
+  am Y-Kabel geprüft und für unkritisch befunden (Handy sendet selbst durchgehend ~16-17
+  Requests/s auf anderen Headern; eigene Zusatzlast nur ~0,005% der Busauslastung, siehe
+  Logbuch). Werte erscheinen zusätzlich in vier GUI-Bildschirmecken (`TpmsCornersPanel` in
+  `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; Tire1/Tire2=Vorderachse,
+  Reihenfolge weiterhin offen (im GUI mit "*" markiert). Temperatur-PIDs (0x2A0A-0D) nur vom
+  Nutzer per OBD getestet, noch nicht per CAN bestätigt. **Erste echte Auswertung
+  (2026-09-14, `scripts/tpms_log_decode.py`, 2 Fahrten):** physikalisch plausibel (Druck
+  steigt mit Temperatur, ideales Gasgesetz), Werte jetzt auch im Datalake
+  (`TirePressure_CAN_Tire1-4`, `TireTemp_CAN_Tire1-4`, vorher in der DBC dekodiert aber nie
+  in `CAN_SIGNAL_MAP` nachgetragen). **Auffällig, dem Nutzer noch nicht bestätigt:** Tire4
+  (hinten rechts) liegt in beiden Fahrten durchgängig ~0,15-0,2 bar über den anderen drei
+  Reifen.
 
 Aktuell im Datalake sind nur die ✓-markierten, durchgehend numerischen Telemetriekanäle
 integriert (siehe `CAN_SIGNAL_MAP` in `scripts/build_datalake.py`) – Schalter/Status-Signale
 sind genauso dekodierbar, aber bisher nicht übernommen (bei Bedarf leicht ergänzbar).
 
 ### Bekannte offene Punkte
-- `SteeringAngle_related` (0x86, EPAS-Lenkwinkel-Schätzung) bleibt schwach korreliert (r≈0,56)
-  trotz bestätigt korrekter Bit-Position – Ursache ungeklärt.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
-- `EngineLoad_or_Torque_pct_maybe` nur an einem einzigen Log kalibriert, keine
-  Cross-Validation über mehrere Fahrten.
+- **ABS/DSC-Eingriffsindikator weiterhin nicht gefunden** – Kernziel des 2026-09-14
+  CAN-Byte-Search-Projekts (siehe Logbuch), nicht erreicht. Der gefundene `YawRate_related`
+  (0x78) ist ein analoges Gierratensignal aus der ABS-Domäne, kein sauberes Eingriffs-Flag.
+  Braucht entweder mehr Logs mit einem echten Eingriff oder eine gezielte Testfahrt.
 - AFR/Lambda, CommandEquivalenceRatio, TimingAdvance, ETC_ACT (echte Drosselklappenstellung):
-  bestätigt nicht auf HS-CAN broadcastet (nur Mode-22-Polling, wie ActualEnginePercentTorque).
+  bestätigt nicht periodisch auf HS-CAN broadcastet (nur Mode-22-Polling) – seit 2026-09-14
+  aber direkt aus dem CAN-Log dekodierbar, ohne Handy/`.dlg` (siehe oben).
 - Wischer-Test (Testplan-Punkt) strukturell dekodierbar seit dem LIGHT-Bit-Fix, aber inhaltlich
   noch nicht ausgewertet.
-- TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet;
-  `tpms_poller.py`/`session_logger.py`-Integration noch nicht live am Fahrzeug verifiziert.
+- TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet.
+- Pi-GUI-Gauge-Lag-Fix (2026-09-14) deployt, aber noch nicht bei einer echten Fahrt live
+  verifiziert.
+- `SteeringAngle_related_3` (0x86 Byte4-5, neu 2026-09-14) hat noch keine nichtlineare
+  Umrechnung (anders als sein Geschwistersignal auf Byte0-1).
+- Bei jedem CAN-only-Log ohne GPS-/OBD-Zeitanker: Datum mit Vorsicht behandeln – der
+  Pi hat keine RTC, ohne NTP während der ganzen Session bleibt die Uhr durchgehend falsch,
+  OHNE einen erkennbaren Sprung im Log zu zeigen (2026-09-14 zum zweiten Mal aufgetreten,
+  siehe Logbuch).
 
 ### Nächste Schritte
 1. Standtests wiederholen: Zündung durchgehend auf ON/Motor an (nicht nur ACC), Start-Tap
    direkt bei der Handlung drücken; fehlende Punkte (Blinker/Licht/Wischer, Tür links) ergänzen.
 2. Fahrmanöver aus Testplan-Abschnitt C: mehrere Vollbremsungen (Rollover-Test), Schaltvorgänge
    in verschiedenen Drehzahlbereichen, Kurven beidseitig.
-3. Standard-OBD-Mode-1-Polling (PID 0x05/0x0F/0x2F) auf dem Pi ergänzen, für sauberen
-   Tankfüllstand-Cross-Check ohne CAN.
+3. Vorderachsen-Zuordnung TPMS (Tire1/Tire2) per gezieltem Luftablass-Test klären.
 4. Sobald weitere CAN-Logs mit begleitendem GPS-Track vorliegen: Paar in `CAN_GPS_PAIRS`
    (`scripts/build_datalake.py`) ergänzen und neu bauen.
-5. `EngineLoad_or_Torque_pct_maybe`-Kalibrierung bei jedem künftigen Log mit gleichzeitig CAN +
-   `ActualEnginePercentTorque` (OBD) gegenprüfen und hier nachtragen.
-6. Perspektivisch: verifizierte CAN-Signale weiter ins Fahrleistungsmodell einspeisen, für die
-   geplante Querdynamik/Kurvenmodell-Erweiterung.
-7. Bei der nächsten Fahrt prüfen, ob `tpms_poller.py` automatisch mitläuft (siehe TPMS-Abschnitt
-   unten) und TPMS-Werte im neuen Log auftauchen; danach Vorderachsen-Zuordnung per gezieltem
-   Luftablass-Test klären.
-8. **Kurvenmodell (2026-09-13 begonnen, siehe PROJEKT_STAND.md):** RCM-Querdynamik jetzt gegen
-   OBD-Lenkwinkelmodell validiert (`scripts/can_lateral_validation.py`) - aber nur EIN Log,
-   keine echte Streckenfahrt. Sobald CAN-Logs mit echten Kurvenfahrten (Testplan "Kurven
-   beidseitig") vorliegen: RCM-Signal als Kalibrierbasis fürs geplante v_max(R)-Kurven-
-   geschwindigkeitsmodell nutzen (Alternative zum Literatur-Bracket μ=1,0-1,3 in
-   `spreewaldring_lap_simulation.py`).
+5. Perspektivisch: verifizierte CAN-Signale weiter ins Fahrleistungsmodell einspeisen, für die
+   Querdynamik/Kurvenmodell-Erweiterung (RCM-Signale bereits gegen das OBD-Lenkwinkelmodell
+   validiert, Kurvenauswertung läuft inzwischen automatisch für jedes CAN-Log – siehe
+   PROJEKT_STAND.md, 220 Kurven aus 7 Fahrten).
+6. Pi-GUI-Lag-Fix bei der nächsten Fahrt live prüfen (soll den >2s-Gauge-Lag behoben haben).
+7. **Gezielte Testfahrt für die zwei letzten offenen Kernfragen** (Plan-Phase 6, siehe Logbuch):
+   Rückwärtsgang mit vollständig durchgetretener statt rutschender Kupplung, und – falls sicher
+   möglich – eine Situation mit echtem ABS/DSC-Eingriff. Reine Log-Analyse kann beides nicht
+   mehr weiterbringen, es fehlen die Rohdaten dafür.
+8. Für `SteeringAngle_related_3` (0x86 Byte4-5) bei Bedarf eine eigene nichtlineare Umrechnung
+   bauen, analog zu `scripts/can_steering_angle_0x86.py`.
+9. Den CAN-Byte-Sweep (`scripts/can_byte_search.py`) bei künftigen neuen Logs erneut laufen
+   lassen – aktuell nur an den 5 vorhandenen "reichhaltigen" Logs geprüft.
 
 ## Zusätzliche Notizen (Claude-Memory)
 Ergänzend zu diesem Dokument gepflegt, überlebt Kontext-Resets:
-- `mx5_can_bus_logging.md` — laufendes Erkenntnis-Log (Bugfixes, Byte-Suchen, offene Fragen wie Reverse-Gang)
+- `mx5_can_bus_logging.md` — laufendes Erkenntnis-Log (Bugfixes, Byte-Suchen, offene Fragen wie Reverse-Gang, das komplette 2026-09-14-CAN-Byte-Search-Projekt in voller Detailtiefe)
 - `mx5_nd3_obdii_repo_reference.md` — externe Referenz (ND3-Repo), Parallele zu Gear_CAN/MT_Gear_Recommend
 - `mx5_datalake_can_channels.md` — aktueller Stand von `CAN_SIGNAL_MAP` in `build_datalake.py`, DuckDB-Viewer-Setup
+- `mx5_tpms.md` — TPMS-Historie (Aufbau, Live-Test, Vorderachsen-Frage)
+- `mx5_pi_status_gui_lag_fix.md` — Diagnose/Fix des Touchdisplay-Gauge-Lags
+- `feedback_background_wait_loops.md` — Session-Mechanik-Lehre (nicht CAN-Projekt-Inhalt): Warteschleifen brauchen eine konkrete PID, kein Namensmuster
 
 ## Hardware
 - **USB-CAN-Adapter:** DSD TECH SH-C31A, basierend auf CANable 2.0 (STM32, candleLight-Firmware)
@@ -1444,3 +1502,161 @@ exakt die erwarteten Werte in allen vier Ecken (z.B. raw=0x83 -> 1.80 bar bei "V
 Danach `vcan0` geloescht und der normale Prozess (echtes `can0`, kein Simulations-Flag)
 wiederhergestellt. Noch nicht mit echten TPMS-Antworten vom Fahrzeug getestet (dafuer muss
 zuerst der Poller selbst einmal live laufen, siehe "Naechster Schritt" oben).
+
+## TPMS erstmals live ausgewertet & zweiter No-RTC-Uhr-Bug gefunden (2026-09-14)
+
+Nutzerfrage "können wir uns die Reifendruck-Daten anschauen?" stieß die erste echte Auswertung
+an - `tpms_poller.py`/`session_logger.py` liefen zwar schon länger automatisch mit, wurden aber
+nie ausgewertet. 0x720/0x728-Frames sind zuverlässig in den Logs (~192-200 pro Fahrt, exakt
+Fahrtdauer/120s · 8 PIDs).
+
+**Neues Skript `scripts/tpms_log_decode.py`** (parst 0x728-Antworten direkt aus einem
+candump-Log, wiederverwendet `tpms_poller.py`s PID-Formeln/`decode_response()` als einzige
+Quelle der Wahrheit). Dabei aufgefallen: die DBC (`BO_1832`) dekodiert die TPMS-Signale schon
+korrekt in die `*_decoded.csv`, aber `build_datalake.py`s `CAN_SIGNAL_MAP` hatte sie nie
+aufgenommen - landeten also nirgends im Datalake. Nachgetragen (`TirePressure_CAN_Tire1-4` bar,
+`TireTemp_CAN_Tire1-4` °C), Datalake neu gebaut.
+
+**Ergebnis (2 Fahrten):** physikalisch sauberes Bild - Druck steigt mit Temperatur (ideales
+Gasgesetz, 22-40°C), erste 2-3 Samples pro Fahrt zeigen oft noch "alte" warme Werte vom
+Sensor, bevor er nach etwas Raddrehung frische, oft kältere Werte sendet (erwartetes
+Sensorverhalten). **Tire4 (hinten rechts) liegt in beiden Fahrten durchgängig ~0,15-0,2 bar
+über den anderen drei Reifen** - konsistent, kein Ausreißer, dem Nutzer noch nicht bestätigt.
+
+**Zweiter No-RTC-Uhr-Bug gefunden, diesmal ohne erkennbaren Zeitsprung im Log.** Zwei CAN-only-
+Logs (ursprünglich `candump-2026-09-13_135400`/`144611` datiert) hatten laut Nutzer-Hinweis
+vermutlich das falsche Datum. Bestätigt per Dauer- UND VehicleSpeed-Kreuzkorrelation
+(r=1,0000 bzw. r=0,9997) gegen die zwei OBD-Logs vom Nachmittag des 14.09.: beide CAN-Logs
+waren ~2:43-2:45h zu früh datiert (fast identischer Versatz in beiden Fällen - ein einziger,
+konsistenter Uhrenfehler für die ganze Pi-Session). Grund: der Pi hat keine RTC und bekam
+während dieser Session nie NTP (Powerbank im Auto, kein WLAN unterwegs) - die Uhr bleibt dann
+für die GANZE Session falsch, OHNE den sonst erkennbaren Zeitsprung mitten im Log zu zeigen
+(der nur bei einer NTP-Korrektur MITTEN im Log entsteht). Bestätigt per `uptime -p` auf dem Pi
+(`journalctl --list-boots` hatte fälschlich einen durchgehenden Boot seit dem 11.09. behauptet,
+echte monotone Uptime war nur 65 Minuten).
+
+**Korrektur durchgeführt:** Dateien umbenannt (lokal UND auf dem Pi) auf die wahren Zeitstempel
+(`candump-2026-09-14_163711.log`/`candump-2026-09-14_173057.log`), `data/can_gps_pairs.json`
+nachgezogen, Datalake + Kurven-/TPMS-Auswertung neu gelaufen - alle Werte identisch zu vorher,
+nur unter korrektem Namen. Rohdateien selbst wurden nicht inhaltlich verändert, nur umbenannt.
+Damit ist auch klar: `tpms_poller.py` lief zum ersten Mal am 14.09. morgens (`081105`), dann
+nochmal nachmittags (`163711`/`173057`) - nicht schon am 13.09. wie zunächst angenommen.
+
+**Lehre:** jeder CAN-only-Log ohne GPS-/OBD-Zeitanker ist grundsätzlich mit Vorsicht zu
+behandeln, egal ob ein Zeitsprung sichtbar ist oder nicht - fehlendes NTP während der ganzen
+Session zeigt sich NICHT als Sprung. Details in der `mx5_can_bus_logging`-Memory.
+
+## Pi-Touchdisplay-Gauge-Lag gefunden und gefixt (2026-09-14)
+
+Nutzer meldete sichtbare Verzögerung (>2s) bei den Gas/Bremse/Kupplung/Lenkwinkel/Speed-
+Balkenanzeigen auf dem Pi-Touchdisplay. Per SSH auf `car` diagnostiziert: Hardware unauffällig
+(kein Throttling, 50°C, Load niedrig), deployte Version identisch zum Repo. Zwei echte
+Ursachen im Code:
+1. `get_state()` forkte JEDE Sekunde zwei `pgrep -f ...`-Subprozesse direkt im Tk-`.after()`-
+   Callback - blockierte dabei die komplette Mainloop inkl. aller 300ms-Gauge-Refreshes für die
+   fork()+exec()-Dauer, verschärft durch I/O-Last von candump/session_logger/tpms_poller
+   während einer Fahrt.
+2. `LiveCanValues._run()` öffnete den SocketCAN-Bus ohne Filter - jeder Frame (nicht nur die
+   ~17 angezeigten IDs) wurde per cantools in Python dekodiert, unnötige CPU-Last im
+   Hintergrundthread (konkurriert um die GIL mit der Mainloop).
+
+Der Zufallstreffer: `LIVE_STALE_S=2.0` (Schwelle für "ausgegraut") erklärt, warum der Nutzer
+die Verzögerung genau bei ">2s" verortete - ein Mainloop-Stall zeigt sich nicht als sanfter
+Nachlauf, sondern als eingefrorener Wert bis zum Ausgrauen, dann Sprung auf aktuell.
+
+**Fix (committed, deployed):** `process_running()` liest jetzt `/proc/*/cmdline` direkt (kein
+Subprozess-Fork mehr). `can.interface.Bus(...)` bekommt jetzt `can_filters` mit
+`NEEDED_CAN_IDS` (Kernel-seitiger `SO_CAN_RAW_FILTER`, aus LIVE_SIGNALS/PEDAL_GAUGES/
+BRAKE_PCT_CAN_ID/TPMS_CAN_ID zusammengesetzt). Deployt und auf dem Pi neu gestartet, läuft
+fehlerfrei - aber die eigentliche Verbesserung ist noch NICHT bei einer echten Fahrt
+verifiziert.
+
+## CAN-Byte-Search-Projekt: OBD direkt aus dem CAN-Log, neues Sweep-Tool, 3 neue Signale, SteeringAngle_related-Rätsel gelöst (2026-09-14)
+
+Ausgangsfrage: wie kommen wir systematisch an weitere Signale in den 107 komplett leeren und
+39 teilweise dekodierten DBC-Botschaften? Die letzte systematische Suche war vom 11.09. und
+nie als wiederverwendbares Werkzeug verstetigt. Vollständiger Plan und alle Zwischenschritte
+in der `mx5_can_bus_logging`-Memory; hier nur die Kurzfassung der Ergebnisse.
+
+**Schlüsseleinsicht (Nutzer-Vorschlag):** das Handy-OBD-Fusion sendet seine Mode-1/Mode-22-
+Anfragen über denselben physischen Bus, den auch der CANable-Adapter mitschneidet - immer
+wenn das Y-Splitter-Kabel benutzt wird, stehen die `0x7E0`/`0x7E8`-Frames also direkt IM
+CAN-Log. Geprüft: das betrifft inzwischen 4 von 14 nicht-leeren Logs (nicht nur die eine
+bekannte Kalibrierfahrt) - das Y-Kabel ist offenbar seit dem 14.09. Standard bei jeder Fahrt.
+Das ersetzt die bisherige Zeitsynchronisation zweier unabhängig getakteter Dateien (CAN-Log +
+`.dlg`, per geschätztem Kreuzkorrelations-Lag) durch framegenaue Ground-Truth auf derselben
+Pi-Uhr.
+
+**Gebaute Werkzeuge (alle in `scripts/`, committed):**
+- `obd_from_can.py` - dekodiert UDS-Request/Response-Paare direkt aus jedem CAN-Log.
+- `map_obd_dids.py` - ordnet die gefundenen DIDs benannten OBD-Kanälen zu (per Lag-gesuchter
+  Regression gegen die `.dlg`, einmaliger Bootstrap-Schritt - danach `.dlg`-unabhängig). 6
+  DIDs über 4 Logs identisch bestätigt: `AFR_MZ`, `BFP_PRE_MZ`, `ETC_ACT`, `CPP_PER_MZ`, `FLI`
+  (alle mit sauberer Fixed-Point-Formel, R²=0,99+), plus `TM_GEST` (vermutlich eine Bitmask).
+- `can_byte_search.py` - das eigentliche wiederverwendbare Sweep-Tool: DBC-Coverage-Diff,
+  Pearson+Spearman roh UND detrended (ein Kandidat zählt nur, wenn BEIDES die Schwelle r≥0,6
+  übersteigt - Schutz gegen die bekannten Trend-Artefakte), abgeleitete Ereignis-Proxys
+  (ABS-/DSC-Verdacht aus Radgeschwindigkeits-Divergenz bzw. Querbeschleunigung), Selbsttest.
+- `can_retest_maybe_signals.py` - testet den bestehenden `_maybe`/`_related`-Rückstand gegen
+  die neue OBD-Ground-Truth.
+- `can_steering_angle_0x86.py` - nichtlineare Umrechnung für `SteeringAngle_related` (siehe
+  unten).
+
+**Sweep über alle 5 datenreichen Logs, konsolidiert:** mehrere Kandidaten 4-5/5 Logs
+cross-log-bestätigt (`0x078`→Gierrate, `0x200`→Last-Proxy, `0x0FD`/`0x20A`→AFR-Proxy,
+`0x086`→Lenkwinkel, `0x42B`→Drehzahl-verwandt). Drei davon nach Prüfung VERWORFEN und in der
+DBC als "geprüft, nicht bestätigt" dokumentiert (0x0FD/0x20A: Rohwert zu grobkörnig bzw.
+Vorzeichen-Artefakte; ein Radgeschwindigkeits-Cluster erwies sich bei Gegenprüfung an zwei
+weiteren Logs als reines Kurzlog-Trendartefakt, r fiel von 0,97 auf -0,06).
+
+**Drei neue Signale in die DBC übernommen:**
+- `YawRate_related` (0x78 Byte2-3) - eigenständiges ABS-Modul-Gierratensignal, `≈0,0011·raw`
+  deg/s, R²=0,91-0,96.
+- `SteeringAngle_related_3` (0x86 Byte4-5) - zweites, unabhängiges Lenkwinkelsignal in
+  derselben Botschaft, r=0,88 mit dem echten Winkel.
+- `EngineRPM_related_3_maybe` (0x42B, vorher komplett leer) - drehzahlverwandt, aber nur
+  R²=0,44, kein reines Duplikat des bekannten "Drehzahl×2"-Signals auf 0x130.
+
+**Echter Formel-Fix:** `YawRate_Corr` (0x79) hatte eine nie überprüfte Formel direkt aus der
+ursprünglichen Community-DBC - falsch skaliert. Per Regression gegen `YawRate_Raw` neu
+kalibriert (`(0,133,-68,1)`, R²=0,89-0,92, cross-log r=0,94-1,00 über alle 4 Logs) - anders
+als seine bekanntermaßen kaputten Geschwister `Longi_Acc_Corr`/`Lateral_Acc_Corr_maybe` war
+dieses Signal nur falsch kalibriert, nicht grundsätzlich fehlerhaft.
+
+**Zwei Cross-Validation-Lücken geschlossen:** `EngineLoad_or_Torque_pct_maybe` (0x167) und
+`EngineLoad_related_maybe` (0x200) waren beide nur an einem einzigen Log kalibriert (explizit
+als offener Punkt vermerkt) - jetzt an 3-4 von 4 Logs gegen das Gaspedal bestätigt.
+
+**Größter Einzelfund: `SteeringAngle_related`-Rätsel gelöst.** Die seit Wochen offene Frage
+"warum bleibt dieses Signal schwach korreliert (r≈0,56) trotz bestätigt korrekter
+Bit-Position" ist ein Messmethoden-Artefakt, kein reales schwaches Signal. Mit Spearman statt
+Pearson gegen den echten Lenkwinkel: r=0,987. Gebinnte Analyse zeigt eine klar monotone, aber
+stark nichtlineare Kurve (sehr flach/grobauflösend um 0°, deutlich steiler außen) - derselbe
+Effekt wie beim `ETC_ACT`-Sättigungsfund vom 12.09. (Pearson unterschätzt sättigende
+Zusammenhänge systematisch), hier aber nie zurückangewendet. Bit-Position war die ganze Zeit
+richtig, nur die Bewertungsmethode falsch.
+
+Darauf aufbauend eine echte nichtlineare Umrechnung gebaut (Isotonic-Regression-Lookup-
+Tabelle). Erster Versuch (nur der Lenkrad-Schwenk-Log als Training) scheiterte krachend
+(Out-of-Sample-R²=-0,39) - der Schwenk-Log deckt zwar den vollen Winkelbereich ab, aber
+extrem ungleichmäßig (lange Verweildauer an den Anschlägen, kaum Samples im
+Übergangsbereich). Fix: Schwenk-Log (für die Extreme) plus zwei normale Fahrten (für dichte
+Alltagsabdeckung) kombiniert trainiert. Out-of-Sample-Validierung auf einem komplett
+unbeteiligten Log: **R²=0,90, RMSE=10,5°.**
+
+**Datalake neu gebaut** mit der erweiterten/korrigierten DBC - alle 11 im Datalake genutzten
+CAN-Logs neu decodiert, `data/datalake.duckdb` neu erstellt. `CAN_SIGNAL_MAP` (die kuratierte
+Liste, die tatsächlich zu Datalake-Spalten wird) bewusst NICHT um die neuen/reparierten
+Signale erweitert - folgt der bestehenden Konvention, dass ein Signal in der DBC dekodierbar
+zu sein nicht automatisch heißt, dass es einen eigenen Datalake-Kanal verdient (z.B. wurde das
+bestätigte "Drehzahl×2"-Duplikat auf 0x130 auch nie aufgenommen).
+
+**Plan-Status:** alle Kernphasen (OBD-aus-CAN-Decoder, DID-Zuordnung, Sweep-Tool, Rückstands-
+Check, Validierung/Einpflegen) abgeschlossen. Eine externe Mode-22-Formeltabelle wurde bewusst
+übersprungen (Aufwand/Nutzen für die 5 seltenen DIDs nicht gerechtfertigt). Offen bleibt nur
+eine gezielte Testfahrt für den ABS/DSC-Eingriffsindikator und die Reverse-Gang-Bestätigung -
+das braucht echte neue Daten, keine weitere Log-Analyse.
+
+Alle Zwischenergebnisse, Formeln und verworfenen Kandidaten sind zusätzlich direkt als
+`CM_`-Kommentare in `data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc` dokumentiert. Commit
+`f6b4ea2`.
