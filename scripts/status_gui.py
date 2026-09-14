@@ -25,7 +25,6 @@ zu muessen.
 import csv
 import datetime
 import os
-import subprocess
 import threading
 import time
 import tkinter as tk
@@ -128,6 +127,19 @@ BRAKE_PCT_START_BIT = 28  # MSB-first, 0 = MSB von Byte0
 BRAKE_PCT_LEN = 12
 
 
+# Kernel-seitiger SocketCAN-Filter (SO_CAN_RAW_FILTER) auf genau die IDs, die
+# irgendein Panel anzeigt - vorher wurde JEDER Frame auf dem HS-CAN bis nach
+# Python durchgereicht und mit cantools dekodiert, obwohl nur diese ~17 IDs
+# je gebraucht werden. Spart Decode-CPU im Hintergrundthread, der sich sonst
+# mit der Tk-Mainloop um die GIL streitet.
+NEEDED_CAN_IDS = sorted({
+    *(can_id for _, can_id, _ in LIVE_SIGNALS),
+    *(spec["can_id"] for spec in PEDAL_GAUGES),
+    BRAKE_PCT_CAN_ID,
+    TPMS_CAN_ID,
+})
+
+
 def extract_brake_pct(data):
     full = int.from_bytes(data, "big")
     total_bits = len(data) * 8
@@ -184,7 +196,25 @@ def can0_up():
 
 
 def process_running(pattern):
-    return subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.DEVNULL).returncode == 0
+    # Kein subprocess/pgrep-Fork mehr (blockierte frueher die Tk-Mainloop -
+    # inkl. aller 300ms-Gauge-Refreshes - fuer die Dauer von fork()+exec(),
+    # unter I/O-Last durch candump/session_logger/tpms_poller spuerbar).
+    # /proc direkt lesen ist eine reine Python-Operation, kein neuer Prozess.
+    try:
+        pids = os.listdir("/proc")
+    except FileNotFoundError:
+        return False
+    for pid in pids:
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\x00", b" ").decode(errors="replace")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if pattern in cmdline:
+            return True
+    return False
 
 
 def get_state():
@@ -283,7 +313,9 @@ class LiveCanValues:
         import can
         while True:
             try:
-                bus = can.interface.Bus(channel=self.channel, interface="socketcan")
+                bus = can.interface.Bus(
+                    channel=self.channel, interface="socketcan",
+                    can_filters=[{"can_id": cid, "can_mask": 0x7FF} for cid in NEEDED_CAN_IDS])
             except Exception as e:
                 self.error = f"CAN-Bus nicht verfügbar ({e})"
                 time.sleep(2)
