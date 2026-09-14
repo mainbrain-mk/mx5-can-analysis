@@ -1,0 +1,32 @@
+# Rohdaten, Datalake, abgeleitete Ergebnisse - regenerierbar aus scripts/,
+# zu gross fuers Repo und/oder enthalten Standort-/Fahrdaten.
+# Ausnahme: die DBC-Dateien (CC-BY-4.0, siehe README) sollen mit rein.
+/data/*
+!/data/can/
+/data/can/*
+!/data/can/*.dbc
+/höhendaten/
+/results/
+
+# Geheimnisse - niemals committen
+/schlüssel/
+
+# Lizenz der Mazda-Werksmatrix ist ungeklaert
+/mx-5_can1.xlsx
+
+# lose Ad-hoc-Bilder im Projekt-Root, kein Teil des Codes/der Doku
+/*.png
+/*.jpg
+/*.jpeg
+
+# Claude Code Tooling-Konfiguration (lokal, kein Projektinhalt)
+/.claude/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Editor/OS
+.DS_Store

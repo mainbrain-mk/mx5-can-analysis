@@ -1,0 +1,660 @@
+VERSION "berumiya 990S labo"
+CM_ "License: CC-BY 4.0";
+CM_ "Repository : https://github.com/berumiya/CAN_DBC_6thGenMazda";
+CM_ "Decoded and maintained by berumiya 990S labo";
+CM_ "Source : reverse-engineered CAN traffic.";
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIG_TYPE_REF_
+    VAL_TABLE_
+    SIG_GROUP_
+    SIG_VALTYPE_
+    SIGTYPE_VALTYPE_
+    BO_TX_BU_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_: 
+BU_: HS_SSU HS_CMU HS_BCMM HS_LVL HS_ABS HS_IC HS_RCM HS_EPAS HS_FSC2 HS_PCM HS_EVP HS_DCDC HS_MRCC HS_HUD_MZ HS_RHT HS_TCUAT OBD2 UNKNOWN_ECU
+BO_ 145 HS_SSU: 8 HS_SSU
+   SG_ MsgCounter_maybe : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ HAZ_SW : 10|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ WIP_F_INT : 55|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ TURN_SW : 13|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ FOG_SW : 1|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ RearWiper : 19|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Washer : 17|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ FrontWiper : 21|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ LIGHT : 7|6@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 70 HS_SSU: 8 HS_SSU
+
+BO_ 80 HS_SSU: 8 HS_SSU
+   SG_ KeyState : 1|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ KeyStateInv : 58|3@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ StarterInterLockSW : 25|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 130 HS_SSU: 8 HS_SSU
+   SG_ Steering_Wheel_Absolute_Angle : 23|16@0+ (0.05,-1600) [0|1] "deg" Vector__XXX
+
+BO_ 157 HS_SSU: 8 HS_SSU
+   SG_ CRU_CON_SW1 : 7|10@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 628 HS_SSU: 8 HS_SSU
+   SG_ INFO_SW : 61|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Key_hold : 20|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Key_notfound : 36|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ IC_Buzz : 7|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Key_Batt : 39|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Key_fob : 47|4@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1154 HS_SSU: 8 HS_SSU
+
+BO_ 1416 HS_SSU: 8 HS_SSU
+
+BO_ 158 HS_IC: 8 HS_IC
+   SG_ Fuel_Tank : 47|8@0+ (0.2,0) [0|1] "L" Vector__XXX
+   SG_ Fuel_Related_2 : 55|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ DSC_OFF_Switch : 3|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ LDWS_ON_Switch : 8|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BSM_RVM_ON_Switch : 9|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ iStop_OFF_Switch : 2|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 159 HS_IC: 8 HS_IC
+   SG_ PCONSW_Panel_Light_Control_Switch : 15|8@0+ (1,0) [0|1] "%" Vector__XXX
+   SG_ DIM_CSW_Dimmer_Cancel_Switch : 47|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Reverse_Flag_maybe : 7|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Parking_Brake : 4|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 606 HS_IC: 8 HS_IC
+   SG_ VehicleSpeed : 7|10@0+ (1,0) [0|1] "" HS_HUD_MZ
+   SG_ SpeedUnit : 13|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ StopVehicle : 28|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ DAA_Related : 63|4@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 607 HS_IC_PSM_MZ: 8 HS_IC
+
+BO_ 1034 HS_IC_CentralConfig: 8 HS_IC
+   SG_ C000_TOTAL_TIME m49152M : 23|32@0+ (0.1,1) [0|1] "sec" Vector__XXX
+   SG_ C001_ODO m49153M : 23|32@0+ (1,0) [0|1] "km" Vector__XXX
+   SG_ C100_VIN_1_6 m49408M : 23|48@0- (1,0) [0|1] "" Vector__XXX
+   SG_ C101_VIN_7_12 m49409M : 23|48@0- (1,0) [0|1] "" Vector__XXX
+   SG_ C102_VIN_13_17 m49410M : 23|40@0- (1,0) [0|1] "" Vector__XXX
+   SG_ C103 m49411M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ C104 m49412M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF00_IG_ON_Timer m48896M : 39|16@0+ (1,0) [0|1] "sec" Vector__XXX
+   SG_ BF01 m48897M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF02 m48898M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF03 m48899M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF04 m48900M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF05 m48901M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF06 m48902M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF07 m48903M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF08 m48904M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF09 m48905M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0A m48906M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0B m48907M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0C m48908M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0D m48909M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0E m48910M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF0F m48911M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF10 m48912M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF11 m48913M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF12 m48914M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF13 m48915M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF14 m48916M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF15 m48917M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF16 m48918M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF17 m48919M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF18 m48920M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF19 m48921M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1A m48922M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1B m48923M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1C m48924M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1D m48925M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1E m48926M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF1F m48927M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF20 m48928M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BF21 m48929M : 23|48@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Central_Config_Index M : 7|16@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1078 HS_IC_EATC: 8 HS_IC
+
+BO_ 1093 HS_IC_PSM_MZ: 8 HS_IC
+
+BO_ 1143 HS_IC: 8 HS_IC
+   SG_ GearDisplay_related_maybe : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 1147 HS_IC: 8 HS_IC
+   SG_ BSM_Warning : 2|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BSM_Right : 1|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BSM_Left : 15|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ BSM_Status : 4|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1166 HS_IC_PSM_MZ: 8 HS_IC
+
+BO_ 1170 HS_IC: 8 HS_IC
+
+BO_ 1173 HS_IC: 8 HS_IC
+
+BO_ 1180 HS_IC: 8 HS_IC
+
+BO_ 1267 HS_IC: 8 HS_IC
+
+BO_ 1271 HS_IC: 8 HS_IC
+
+BO_ 1425 HS_IC: 8 HS_IC
+
+BO_ 1776 HS_IC_NSWdiag: 8 HS_IC
+
+BO_ 1778 HS_IC_NSWdiag: 8 HS_IC
+
+BO_ 120 HS_ABS: 8 HS_ABS
+   SG_ BrakePressure : 39|16@0- (0.0012413,32.7986) [0|45] "bar" Vector__XXX
+   SG_ Longi_Acc_Corr : 7|16@0+ (0.000512295,-29.2787) [0|1] "G" Vector__XXX
+
+BO_ 121 HS_ABS: 8 HS_ABS
+   SG_ MsgCounter_maybe : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ Lateral_Acc_Corr_maybe : 7|16@0+ (0.000512295,-29.2787) [0|1] "" Vector__XXX
+   SG_ YawRate_Corr : 31|16@0+ (0.223437,-114.4) [0|1] "deg/s" Vector__XXX
+
+BO_ 529 HS_ABS: 8 HS_ABS
+
+BO_ 533 HS_ABS: 8 HS_ABS
+   SG_ WheelSpeed_1 : 7|16@0+ (0.01,-100) [0|1] "km/h" Vector__XXX
+   SG_ WheelSpeed_2 : 23|16@0+ (0.01,-100) [0|1] "km/h" Vector__XXX
+   SG_ WheelSpeed_3 : 39|16@0+ (0.01,-100) [0|1] "km/h" Vector__XXX
+   SG_ WheelSpeed_4 : 55|16@0+ (0.01,-100) [0|1] "km/h" Vector__XXX
+
+BO_ 535 HS_ABS: 8 HS_ABS
+   SG_ VehicleSpeed_ABS_raw : 39|16@0+ (0.01,0) [0|655.35] "km/h" Vector__XXX
+
+BO_ 542 HS_ABS: 8 HS_ABS
+   SG_ MsgCounter_maybe : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 736 HS_ABS: 8 HS_ABS
+
+BO_ 1045 HS_ABS: 8 HS_ABS
+   SG_ BrakeRelated_weak_maybe : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ DSC_Status : 4|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1430 HS_ABS: 8 HS_ABS
+
+BO_ 154 HS_BCMM: 8 HS_BCMM
+   SG_ F_FOG_RELAY : 3|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Headlight : 7|4@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Turn : 19|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ PanelLight : 50|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 155 HS_BCMM: 8 HS_BCMM
+
+BO_ 1085 HS_BCMM: 8 HS_BCMM
+
+BO_ 1086 HS_BCMM: 8 HS_BCMM
+   SG_ ROOM_FUSE : 51|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ R_FOG_LAMP : 6|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Trunk : 47|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ DoorRight : 37|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ DoorLeft : 36|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1087 HS_BCMM: 8 HS_BCMM
+   SG_ Fuel_Related : 7|10@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1114 HS_BCMM: 8 HS_BCMM
+
+BO_ 1115 HS_BCMM: 8 HS_BCMM
+
+BO_ 1116 HS_BCMM: 8 HS_BCMM
+
+BO_ 1163 HS_BCMM: 8 HS_BCMM
+
+BO_ 1409 HS_BCMM: 8 HS_BCMM
+
+BO_ 540 HS_FSC2_MRCC: 8 HS_FSC2
+   SG_ LDWS_Status1 : 0|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ LDWS_Status2 : 8|1@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ SCBS_SBS_Status : 7|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 541 HS_FSC2: 8 HS_FSC2
+
+BO_ 578 HS_FSC2: 8 HS_FSC2
+
+BO_ 579 HS_FSC2: 8 HS_FSC2
+
+BO_ 580 HS_FSC2: 8 HS_FSC2
+
+BO_ 581 HS_FSC2: 8 HS_FSC2
+
+BO_ 582 HS_FSC2: 8 HS_FSC2
+
+BO_ 605 HS_FSC2: 8 HS_FSC2
+
+BO_ 863 HS_FSC2: 8 HS_FSC2
+
+BO_ 1088 HS_FSC2: 8 HS_FSC2
+
+BO_ 1157 HS_FSC2: 8 HS_FSC2
+   SG_ SCBS_SBS_Status : 28|2@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1160 HS_FSC2: 8 HS_FSC2
+
+BO_ 1061 HS_LVL: 8 HS_LVL
+
+BO_ 64 HS_PCM: 8 HS_PCM
+
+BO_ 253 HS_PCM: 8 HS_PCM
+   SG_ MT_Gear_Recommend : 13|3@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ MT_Gear_Actual : 19|3@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ MAP_Manifold_absolute_pressure_sensor : 55|8@0+ (1,2) [10|115] "kPa" Vector__XXX
+
+BO_ 254 HS_PCM: 8 HS_PCM
+   SG_ MsgCounter_maybe : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ SlowlyVarying_unclear : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 357 HS_PCM: 8 HS_PCM
+   SG_ Clutch_Related : 22|7@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ MT_Gear_Select : 36|2@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ CC_SetSpeed : 14|8@0+ (1,0) [0|1] "km/h" Vector__XXX
+   SG_ CC_Mode_Related : 7|9@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ CC_Mode_Related2 : 31|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ MT_Gear_Position : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 358 HS_PCM: 8 HS_PCM
+   SG_ Clutch_Pedal_Position_related_2 : 7|8@0+ (1.25,0) [0|199] "" Vector__XXX
+   SG_ BBP_Brake_Booster_Pressure_2 : 11|12@0+ (0.1,0) [0|1] "kPa" Vector__XXX
+   SG_ BARO_Barometric_pressure : 35|12@0+ (0.1,-267) [0|1] "kPa" Vector__XXX
+
+BO_ 304 HS_PCM: 8 HS_PCM
+   SG_ EngineRPM_related_2 : 47|16@0+ (0.5,0) [0|8000] "rpm" Vector__XXX
+   SG_ Clutch_Pedal_Position_raw : 63|8@0+ (1,0) [0|199] "" Vector__XXX
+
+BO_ 359 HS_PCM: 8 HS_PCM
+   SG_ APP_Accelerator_Pedal_Position : 7|10@0+ (0.1,0) [0|1] "%" Vector__XXX
+   SG_ EngineLoad_or_Torque_pct_maybe : 39|8@0+ (3.17,-185.3) [0|100] "%" Vector__XXX
+
+BO_ 512 HS_PCM: 8 HS_PCM
+   SG_ EngineLoad_related_maybe : 7|16@0+ (1,0) [0|65535] "" Vector__XXX
+
+BO_ 514 HS_PCM: 8 HS_PCM
+   SG_ EngineRPM : 7|16@0+ (0.25,0) [0|1] "rpm" Vector__XXX
+   SG_ VehicleSpeed : 23|16@0+ (0.01,0) [0|1] "km/h" Vector__XXX
+   SG_ APP_Accelerator_Pedal_Position : 39|16@0+ (0.0015625,0) [0|1] "%" Vector__XXX
+
+BO_ 522 HS_PCM_w_i_ELOOP: 8 HS_PCM
+
+BO_ 543 HS_PCM: 8 HS_PCM
+
+BO_ 1056 HS_PCM: 8 HS_PCM
+   SG_ CoolantTemp : 7|8@0+ (1,-40) [0|1] "degC" Vector__XXX
+   SG_ AmbientTemp : 55|16@0+ (0.25,-3200) [0|1] "degC" Vector__XXX
+   SG_ Travel_distance_related : 15|8@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1067 HS_PCM: 8 HS_PCM
+
+BO_ 1233 HS_PCM: 8 HS_PCM
+
+BO_ 1236 HS_PCM: 8 HS_PCM
+
+BO_ 1237 HS_PCM: 8 HS_PCM
+
+BO_ 1238 HS_PCM: 8 HS_PCM
+
+BO_ 1239 HS_PCM: 8 HS_PCM
+
+BO_ 1241 HS_PCM: 8 HS_PCM
+
+BO_ 1242 HS_PCM: 8 HS_PCM
+
+BO_ 1244 HS_PCM: 8 HS_PCM
+
+BO_ 1264 HS_PCM: 8 HS_PCM
+
+BO_ 1274 HS_PCM: 8 HS_PCM
+   SG_ IAT_Sensor_No1 : 39|8@0+ (1,-40) [-40|160] "degC" Vector__XXX
+
+BO_ 1278 HS_PCM: 8 HS_PCM
+
+BO_ 117 HS_RCM: 8 HS_RCM
+   SG_ HardBrakingEvent_flag_maybe : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ Lateral_Acc_Raw : 23|16@0+ (0.001,-2) [0|1] "G" Vector__XXX
+   SG_ YawRate_Raw : 39|16@0+ (0.01,-180) [0|1] "deg/s" Vector__XXX
+
+BO_ 118 HS_RCM: 8 HS_RCM
+   SG_ HardBrakingEvent_flag_maybe : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ Longitudinal_Acc_Raw : 23|16@0+ (0.001,-2) [0|1] "G" Vector__XXX
+
+BO_ 832 HS_RCM: 8 HS_RCM
+
+BO_ 834 HS_RCM: 8 HS_RCM
+
+BO_ 1108 HS_RCM: 8 HS_RCM
+
+BO_ 134 HS_EPAS: 8 HS_EPAS
+   SG_ SteeringAngle_related : 7|16@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 284 HS_EPAS: 8 HS_EPAS
+
+BO_ 576 HS_EPAS: 8 HS_EPAS
+   SG_ SteeringAngle_related_2_maybe : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ SteeringTorque_related : 15|8@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 138 HS_DCDC: 8 HS_DCDC
+
+BO_ 1243 HS_DCDC: 8 HS_DCDC
+
+BO_ 1247 HS_DCDC: 8 HS_DCDC
+
+BO_ 805 HS_EVP: 8 HS_EVP
+   SG_ MsgCounter_maybe : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ VS1_Vaccum_Sensor_1 : 7|12@0+ (0.1,0) [0|1] "kPa" Vector__XXX
+
+BO_ 976 HS_CMU: 8 HS_CMU
+
+BO_ 977 HS_CMU_MMmonth: 8 HS_CMU
+   SG_ Date : 49|7@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Mileage : 39|22@0+ (1,0) [0|1] "km" Vector__XXX
+
+BO_ 978 HS_CMU: 8 HS_CMU
+
+BO_ 1171 HS_CMU: 8 HS_CMU
+
+BO_ 1266 HS_CMU: 8 HS_CMU
+   SG_ HUD_Height : 27|12@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ HUD_Height_Moving : 28|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1272 HS_CMU: 8 HS_CMU
+
+BO_ 1479 HS_CMU: 8 HS_CMU
+
+BO_ 539 HS_MRCC: 8 HS_MRCC
+
+BO_ 865 HS_MRCC: 8 HS_MRCC
+
+BO_ 866 HS_MRCC: 8 HS_MRCC
+
+BO_ 867 HS_MRCC: 8 HS_MRCC
+
+BO_ 868 HS_MRCC: 8 HS_MRCC
+
+BO_ 869 HS_MRCC: 8 HS_MRCC
+   SG_ byte0 : 7|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte1 : 15|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte2 : 23|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte3 : 31|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte4 : 39|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte5 : 47|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte6 : 55|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ byte7 : 63|8@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 870 HS_MRCC: 8 HS_MRCC
+
+BO_ 1177 HS_MRCC: 8 HS_MRCC
+
+BO_ 1183 HS_HUD_MZ: 8 HS_HUD_MZ
+
+BO_ 1269 HS_HUD_MZ: 8 HS_HUD_MZ
+
+BO_ 1435 HS_HUD_MZ: 8 HS_HUD_MZ
+
+BO_ 1138 HS_RHT_Maybe: 8 HS_RHT
+   SG_ RoofGraphicStatus : 23|4@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 2016 OBD2_PCM: 8 OBD2
+
+BO_ 2024 OBD2_PCM: 8 OBD2
+
+BO_ 1988 OBD2_BSM: 8 OBD2
+
+BO_ 1996 OBD2_BSM: 8 OBD2
+
+BO_ 1975 OBD2_RBCM_ESU: 8 OBD2
+
+BO_ 1983 OBD2_RBCM_ESU: 8 OBD2
+
+BO_ 1970 OBD2_HUD_MZ: 8 OBD2
+
+BO_ 1978 OBD2_HUD_MZ: 8 OBD2
+
+BO_ 1907 OBD2_EVP: 8 OBD2
+
+BO_ 1915 OBD2_EVP: 8 OBD2
+
+BO_ 1892 OBD2_MRCC: 8 OBD2
+
+BO_ 1900 OBD2_MRCC: 8 OBD2
+
+BO_ 1888 OBD2_ABS: 8 OBD2
+
+BO_ 1896 OBD2_ABS: 8 OBD2
+
+BO_ 1847 OBD2_RCM: 8 OBD2
+
+BO_ 1841 OBD2_SSU: 8 OBD2
+
+BO_ 1849 OBD2_SSU: 8 OBD2
+
+BO_ 1846 OBD2_PSM_MZ: 8 OBD2
+
+BO_ 1854 OBD2_PSM_MZ: 8 OBD2
+
+BO_ 1844 OBD2_AFS_ALM: 8 OBD2
+
+BO_ 1852 OBD2_AFS_ALM: 8 OBD2
+
+BO_ 1843 OBD2_EATC: 8 OBD2
+
+BO_ 1851 OBD2_EATC: 8 OBD2
+
+BO_ 1840 OBD2_EPAS: 8 OBD2
+
+BO_ 1848 OBD2_EPAS: 8 OBD2
+
+BO_ 1830 OBD2_FBCM_BCMM: 8 OBD2
+
+BO_ 1838 OBD2_FBCM_BCMM: 8 OBD2
+
+BO_ 1824 OBD2_IC: 8 OBD2
+
+BO_ 1832 OBD2_IC: 8 OBD2
+
+BO_ 1798 OBD2_FSC: 8 OBD2
+
+BO_ 1806 OBD2_FSC: 8 OBD2
+
+BO_ 2017 OBD2_TCM: 8 OBD2
+
+BO_ 2025 OBD2_TCM: 8 OBD2
+
+BO_ 1993 OBD2_360VMC: 8 OBD2
+
+
+BO_ 1080 UNKNOWN_ECU: 8 Vector__XXX
+   SG_ ASCII_string_maybe : 7|64@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 836 UNKNOWN_ECU: 8 Vector__XXX
+   SG_ Flag_byte0_maybe : 7|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Counter_byte6_maybe : 55|8@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ SlowVarying_byte7_maybe : 63|8@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1169 UNKNOWN_ECU: 8 Vector__XXX
+
+
+BO_ 1832 HS_IC_TPMS_Response: 8 HS_IC
+   SG_ TPMS_DID M : 23|16@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ Tire1_Pressure m10757M : 39|8@0+ (0.01373,0) [0|3.5] "bar" Vector__XXX
+   SG_ Tire2_Pressure m10758M : 39|8@0+ (0.01373,0) [0|3.5] "bar" Vector__XXX
+   SG_ Tire3_Pressure m10759M : 39|8@0+ (0.01373,0) [0|3.5] "bar" Vector__XXX
+   SG_ Tire4_Pressure m10760M : 39|8@0+ (0.01373,0) [0|3.5] "bar" Vector__XXX
+   SG_ Tire1_Temp_maybe m10762M : 39|8@0+ (1,-50) [-20|180] "C" Vector__XXX
+   SG_ Tire2_Temp_maybe m10763M : 39|8@0+ (1,-50) [-20|180] "C" Vector__XXX
+   SG_ Tire3_Temp_maybe m10764M : 39|8@0+ (1,-50) [-20|180] "C" Vector__XXX
+   SG_ Tire4_Temp_maybe m10765M : 39|8@0+ (1,-50) [-20|180] "C" Vector__XXX
+
+SG_MUL_VAL_ 1832 Tire1_Pressure TPMS_DID 10757-10757;
+SG_MUL_VAL_ 1832 Tire2_Pressure TPMS_DID 10758-10758;
+SG_MUL_VAL_ 1832 Tire3_Pressure TPMS_DID 10759-10759;
+SG_MUL_VAL_ 1832 Tire4_Pressure TPMS_DID 10760-10760;
+SG_MUL_VAL_ 1832 Tire1_Temp_maybe TPMS_DID 10762-10762;
+SG_MUL_VAL_ 1832 Tire2_Temp_maybe TPMS_DID 10763-10763;
+SG_MUL_VAL_ 1832 Tire3_Temp_maybe TPMS_DID 10764-10764;
+SG_MUL_VAL_ 1832 Tire4_Temp_maybe TPMS_DID 10765-10765;
+
+CM_ BO_ 1832 "Eigene Ergaenzung (2026-09-13), BESTAETIGT per Nutzer-OBD-Test + Cross-Check gegen candump-2026-09-12_211833.log (Y-Splitter-Log): dies ist KEINE periodische Broadcast-Botschaft, sondern die Antwort auf einen aktiven UDS-Request (Mode 0x22 ReadDataByIdentifier) an Header 0x720 (Kombiinstrument), siehe scripts/tpms_poller.py. Byte0=ISO-TP-PCI (hier immer 0x04, nicht als Signal modelliert), Byte1=SID 0x62 (ebenfalls nicht modelliert), TPMS_DID=Byte2-3=die angefragte PID. WICHTIG fuers Verstaendnis: entgegen einem Forenbericht (mx5-nd-forum.de), der Header 0x720 als NUR-MS-CAN beschreibt, ist diese Antwort nachweislich auch auf HS-CAN (can0, unsere einzige Verkabelung) sichtbar - im Y-Splitter-Log erscheinen 720#032... (Request) und 728#046... (Antwort) im exakt selben Zeitfenster, in dem die parallel per OBD-Fusion geloggten WU1-4_P_TPM_IC-Kanaele dieselben Werte zeigen (byte-genauer Abgleich, siehe Session). Response-ID 0x728 (Request+8) damit ebenfalls bestaetigt, vorher nur vermutet. Nur Druck-PIDs (2A05-2A08) live bestaetigt; Temperatur-PIDs (2A0A-2A0D) sind vom selben Nutzer per OBD live getestet worden (siehe Konversation), aber in KEINEM eigenen candump-Log bisher tatsaechlich als CAN-Frame beobachtet - bleiben _maybe.";
+CM_ SG_ 1832 Tire3_Pressure "Rad-Zuordnung BESTAETIGT (2026-09-13): Nutzer meldete beim Y-Splitter-Log reale Reifendruecke 'hinten rechts=1.9 bar, hinten links=1.7 bar' (gerundet). Dekodierter Wert hier: 1.661 bar (WU3/Tire3, DID 0x2A07) - passt zu 'hinten links' (1.7 gerundet). Damit: Tire3 = Hinten Links (RL).";
+CM_ SG_ 1832 Tire4_Pressure "Rad-Zuordnung BESTAETIGT (2026-09-13): siehe CM_ SG_ 1832 Tire3_Pressure. Dekodierter Wert hier: 1.922 bar (WU4/Tire4, DID 0x2A08) - passt zu 'hinten rechts=1.9 bar'. Damit: Tire4 = Hinten Rechts (RR).";
+CM_ SG_ 1832 Tire1_Pressure "Rad-Zuordnung VERMUTUNG, NICHT bestaetigt (2026-09-13): Tire3=RL und Tire4=RR (siehe dortige Kommentare) passen zum ueblichen Nummerierungsschema Vorne-Links/Vorne-Rechts/Hinten-Links/Hinten-Rechts (1-2-3-4). Dekodierter Wert hier 1.799 bar, Tire2 1.757 bar - beide vermutlich Vorderachse, Reihenfolge (welches Vorne-Links vs. Vorne-Rechts ist) noch NICHT durch einen gezielten Test bestaetigt (z.B. gezieltes Ablassen von Luft an einem einzelnen Vorderrad).";
+CM_ SG_ 1832 Tire2_Pressure "Siehe CM_ SG_ 1832 Tire1_Pressure - gleiche Unsicherheit (Tire1 vs. Tire2 = vorne-links vs. vorne-rechts, Reihenfolge offen).";
+
+CM_ SG_ 130 Steering_Wheel_Absolute_Angle "FORScan_STR_AB_ANG";
+CM_ SG_ 1034 C100_VIN_1_6 "Eigene Reverse-Engineering-Korrektur (2026-09-12), TIPPFEHLER-FIX: Original war 'm49408M : 23|48@4-' - '4' ist als Byte-Order-Ziffer im DBC-Format ungueltig (nur 0=Motorola/1=Intel erlaubt). cantools interpretiert jeden Nicht-Null-Wert stillschweigend als Little-Endian und baut dafuer ein eigenes Packformat, das mit den anderen 48-Bit-Feldern dieser gemultiplexten Botschaft (C103/C104/BF00-BF21, alle korrekt '23|48@0+') kollidiert -> 'ValueError: Short data' fuer jeden Frame mit diesem Multiplexer-Wert. Korrigiert auf '23|48@0-' (Motorola/big-endian, Vorzeichen-Flag '-' unveraendert uebernommen, passt zum gleichen Bitmuster 23|48/23|40 wie alle Geschwister-Felder in dieser Botschaft). Betrifft auch C101_VIN_7_12 und C102_VIN_13_17 (gleicher Tippfehler, gleicher Fix). Verifiziert gegen beide verfuegbaren Logs (candump-2026-09-12_120952.log + candump-2026-09-11_180456.log): alle 5901 Frames von 0x40A dekodieren jetzt fehlerfrei (vorher 316 Fehler durch genau diese drei Signale). Die drei Rohwerte ergeben durchgehend (>99% der jeweiligen Frames) als grosse-endian-Bytes interpretiert die ASCII-Zeichenfolge 'JMZND6' + 'E76004' + '12218' = 'JMZND6E7600412218' (17 Zeichen, exakt VIN-Laenge) - starkes Indiz, dass Position/Byte-Order jetzt korrekt sind, aber nicht gegen eine unabhaengige Fahrzeugschein-VIN gegengeprueft.";
+CM_ SG_ 1034 C001_ODO "BESTAETIGT (2026-09-12): decodiert in candump-2026-09-12_120952.log durchgehend (219 Frames) zu 169756 km - deckt sich EXAKT mit dem am Kombiinstrument abgelesenen Gesamtkilometerstand. Im aelteren candump-2026-09-11_180456.log (77 Frames) 169749 km, 7km weniger, konsistent mit einer Fahrt am Vortag. Skalierung 1:1 km, keine Anpassung noetig, kein '_maybe' mehr noetig. Zum Vergleich: 'Mileage' bei 0x977 (SG_ Mileage : 39|22@0+, andere Botschaft) liefert dagegen nur Muellwerte (z.B. 1576872, 4008) - ist NICHT der Gesamtkilometerstand, bisher nicht weiter untersucht.";
+CM_ SG_ 1034 C000_TOTAL_TIME "BESTAETIGT (2026-09-12): laeuft in allen drei verfuegbaren Logs exakt 1:1 mit der echten verstrichenen Zeit mit (candump-2026-09-11_202803: +566.0s Rohwert bei 566.7s Log-Dauer; candump-2026-09-11_180456: +76.0s bei 76.0s; candump-2026-09-12_120952: +218.0s bei 218.4s). Skalierung (0.1,1) und Einheit 'sec' damit bestaetigt echt, kein '_maybe' mehr noetig - vermutlich eine Art kumulierter Betriebszeit-/Uptime-Zaehler des Steuergeraets, nicht notwendigerweise reine Motorlaufzeit (Wertebereich zu diesem Kilometerstand passt nicht zu einer plausiblen Lebenszeit-Motorlaufzeit, eher ein interner Zeitstempel/Zaehler seit einem unbekannten Referenzpunkt).";
+CM_ SG_ 1034 BF00_IG_ON_Timer "BESTAETIGT (2026-09-12): zaehlt Sekunden seit Zuendung an (1:1 mit Log-Zeit in allen drei Logs). Starke unabhaengige Kreuzbestaetigung in candump-2026-09-11_180456.log: Zaehler startet bei 191 (Rest einer vorherigen Zuendungsphase), faellt MITTEN im Log auf 0 zurueck - exakt der bereits dokumentierte Moment, in dem die Zuendung wegen nicht getretener Kupplung versehentlich aus/ein ging, bevor der Motor gestartet wurde (siehe Abschnitt 'Erster ~76s-Testdump'). Kein '_maybe' mehr noetig.";
+CM_ BO_ 1034 "Reverse-Engineering-Notiz (2026-09-12): Central_Config_Index ist praktisch eine UDS-DID (die Mux-Werte 49152/49153/49408/48896 etc. sind exakt die Hex-Codes 0xC000/0xC001/0xC100/0xBF00...), Byte2-7 die zugehoerige 'ReadDataByIdentifier'-Antwort - erklaert das Namensschema C0xx/BFxx. Von den 41 definierten Sub-Feldern sind C000_TOTAL_TIME/C001_ODO/BF00_IG_ON_Timer/C100-C102(VIN) unabhaengig bestaetigt (siehe jeweilige CM_ SG_-Kommentare). Die restlichen 34 (C103/C104, BF01-BF21 ausser BF00) sind in ALLEN drei verfuegbaren Logs (drei Zeitpunkte, gleiches Fahrzeug) komplett konstant - passt zu statischen Fahrzeug-Konfigurations-/Kalibrierdaten, nicht zu Live-Telemetrie. Auffaellig: viele davon (z.B. BF01=310000000000, BF05=100000000000, BF09=71468259999744) haben nur 1-3 fuehrende Bytes ungleich Null, der Rest durchgehend 00 - womoeglich ist die tatsaechliche UDS-Nutzlast fuer diese DIDs kuerzer als die pauschal angenommenen 48 Bit (Praezedenzfall: BF00 hat sich unabhaengig als echte 16-Bit-Groesse herausgestellt, nicht 48 Bit). NICHT korrigiert/gekuerzt, da mit nur einem Fahrzeugstand nicht unterscheidbar ist, ob die Nullbytes strukturell ungenutzt sind oder nur zufaellig bei diesem Fahrzeug/dieser Konfiguration Null sind - eine Kuerzung waere Raten ohne Beleg. Bliebe offen fuer den Fall, dass mal ein zweites Fahrzeug oder ein Firmware-Update-Log zum Diffen verfuegbar wird.";
+CM_ SG_ 120 Longi_Acc_Corr "[G] = [N-0xDF40]/0x7A0";
+CM_ SG_ 121 Lateral_Acc_Corr_maybe "[G] = [N-0xDF40]/0x7A0";
+CM_ SG_ 121 YawRate_Corr "[deg/s] = [N-0x200]/0x200*114.4";
+CM_ SG_ 514 AccPedalPos "Scale /640";
+CM_ SG_ 117 Lateral_Acc_Raw "[G]=N*0.001-2";
+CM_ SG_ 359 EngineLoad_or_Torque_pct_maybe "UMBENANNT + NEU SKALIERT (2026-09-12), war 'MassAirFlowRate_maybe'. Ursprungsverdacht (2026-09-11): Korrelation mit Gas +0.89, mit MAP (0xFD) allein +0.87, mit dem physikalisch erwarteten Speed-Density-Proxy RPM*MAP nur +0.82 (schwaecher statt staerker als mit MAP allein - untypisch fuer echten MAF). Y-Splitter-Log 2026-09-12 211851 (OBD+CAN gleichzeitig) liefert jetzt die Klaerung: direkte Kalibrierung gegen echten OBD-Luftmassenstrom (g/s) passt schlecht (R2=0.72, Kurve nicht monoton - Sprung raw=80->85). Gegen OBD `ActualEnginePercentTorque` (%) passt dieselbe Formelform dagegen sehr gut (R2=0.96, RMSE 6.1 Prozentpunkte, bester Lag -0.3s): raw*3.17-185.3. Erklaerung: Drehmoment-% ist per Definition '% des bei DIESER Drehzahl moeglichen Maximaldrehmoments', saettigt bei Volllast unabhaengig von der Drehzahl - genau das im Rohwert beobachtete Muster (eng komprimierter Bereich 54-89 nahe Volllast). Echter Luftmassenstrom dagegen skaliert bei Volllast weiter mit der Drehzahl, kein Saettigungsplateau - passt nicht zum beobachteten Muster. Auf EINEM Log kalibriert, nicht ueber mehrere Fahrten cross-validiert. Rohwerte ausserhalb des in diesem Log beobachteten Bereichs (54-89) sind Extrapolation, Formel kann dort ins Negative/>100 laufen - auf 0-100 clippen.";
+CM_ SG_ 304 Clutch_Pedal_Position_raw "Eigene Reverse-Engineering-Ergaenzung (nicht Teil des Original-Repos, 2026-09-11): 0=ganz eingekuppelt, ~199=ganz ausgekuppelt. Ueber Korrelation mit dem bekannten StarterInterLockSW-referenzierten Clutch_Related (0x165) gefunden, per RPM-Slip beim Anfahren gegengeprueft (Reibphase bei raw~114-123 = ~59% getreten, nah am unabhaengig bekannten ~55%-Bisspunkt aus alten OBD-Logs). Lineare 0-100%-Skalierung wahrscheinlich, aber NICHT durch Referenzmessung bestaetigt.";
+CM_ SG_ 117 YawRate_Raw "[deg/s]=N*0.01-180";
+CM_ SG_ 118 Longitudinal_Acc_Raw "[G]=N*0.001-2";
+CM_ SG_ 1266 HUD_Height "Min[+] 0x00C5, Max[-] 0x0DC5";
+CM_ BO_ 1266 "Eigene Reverse-Engineering-Korrektur (2026-09-12), BITKONFLIKT-FIX: Original enthielt zusaetzlich 'SG_ HUD_Bright : 35|4@0+', das die unteren 4 Bit von Byte4 beanspruchte - genau die Bits, die HUD_Height (27|12@0+, Byte3 Bit27-24 + Byte4 komplett) fuer sein unteres Nibble ebenfalls braucht. Gleicher Fehlertyp wie bei LIGHT@0x91 (siehe dort): cantools zaehlt die ueberlappenden Bits doppelt und wirft bei JEDEM Frame 'Short data', wodurch 0x4F2 komplett unlesbar war (auch fuer das gut dokumentierte HUD_Height mit bekanntem Wertebereich 0x00C5-0x0DC5). HUD_Bright ENTFERNT statt verschoben, da seine echte Position unbekannt ist - die Botschaft hat drei komplett freie Bytes (0,1,2) und drei weitere (5,6,7) sowie 3 freie Bits in Byte3 (31-29), eine neue Position waere reines Raten ohne Beleg. Nach Entfernen verifiziert gegen candump-2026-09-12_120952.log + candump-2026-09-11_180456.log: alle 2663 Frames dekodieren fehlerfrei, HUD_Height liegt bei 1797-1861 (0x705-0x745) - konsistent innerhalb des oben dokumentierten Original-Wertebereichs. HUD_Bright muesste bei Bedarf ueber einen gezielten Test (HUD-Helligkeit am Fahrzeug verstellen, welches der freien Bytes sich aendert) neu lokalisiert werden.";
+VAL_ 145 HAZ_SW 0 "Off" 1 "On";
+VAL_ 145 WIP_F_INT 0 "0" 30 "1" 50 "2" 70 "3" 90 "4";
+VAL_ 145 TURN_SW 2 "L" 0 "Off" 1 "R";
+VAL_ 145 FOG_SW 0 "Off" 1 "Rear" 2 "Front" 3 "Front_Rear";
+VAL_ 145 RearWiper 3 "INT" 1 "ON" 0 "Off";
+VAL_ 145 Washer 0 "Off" 1 "Rear" 2 "Front" 3 "Front+Rear";
+VAL_ 145 FrontWiper 0 "Off" 1 "ON" 2 "HI" 3 "INT";
+VAL_ 145 LIGHT 769 "Off" 768 "AUTO" 896 "TNS" 960 "HEAD";
+VAL_ 80 KeyState 0 "OFF" 1 "ACC" 2 "ON" 3 "START";
+VAL_ 80 KeyStateInv 5 "ACC" 7 "OFF" 3 "ON" 0 "START";
+VAL_ 157 CRU_CON_SW1 0 "Not_Pressed" 4 "OFF_CANC" 128 "Set_(Dn)" 64 "Set_(Up)" 1 "ON_MODE" 16 "Resume" 256 "Distance_(Up)" 512 "Distance_(Dn)";
+VAL_ 628 INFO_SW 0 "Off" 1 "SW1(Up)" 2 "SW2(Dn)" 3 "SW3(INFO)";
+VAL_ 628 Key_hold 1 "Hold_key_close_to_start_button" 0 "-";
+VAL_ 628 Key_notfound 1 "Key_not_found" 0 "-";
+VAL_ 628 IC_Buzz 0 "No Description" 1 "P-P-" 2 "P-P-x3" 3 "PPx6";
+VAL_ 628 Key_Batt 1 "Key_Battery_is_low" 0 "-";
+VAL_ 628 Key_fob 5 "Lock" 6 "Unlock";
+VAL_ 158 DSC_OFF_Switch 0 "Not_Pressed" 1 "Pressed";
+VAL_ 158 LDWS_ON_Switch 0 "Not_Pressed" 1 "Pressed";
+VAL_ 158 BSM_RVM_ON_Switch 1 "Pressed" 0 "Not_Pressed";
+VAL_ 158 iStop_OFF_Switch 0 "Not_Pressed" 1 "Pressed";
+VAL_ 159 Parking_Brake 0 "Released" 1 "Applied";
+VAL_ 606 SpeedUnit 0 "km/h" 1 "mph";
+VAL_ 606 StopVehicle 0 "" 1 "Stop_Vehicle_at_safe_area";
+VAL_ 606 DAA_Related 6 "RecommendRest";
+VAL_ 1034 Central_Config_Index 49152 "C000" 49153 "C001" 49408 "C100" 49409 "C101" 49410 "C102" 49411 "C103" 49412 "C104" 48896 "BF00" 48897 "BF01" 48898 "BF02" 48899 "BF03" 48900 "BF04" 48901 "BF05" 48902 "BF06" 48903 "BF07" 48904 "BF08" 48905 "BF09" 48906 "BF0A" 48907 "BF0B" 48908 "BF0C" 48909 "BF0D" 48910 "BF0E" 48911 "BF0F" 48912 "BF10" 48913 "BF11" 48914 "BF12" 48915 "BF13" 48916 "BF14" 48917 "BF15" 48918 "BF16" 48919 "BF17" 48920 "BF18" 48921 "BF19" 48922 "BF1A" 48923 "BF1B" 48924 "BF1C" 48925 "BF1D" 48926 "BF1E" 48927 "BF1F" 48928 "BF20" 48929 "BF21";
+VAL_ 1147 BSM_Status 1 "On" 0 "Off";
+VAL_ 1045 DSC_Status 0 "Off" 1 "On";
+VAL_ 154 F_FOG_RELAY 1 "On" 0 "Off";
+VAL_ 154 Headlight 0 "Off" 2 "TNS" 3 "TNS_Lo" 12 "Hi";
+
+VAL_ 154 Turn 0 "Off" 2 "R" 1 "L" 3 "LR";
+VAL_ 154 PanelLight 0 "Day" 1 "Night";
+VAL_ 1086 R_FOG_LAMP 1 "On" 0 "Off";
+VAL_ 1086 Trunk 0 "Closed" 1 "Open";
+VAL_ 1086 DoorRight 0 "Closed" 1 "Opened";
+VAL_ 1086 DoorLeft 0 "Closed" 1 "Opened";
+VAL_ 540 LDWS_Status1 0 "Off" 1 "On";
+VAL_ 540 LDWS_Status2 0 "Off" 1 "On";
+VAL_ 540 SCBS_SBS_Status 0 "On" 1 "Off";
+VAL_ 1157 SCBS_SBS_Status 2 "On" 1 "Off";
+VAL_ 253 MAP_Manifold_absolute_pressure_sensor 257 "Invalid" 10 "10_or_below" 115 "115_or_higher";
+VAL_ 357 MT_Gear_Select 1 "InGear" 2 "Neutral";
+CM_ SG_ 357 MT_Gear_Select "BESTAETIGT (2026-09-12): loest die N/1st-Mehrdeutigkeit von MT_Gear_Position auf. Gegen candump-2026-09-11_202803.log (echte Fahrt) geprueft: jedes Mal wenn MT_Gear_Position='N/1st' UND MT_Gear_Select='InGear' zeigt, beschleunigt das Fahrzeug anschliessend aus niedriger Geschwindigkeit (klassisches Anfahren im 1. Gang, z.B. t=16.8s: RPM~1293, Speed~10.1 km/h und steigend); jedes Mal wenn Select='Neutral' zeigt, rollt das Fahrzeug ohne Vortrieb aus oder steht (z.B. t=334-340s beim Ausrollen zum Stillstand). Im Stand-Test candump-2026-09-12_120952.log (kein Gang eingelegt lt. Nutzer) zeigt Select durchgehend 'Neutral' - deckt sich. Praktische Regel: MT_Gear_Position='N/1st' + Select='Neutral' -> echt Neutral; MT_Gear_Position='N/1st' + Select='InGear' -> 1. Gang eingelegt. Physikalisch plausibel (typischer Neutral-/Rueckfahrlicht-Schalter am H-Schaltgetriebe, unabhaengig von der eigentlichen Gangpositions-Sensorik).";
+
+VAL_ 357 CC_Mode_Related 0 "OFF" 1 "ON";
+VAL_ 357 CC_Mode_Related2 0 "OFF" 1 "ON";
+VAL_ 357 MT_Gear_Position 19 "N/1st" 11 "2nd" 7 "3rd" 6 "4th" 5 "5th" 3 "6th";
+SG_MUL_VAL_ 1034 C000_TOTAL_TIME Central_Config_Index 49152-49152;
+SG_MUL_VAL_ 1034 C001_ODO Central_Config_Index 49153-49153;
+SG_MUL_VAL_ 1034 C100_VIN_1_6 Central_Config_Index 49408-49408;
+SG_MUL_VAL_ 1034 C101_VIN_7_12 Central_Config_Index 49409-49409;
+SG_MUL_VAL_ 1034 C102_VIN_13_17 Central_Config_Index 49410-49410;
+SG_MUL_VAL_ 1034 C103 Central_Config_Index 49411-49411;
+SG_MUL_VAL_ 1034 C104 Central_Config_Index 49412-49412;
+SG_MUL_VAL_ 1034 BF00_IG_ON_Timer Central_Config_Index 48896-48896;
+SG_MUL_VAL_ 1034 BF01 Central_Config_Index 48897-48897;
+SG_MUL_VAL_ 1034 BF02 Central_Config_Index 48898-48898;
+SG_MUL_VAL_ 1034 BF03 Central_Config_Index 48899-48899;
+SG_MUL_VAL_ 1034 BF04 Central_Config_Index 48900-48900;
+SG_MUL_VAL_ 1034 BF05 Central_Config_Index 48901-48901;
+SG_MUL_VAL_ 1034 BF06 Central_Config_Index 48902-48902;
+SG_MUL_VAL_ 1034 BF07 Central_Config_Index 48903-48903;
+SG_MUL_VAL_ 1034 BF08 Central_Config_Index 48904-48904;
+SG_MUL_VAL_ 1034 BF09 Central_Config_Index 48905-48905;
+SG_MUL_VAL_ 1034 BF0A Central_Config_Index 48906-48906;
+SG_MUL_VAL_ 1034 BF0B Central_Config_Index 48907-48907;
+SG_MUL_VAL_ 1034 BF0C Central_Config_Index 48908-48908;
+SG_MUL_VAL_ 1034 BF0D Central_Config_Index 48909-48909;
+SG_MUL_VAL_ 1034 BF0E Central_Config_Index 48910-48910;
+SG_MUL_VAL_ 1034 BF0F Central_Config_Index 48911-48911;
+SG_MUL_VAL_ 1034 BF10 Central_Config_Index 48912-48912;
+SG_MUL_VAL_ 1034 BF11 Central_Config_Index 48913-48913;
+SG_MUL_VAL_ 1034 BF12 Central_Config_Index 48914-48914;
+SG_MUL_VAL_ 1034 BF13 Central_Config_Index 48915-48915;
+SG_MUL_VAL_ 1034 BF14 Central_Config_Index 48916-48916;
+SG_MUL_VAL_ 1034 BF15 Central_Config_Index 48917-48917;
+SG_MUL_VAL_ 1034 BF16 Central_Config_Index 48918-48918;
+SG_MUL_VAL_ 1034 BF17 Central_Config_Index 48919-48919;
+SG_MUL_VAL_ 1034 BF18 Central_Config_Index 48920-48920;
+SG_MUL_VAL_ 1034 BF19 Central_Config_Index 48921-48921;
+SG_MUL_VAL_ 1034 BF1A Central_Config_Index 48922-48922;
+SG_MUL_VAL_ 1034 BF1B Central_Config_Index 48923-48923;
+SG_MUL_VAL_ 1034 BF1C Central_Config_Index 48924-48924;
+SG_MUL_VAL_ 1034 BF1D Central_Config_Index 48925-48925;
+SG_MUL_VAL_ 1034 BF1E Central_Config_Index 48926-48926;
+SG_MUL_VAL_ 1034 BF1F Central_Config_Index 48927-48927;
+SG_MUL_VAL_ 1034 BF20 Central_Config_Index 48928-48928;
+SG_MUL_VAL_ 1034 BF21 Central_Config_Index 48929-48929;
+
+CM_ SG_ 535 VehicleSpeed_ABS_raw "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), WAHRSCHEINLICH: Byte4-5 (BE) korreliert mit VehicleSpeed@0x202 (BO_514) bei identischer Skalierung (0.01 km/h/count, kein Offset) mit r=1.000 im Fahr-Log (candump-2026-09-11_202803), Restfehler <3 km/h (vermutlich nur Abtast-Zeitversatz). Redundante Geschwindigkeit direkt vom ABS-Modul. Methode: ganzes-Log-Korrelation gegen bekannten Anker + lineare Regression, siehe Analysebericht.";
+CM_ SG_ 304 EngineRPM_related_2 "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), WAHRSCHEINLICH: Byte5-6 (BE) korreliert mit EngineRPM@0x202 bei Skalierung 0.5 rpm/count (r=0.9999 unbereinigt, r=0.845 nach Entfernen des ueberlagerten Langzeit-Trends -> echte, nicht nur trend-bedingte Kopplung). Resid_std~7.5 rpm, Resid_max~594 rpm bei schnellen Drehzahlaenderungen - vermutlich eine leicht anders gefilterte/verzoegerte RPM-Variante, nicht bitidentisch mit der Haupt-RPM. UNSICHER bzgl. exakter Bedeutung (evtl. Ziel-/Soll-Drehzahl statt Ist-Drehzahl).";
+CM_ SG_ 358 Clutch_Pedal_Position_related_2 "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), WAHRSCHEINLICH: Byte0 korreliert nahezu perfekt mit Clutch_Pedal_Position_raw@0x130 (r=0.9987 unbereinigt, r=0.998 nach Trendbereinigung - eindeutig echte Kopplung, kein Trend-Artefakt). Skalierung empirisch per linearer Regression bestimmt (raw_hier = 0.8 * Clutch_Pedal_Position_raw, hier umgekehrt als *1.25 dargestellt). Vermutlich redundante/andere Aufloesung des Kupplungspedalwegs.";
+CM_ SG_ 120 BrakePressure "ERGAENZUNG (2026-09-11) zur bestehenden Skalierung: Web-Quelle (timurrrr/RaceChronoDiyBleDevice, lokal data/can/mazda_mx5_nd.md) dokumentiert fuer dieselbe Botschaft (0x78, 2019er MX-5) eine alternative Bremspedal-%-Formel min(max(bitsToUInt(raw,28,12)-156,0)/2.56,100), was in DBC-Motorola-Notation Bit 27|12@0+ entspricht. Diese 12-Bit-Spanne UEBERLAPPT Byte4 vollstaendig mit BrakePressure (39|16) - kann daher nicht als eigenes SG_ ergaenzt werden (cantools bricht sonst das Decoding der ganzen Botschaft ab wegen echter Bit-Ueberlappung). Cross-Check: mit dieser Formel von Hand aus den Rohbytes berechnet korreliert der %-Wert mit der hier dekodierten BrakePressure mit r=0.998 im Fahr-Log (Wertebereich in diesem Log nur bis 31%, kein Rolloverereignis aufgetreten) - beide Interpretationen beschreiben vermutlich denselben Rohsensor nur mit unterschiedlicher Bitbreite/Skalierung. Formel manuell nachrechenbar, nicht als SG_ eingetragen.";
+CM_ SG_ 512 EngineLoad_related_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), VERMUTUNG: Byte0-1 (BE) korreliert mit EngineLoad_or_Torque_pct_maybe@0x167 (r=0.85 unbereinigt, r=0.66 nach Trendbereinigung -> Korrelation ist NICHT nur Trend-Artefakt, echte Kurzzeitdynamik-Kopplung vorhanden; damals hiess der Kanal noch 'MassAirFlowRate_maybe', siehe dessen aktualisierter Kommentar zur Umbenennung 2026-09-12). Selbst noch unskaliert/unsicher, aber passt zur selben Last-/Drehmoment-Domaene. Sender/Domaene (HS_PCM) passt zu Last-bezogenen Groessen.";
+CM_ SG_ 576 SteeringTorque_related "ERGAENZUNG (2026-09-11) zur bestehenden Unsicherheits-Markierung: Quelle Web (mx5things.blog/2017/02/18/can-bus-sniffer) nennt Byte1 dieser Botschaft (0x240) als 'steering torque' ohne Formel - Byte1 ist die untere Haelfte dieses bereits vorhandenen 16-bit-Signals (Byte0-1). Eigene Cross-Validation: Byte1 allein korreliert mit der Aenderungsrate von Steering_Wheel_Absolute_Angle@0x82 (|Lenkrate|) mit r~0.71 (unbereinigt) bzw. r~0.4 (nach Trendbereinigung, win=10s) - deutlich staerker als mit dem Winkel selbst (r~0.46-0.57) - physikalisch plausibel fuer ein Lenkmoment/EPAS-Unterstuetzungssignal. Staerkt die Web-Hypothese fuer dieses Signal, Skalierung/Einheit weiterhin unbekannt.";
+CM_ SG_ 576 SteeringAngle_related_2_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), VERMUTUNG (moderat): Byte4 (eigenstaendig, kein Ueberlapp mit SteeringTorque_related) korreliert mit Steering_Wheel_Absolute_Angle@0x82 mit r~0.57-0.68 (unbereinigt, methodenabhaengig), r~0.40 nach Trendbereinigung - schwaecher aber real. Sender HS_EPAS passt zu einer weiteren lenkwinkelbezogenen Groesse (z.B. grob quantisierter/gefilterter Winkel oder Rate). Keine Skalierung bekannt.";
+CM_ SG_ 576 SteeringTorque_related "KORREKTUR (2026-09-12): Bit-Definition von 16 Bit (Byte0-1) auf 8 Bit (nur Byte1) verkleinert. Systematischer Scan aller Byte-Positionen/Endianness/Vorzeichen dieser Botschaft gegen |Lenkrate| von Steering_Wheel_Absolute_Angle@0x82 zeigt: Byte1 allein r=0.81, Byte0 allein r=0.04 (reines Rauschen) - das volle 16-Bit-Feld verduennte die Korrelation nur (vorher dokumentierte r~0.71 fuer den 16-Bit-Wert). Byte0 ist unklaimed, moeglicherweise ein separates, noch nicht identifiziertes Signal.";
+CM_ SG_ 120 BrakePressure "KORREKTUR (2026-09-12): Bisheriger 'Rollover-Bug' war ein Vorzeichenfehler, kein Rollover. Bit-Definition von unsigned (@0+) auf signed (@0-) geaendert, Formel (Faktor/Offset) unveraendert. Beleg: Vollbremsung in candump-2026-09-12_155117.log (t=9.83-10.09s) - unsigned-Rohwert steigt 56771->63939, 'faellt' dann auf 451 (der bekannte Bug), signed-Rohwert dagegen glatt durchgehend -8765->-1597->451->8131, keine Unstetigkeit. Mit signed und der alten Formel (raw*0.001-40) durchgehend -67.2 bis -27.0 bar in diesem Fenster - der bislang dokumentierte externe Korrekturhack (+65535 bei Spruengen >30000) ist damit ueberfluessig. Absolutkalibrierung (warum der Ruhewert um -40 bar statt nahe 0 liegt) blieb an dieser Stelle noch ungeklaert.";
+CM_ SG_ 120 BrakePressure "ABSOLUTKALIBRIERUNG KORRIGIERT (2026-09-12): Y-Splitter-Log 2026-09-12 211851 (OBD+CAN gleichzeitig) liefert erstmals einen echten Referenzkanal fuer denselben physikalischen Druck: `BFP_PRE_MZ` (OBD, 'Brake Fluid Pressure Sensor', kPa). Direkter Soll-Ist-Vergleich zeigt: mit der alten Formel (0.001,-40) liegt der Ruhewert (92.6% der BFP_PRE_MZ-Samples sind exakt 0 kPa, haeufigster Rohwert -26429) bei ca. -66.4 bar - physikalisch unmoeglich fuer eine Druckmessung. Neu kalibriert per Lag-Suche (+Regression, bester Lag -0.3s) direkt gegen BFP_PRE_MZ: Faktor 0.0012413 (statt 0.001), Offset +32.7986 (statt -40) - Vorzeichen des Offsets war falsch, nicht nur die Groesse. Neue Formel trifft den Ruhewert korrekt (Vorhersage bei raw=-26429: ~0 bar) und passt mit R²=0.986 (RMSE 0.57 bar) ueber die gesamte Fahrt inkl. mehrerer Bremsereignisse. Nur an diesem einen Log kalibriert, keine Cross-Validation ueber mehrere Fahrten. Min/Max-Feld auf [0|45] gesetzt (deckt den beobachteten Bereich ab, physikalisch sinnvoll fuer Bremsdruck).";
+CM_ SG_ 1143 GearDisplay_related_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), VERMUTUNG (schwach): Byte1 korreliert mit MT_Gear_Position@0x165 (r=-0.83 unbereinigt, r=-0.34 nach Trendbereinigung - deutlich schwaecher, aber nicht verschwunden). Nur 3 unterschiedliche Rohwerte im Log (0/1/2) - vermutlich ein grob quantisierter Anzeige-/Bereichs-Indikator (z.B. Schaltempfehlungs-Zone im Kombiinstrument), nicht die praezise Gangposition selbst. Sender HS_IC (Kombiinstrument) passt zu einer Anzeigegroesse.";
+CM_ SG_ 80 StarterInterLockSW "ERGAENZUNG (2026-09-11): Byte3 dieser Botschaft (0x50) als Ganzes (nicht nur Bit25=StarterInterLockSW) korreliert binaer mit Clutch_Pedal_Position_raw@0x130 (r=0.88 unbereinigt, r=0.69 nach Trendbereinigung) - deckt sich mit der erwarteten Funktion von StarterInterLockSW (loest nahe des Kupplungs-Greifpunkts aus). Vermutlich ist die beobachtete Korrelation identisch mit diesem bereits benannten Bit, kein zusaetzliches Signal in den uebrigen 7 Bits von Byte3 gefunden.";
+CM_ SG_ 1086 ROOM_FUSE "ERGAENZUNG (2026-09-11), RUECKZUG einer Vermutung: Byte6 dieser Botschaft (0x43e) als Ganzes zeigte zunaechst eine Korrelation mit BrakePressure@0x78 (r=0.85 unbereinigt, r=0.41 nach Trendbereinigung), die als moeglicher Bremslicht-/Bremsschalter interpretiert wurde. Byte6 enthaelt aber bereits das benannte Bit ROOM_FUSE (Bit51, Innenraumlicht-Sicherung) - die Korrelation stammt hoechstwahrscheinlich von diesem bereits bekannten, thematisch unabhaengigen Signal (zufaellige zeitliche Naehe zu Bremsungen in diesem einen Log, z.B. durch Tuer-/Lichtbedienung). KEIN eigenstaendiger Bremsschalter-Fund, Hypothese verworfen.";
+CM_ SG_ 117 HardBrakingEvent_flag_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), VERMUTUNG (Ereignis-Flag, NICHT Beschleunigungswert): Byte1 (binaer) korreliert stark mit Longi_Acc_Corr@0x78 (r=-0.97), ABER Gegenprobe gegen den sauberen Longitudinal_Acc_Raw@0x76 (RCM) ergibt r~0.0002 - die scheinbare Korrelation ist ein Artefakt der bekannten Skalierungs-/Rollover-Anomalie von Longi_Acc_Corr (siehe dortige Notiz), nicht echte g-Kraft-Kopplung. Da das Flag exakt bei denselben harten Bremsereignissen kippt wie die Longi_Acc_Corr-Ausreisser, ist ein Verzoegerungs-/Ereignis-Schwellwert-Flag plausibel (z.B. RCM Pre-Crash/Gurtstraffer-Vorstufe - HS_RCM ist typischerweise das Rueckhaltesystem-Steuergeraet). Niedrige Konfidenz, nur 3 Ereignisse im Log.";
+CM_ SG_ 118 HardBrakingEvent_flag_maybe "Siehe CM_ SG_ 117 HardBrakingEvent_flag_maybe - identisches Byte/Verhalten, in beiden RCM-Botschaften (0x75 und 0x76) vorhanden.";
+CM_ SG_ 1045 BrakeRelated_weak_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), VERMUTUNG (schwach): Byte1 korreliert schwach mit BrakePressure@0x78 (r=0.65 unbereinigt, r=0.30 nach Trendbereinigung). Sender HS_ABS und Botschaft enthaelt bereits DSC_Status - ein weiteres bremsbezogenes Signal ist plausibel, aber Korrelation zu schwach fuer verlaessliche Aussage. Zur weiteren Pruefung.";
+CM_ SG_ 121 MsgCounter_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), STRUKTURELL (kein Messwert): Byte, das ueberwiegend um genau +1 (mod 256) je Frame ansteigt (>93% der Samples) - klassisches Muster eines Nachrichten-/Lebenszeichenzaehlers. Gleiches Muster in mehreren Botschaften auf Byte6 beobachtet (u.a. 0x217, 0x21e, 0x325, 0x344), Wertebereich unterschiedlich breit je nach beobachteter Logdauer. Kein physikalischer Messwert.";
+CM_ SG_ 145 MsgCounter_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), STRUKTURELL (kein Messwert): Byte3 zeigt einen 4-Bit-Rollzaehler (0-15, wrapt vollstaendig im Log). Kein physikalischer Messwert, vermutlich Lebenszeichen-/Sequenzzaehler.";
+CM_ SG_ 145 LIGHT "Eigene Reverse-Engineering-Korrektur (2026-09-12), BITLAENGE-FIX: Original war 7|10@0+ (10 Bit ab Bit7, Byte0 komplett + Bit15-14 von Byte1). Das ueberlappt zwangslaeufig FOG_SW (Bit1-0 in Byte0): cantools baut fuer alle big-endian-Signale einer Botschaft EIN gemeinsames Packformat und geht dabei von ueberlappungsfreien Signalen aus - durch den Overlap zaehlt es Bit1-0 doppelt, kommt auf mehr als 64 Bit Gesamtlaenge und wirft bei JEDEM Frame 'ValueError: Short data' / DecodeError. Botschaft 0x91 (und damit auch TURN_SW/HAZ_SW/die Wischer-Signale) wurde dadurch seit jeher in der gesamten Pipeline komplett uebersprungen (can_log_parser.py's pauschales except schluckt das lautlos). Auf 7|6@0+ (Bit7 bis Bit2, nur Byte0) gekuerzt - das sind die einzigen mit FOG_SW ueberlappungsfreien Bits ab Startbit 7, dekodiert jetzt ohne Fehler. Gegen candump-2026-09-12_120952.log verifiziert (ganzes Log, ID 0x91): genau 4 saubere, haeufige Werte 48/56/60/62 (binaer 110000/111000/111100/111110, klassisches Thermometer-/Balkencode-Muster, konsistent mit einer Lichtschalter-Raststufung), keine Ueberlappungsfehler mehr. WICHTIG: die VORHANDENE VAL_ 145 LIGHT Tabelle (769=Off/768=AUTO/896=TNS/960=HEAD) wurde fuer das ALTE 10-Bit-Feld erstellt und passt NICHT mehr zum gekuerzten 6-Bit-Feld (max. Rohwert jetzt 63) - sie ist damit unerreichbar/veraltet, aber bewusst NICHT angepasst, da eine korrekte Neuzuordnung (v.a. was aus 'Off' vs 'AUTO' wird, die im alten Feld nur ueber das jetzt entfernte Bit14 von Byte1 unterschieden wurden) eine echte Bedeutungs-Interpretation waere und keine reine Bitlaengen-Korrektur mehr. Cross-Check TURN_SW (unveraendert, Bit13-12) gegen Turn@0x9A: in den bekannten Blinkerfenstern aus candump-2026-09-12_120952.log (L: t=78,4-84,2s / R: t=85,6-90,0s, siehe mx5_can_bus_status.md) zeigt TURN_SW jetzt durchgehend die erwarteten Werte 'L' bzw. 'R' synchron zu den Blinkphasen auf 0x9A - keine unabhaengige Ueberpruefung von LIGHTs Skalierung/Bedeutung selbst, daher weiterhin als unsicher zu behandeln (_maybe-Status implizit, da die einzige bekannte Referenz - die alte VAL_-Tabelle - nicht mehr gilt).";
+CM_ SG_ 254 MsgCounter_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), STRUKTURELL (kein Messwert): Byte6 zeigt einen 4-Bit-Rollzaehler (0-15, wrapt vollstaendig im Log).";
+CM_ SG_ 254 SlowlyVarying_unclear "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), UNGEKLAERT: Byte7 aendert sich langsam in engem Band (67-82), erfuellt formal das Rollzaehler-Kriterium (haeufig +1), aber der schmale, nicht-wrappende Wertebereich passt nicht zum klassischen 4-Bit-Muster. Keine Korrelation zu bekannten Kanaelen gefunden. Zur manuellen Pruefung.";
+CM_ SG_ 542 MsgCounter_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), STRUKTURELL (kein Messwert): Byte6 zeigt einen 4-Bit-Rollzaehler (0-15, wrapt vollstaendig im Log), gleiches Muster wie bei 0x217/0x325/0x344.";
+CM_ SG_ 805 MsgCounter_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-11), STRUKTURELL (kein Messwert): Byte6 zeigt einen 4-Bit-Rollzaehler (0-15, wrapt vollstaendig im Log), gleiches Muster wie bei 0x217/0x21e/0x344.";
+CM_ BO_ 1080 "Eigene Reverse-Engineering-Ergaenzung (2026-09-11): 0x438, NICHT im Original-DBC (Sender/BU_ unbekannt, daher Platzhalter UNKNOWN_ECU verwendet). Payload ist in BEIDEN Logs konstant '44 30 31 36 39 30 51 4B' = ASCII 'D01690QK' - vermutlich Teilenummer-/Kalibrierungskennung, Sendeintervall ~1s. Nicht fahrdynamik-relevant.";
+CM_ BO_ 836 "Eigene Reverse-Engineering-Ergaenzung (2026-09-11): 0x344, NICHT im Original-DBC (Sender/BU_ unbekannt). Byte0 binaeres Flag (0/64), Byte6 4-Bit-Rollzaehler (0-15), Byte7 langsam variierend (232-255, 24 Werte) - keine Korrelation zu bekannten Kanaelen gefunden. Restliche Bytes konstant. Zur manuellen Pruefung.";
+CM_ BO_ 1169 "Eigene Reverse-Engineering-Ergaenzung (2026-09-11): 0x491, NICHT im Original-DBC (Sender/BU_ unbekannt). Payload durchgehend 00 00 00 00 00 00 00 00 bei hoher Frequenz (~33 Hz) in beiden Logs - vermutlich Heartbeat/Keep-Alive ohne Nutzinformation.";
