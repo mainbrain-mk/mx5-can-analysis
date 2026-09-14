@@ -102,10 +102,11 @@ vertrauen, Details im Logbuch unten.
   das Signal **perfekt linear**: `0,1·raw − 1600` deg, R²=0,9997-0,99995, RMSE 0,65-0,94°
   über 6 Logs. Die frühere "stark nichtlinear"-Diagnose und die daraus gebaute
   Isotonic-Regression (`scripts/can_steering_angle_0x86.py`, R²=0,90, RMSE=10,5°) sind damit
-  **obsolet**, ebenso die am 09-15 verworfene externe lineare Formel – sie war richtig. `SteeringAngle_related_3` (0x86 Byte4-5, **neu
-  2026-09-14**) – zweites, unabhängiges Signal in derselben Botschaft (überschneidet sich
-  nicht bitweise mit dem ersten), r=0,88 mit dem echten Winkel, ebenfalls nichtlinear,
-  noch keine Umrechnung gebaut.
+  **obsolet**, ebenso die am 09-15 verworfene externe lineare Formel – sie war richtig. `SteeringAngle_EPAS_Coarse` (0x86, Bits 26|11) – **2026-09-15 korrigiert:** das frühere
+  `SteeringAngle_related_3` saß auf den falschen Bits (Byte4-5). Der echte zweite Kanal liegt
+  auf 26|11 und ist nach Verwerfen der Invalid-Frames ebenfalls perfekt linear
+  (`1,6·raw − 1600`, R²=0,9997-0,9999, RMSE 0,72-1,07° über 5 Logs) – eine grob aufgelöste
+  Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 bleibt unidentifiziert.
 - **Zündung/Fahrzustand:** KeyState✓/KeyStateInv (OFF/ACC/ON/START), StarterInterLockSW
   (Anlasssperren-Schalter), Parking_Brake (springt bei Zündung ACC/OFF fest auf "Applied",
   nur bei Motor ON aussagekräftig), CC_SetSpeed (km/h, Tempomat-Soll).
@@ -225,8 +226,10 @@ OBD/CAN-Referenz gesucht werden muss):
 - TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet.
 - Pi-GUI-Gauge-Lag-Fix (2026-09-14) deployt, aber noch nicht bei einer echten Fahrt live
   verifiziert.
-- `SteeringAngle_related_3` (0x86 Byte4-5, neu 2026-09-14) hat noch keine nichtlineare
-  Umrechnung (anders als sein Geschwistersignal auf Byte0-1).
+- ~~`SteeringAngle_related_3` braucht eine nichtlineare Umrechnung~~ – **erledigt/verworfen
+  2026-09-15:** das Signal saß auf den falschen Bits. Der echte Kanal (26|11) ist linear
+  (`SteeringAngle_EPAS_Coarse`); Byte4-5 bleibt unidentifiziert, die frühere Einstufung als
+  nichtlinearer Lenkwinkel ist nicht belegt.
 - Bei jedem CAN-only-Log ohne GPS-/OBD-Zeitanker: Datum mit Vorsicht behandeln – der
   Pi hat keine RTC, ohne NTP während der ganzen Session bleibt die Uhr durchgehend falsch,
   OHNE einen erkennbaren Sprung im Log zu zeigen (2026-09-14 zum zweiten Mal aufgetreten,
@@ -249,8 +252,8 @@ OBD/CAN-Referenz gesucht werden muss):
    Rückwärtsgang mit vollständig durchgetretener statt rutschender Kupplung, und – falls sicher
    möglich – eine Situation mit echtem ABS/DSC-Eingriff. Reine Log-Analyse kann beides nicht
    mehr weiterbringen, es fehlen die Rohdaten dafür.
-8. Für `SteeringAngle_related_3` (0x86 Byte4-5) bei Bedarf eine eigene nichtlineare Umrechnung
-   bauen, analog zu `scripts/can_steering_angle_0x86.py`.
+8. ~~Nichtlineare Umrechnung für `SteeringAngle_related_3`~~ – entfällt (2026-09-15, siehe oben:
+   falsche Bitlage; der echte Kanal ist linear).
 9. Den CAN-Byte-Sweep (`scripts/can_byte_search.py`) bei künftigen neuen Logs erneut laufen
    lassen – aktuell nur an den 5 vorhandenen "reichhaltigen" Logs geprüft.
 

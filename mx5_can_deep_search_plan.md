@@ -147,6 +147,39 @@ mindestens 6 Logs - vor allem `0x08A` (HS_DCDC, 100 Hz, 5 analoge Felder, in KEI
 `0x45A`, `0x3D2`, `0x242/0x245/0x246` (Kameradaten), `0x200` (zwei 16-Bit-Felder um 32768
 zentriert = klassische signierte Sensoren).
 
+### Ergebnis des Korrelationslaufs ueber die READ-Felder (mit den 29 korrigierten Ankern)
+Alle 2059 gefundenen Felder gegen die validierten Anker, gleiche Doppelschwelle wie
+`can_byte_search.py`. 34 unbelegte Felder mit Treffer, aber nur **zwei davon cross-log
+belastbar**:
+
+- **`0x200` Bits 32-47** (Byte4-5, HS_PCM): Treffer in **10 von 10 Logs**, Anker Gaspedal,
+  r=0,72-0,94. Signiert um 32768 zentriert, Bereich -135..+738. Gegen den neuen echten
+  Drehmomentkanal (Mode-1 PID 0x62): r=0,64-0,82; gegen die Drehzahl nur 0,17-0,46. Also
+  eindeutig **Last-/Drehmoment-Domaene**, aber unter der Projekt-Bestaetigungsschwelle
+  (alle bestaetigten Signale: r>0,9). **Bewusst NICHT in die DBC uebernommen** - anders als
+  beim Lenkmoment gibt es hier keine zusaetzliche physikalische Signatur, die die Deutung
+  stuetzt. Top-Kandidat fuer die naechste Runde.
+- **`0x240` Bits 0-7**: Treffer in 8 von 9 Logs - das ist der unabhaengige Nachweis fuer
+  das oben eingetragene `SteeringTorque_maybe`, aus einem Lauf, der die opendbc-Definition
+  gar nicht kennt.
+
+Alles Uebrige traf nur in 1-2 Logs und faellt damit unter dieselbe Regel, an der schon
+0x0FD/0x20A gescheitert sind. Die vier ~10-Bit-Felder auf `0x08A` (HS_DCDC, 100 Hz)
+erreichen nur 1/9 Logs - der i-ELOOP-Verdacht bleibt unbestaetigt.
+
+### Nachtrag: dieselbe Flag-Kontamination traf ein zweites Feld in 0x86
+Konsequente Anwendung der eigenen Lehre: auch `STEER_ANGLE_ROUGH` (opendbc, Bits 26|11)
+sah mit R²=0,56 "halb kaputt" aus - dieselben 0,08-0,54% Invalid-Frames tragen dort 2047
+statt eines gueltigen Werts. Nach Filtern: **R²=0,9997-0,9999, RMSE 0,72-1,07° ueber
+5 Logs**, Formel durchgehend `(1,6, -1600)` - exakt dieselbe Formelfamilie wie der feine
+Kanal, nur Faktor 16 groeber.
+
+Damit ist auch klar, dass unser `SteeringAngle_related_3` auf den **falschen Bits** sass
+(Byte4-5 statt 26|11). Es wurde durch `SteeringAngle_EPAS_Coarse` ersetzt. Byte4-5 bleibt
+unidentifiziert - und ist anders als die beiden Winkelkanaele NICHT durch das Invalid-Flag
+erklaerbar (R² bleibt nach Filtern unveraendert bei 0,003-0,08). Die fruehere Einstufung
+"zweites, nichtlineares Lenkwinkelsignal" ist damit nicht belegt.
+
 ## Track 3b (ungeplant, groesster praktischer Gewinn): der UDS-Verkehr, den wir verworfen haben
 
 Beim Recherchieren der ND3-Quelle fiel auf, dass unsere eigenen Logs UDS-Verkehr auf
