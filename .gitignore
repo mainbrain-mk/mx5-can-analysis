@@ -20,7 +20,9 @@
 /*.jpeg
 
 # Claude Code Tooling-Konfiguration (lokal, kein Projektinhalt)
-/.claude/
+# Ausnahme: eigene Skills (.claude/skills/) sind Projektdoku, sollen mit rein.
+/.claude/*
+!/.claude/skills/
 
 # Python
 __pycache__/
