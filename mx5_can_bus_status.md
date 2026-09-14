@@ -84,8 +84,10 @@ vertrauen, Details im Logbuch unten.
   (`(0,133,-68,1)`, R²=0,89-0,92, cross-log r=0,94-1,00). **YawRate_related (0x78, neu
   2026-09-14):** Byte2-3, eigenständiges ABS-Modul-Gierratensignal, `≈0,0011·raw` deg/s,
   R²=0,91-0,96, über 5/5 Logs bestätigt – interessanter Ansatzpunkt für einen künftigen
-  ABS/DSC-Eingriffsindikator (noch nicht gefunden). ⚠ AmbientTemp – Skala unplausibel,
-  ungeklärt.
+  ABS/DSC-Eingriffsindikator (noch nicht gefunden). **AmbientTemp✓ (2026-09-15 GELÖST)** –
+  war derselbe Bug-Typ wie BrakePressure (unsigned statt signed, plus falsche Skala/Offset);
+  neue Formel `(0,0025, +32)` signed liefert plausible 3,8-25,9°C über 3 Logs (siehe Logbuch,
+  Abschnitt "gitgc/mx5-miata-nd2-obd-can").
 - **Bremse/ABS:** BrakePressure✓ (bar) – Vorzeichen- UND Offsetfehler der Community-DBC
   gefunden und behoben (2026-09-12, jetzt `(0,0012413, +32,7986)`, R²=0,986 gegen
   echten OBD-Referenzkanal), kein Rollover-Sonderfall mehr nötig. BBP_Brake_Booster_Pressure_2/
@@ -1707,3 +1709,52 @@ das braucht echte neue Daten, keine weitere Log-Analyse.
 Alle Zwischenergebnisse, Formeln und verworfenen Kandidaten sind zusätzlich direkt als
 `CM_`-Kommentare in `data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc` dokumentiert. Commit
 `f6b4ea2`.
+
+## Externe Quelle github.com/gitgc/mx5-miata-nd2-obd-can (2026-09-15)
+
+Community-Dokumentation für den ND2 MX-5 (2020-2021, RaceChrono-Konfiguration statt DBC) –
+dokumentiert Rohbyte-Formeln statt einer DBC-Datei. Andere Baujahre als unser ND, aber
+identische Botschaftsstruktur (PID-Zahlen sind einfach die Dezimaldarstellung unserer
+bekannten CAN-IDs, z.B. PID 514 = 0x202). Alle Formeln gegen unsere eigenen Logs (nicht
+blind übernommen) geprüft:
+
+- **AmbientTemp (0x420, Byte6-7) – GELÖST, DBC korrigiert.** Bisherige DBC-Formel war
+  unsigned `(0,25,-3200)` und lieferte durchgehend unplausible ~103-126°C. Externe Quelle
+  zeigt: Rohwert muss SIGNED interpretiert werden. Neu kalibriert: `(0,0025, +32)` signed –
+  über 3 Logs konsistent plausibel (3,8-25,9°C, meist konstant ~25,8°C). Gleicher Bug-Typ
+  wie der frühere BrakePressure-Fix (unsigned statt signed plus falsche Konstanten).
+- **Kupplungs-Flag (0x050 Byte3) – hochgestuft von Vermutung zu bestätigt.** Bereits am
+  2026-09-11 gefunden (Byte3 korreliert binär mit Clutch_Pedal_Position_raw), damals aber
+  der Verdacht "ist wahrscheinlich nur das schon bekannte StarterInterLockSW-Bit, kein
+  Zusatzsignal". Externe Quelle dokumentiert Byte3 als GANZES als eigenständiges binäres
+  Kupplungspedal-Flag (Rohwert 1=frei, 2=getreten) – über alle 3 verfügbaren Logs bestätigt
+  (r=0,86-0,90 gegen die Analogposition, Werteverteilung durchgehend nur {1,2}). Kein
+  eigenes `SG_` ergänzt (überlappt mit StarterInterLockSW@Bit25, cantools würde die
+  Botschaft sonst nicht mehr dekodieren) – Fund als `CM_`-Kommentar dokumentiert.
+- **Fuel Level (0x43F "Fuel_Related") – vielversprechend, NICHT übernommen.** Als volle
+  16-Bit-Lesung (statt der bisherigen ungenutzten 10-Bit-Rohdefinition aus dem
+  Original-Community-DBC) korreliert der Rohwert mit der OBD-Referenz FLI in allen 3
+  Logs mit |r|=0,86-0,95 – aber das **Vorzeichen kippt zwischen den Logs** (+0,95 im
+  ersten, -0,86/-0,88 in den anderen zwei). Klassisches Warnsignal für eine über kurze
+  Fahrten (Tankstand ändert sich pro Fahrt kaum) instabile Korrelation, nicht zwingend
+  ein falsches Signal. Byte-Lage vermutlich richtig, Kalibrierung aber noch offen –
+  braucht Logs mit echter Tankstandsänderung (z.B. vor/nach dem Tanken).
+- **Lenkwinkel (0x86) – externe lineare Formel getestet und verworfen, bestätigt unser
+  eigenes Modell.** Gegen unsere Referenz (Steering_Wheel_Absolute_Angle@0x82): Spearman
+  r=-0,99 (starke monotone Übereinstimmung, nur Vorzeichen gedreht), aber linearer Fit nur
+  R²=0,25. Bestätigt (statt widerlegt) unseren eigenen Befund, dass dieses Signal stark
+  nichtlinear ist – die externe lineare Formel taugt für unser Fahrzeug nicht, unser
+  Isotonic-Regression-Modell (`scripts/can_steering_angle_0x86.py`) bleibt die richtige
+  Lösung.
+- **Wheel Speed (0x215) – unabhängige Bestätigung, nichts Neues.** Externe Formel nutzt
+  Offset -10000 in Rohwert-Einheiten, was exakt unserem eigenen bestätigten Offset -100
+  (in km/h-Einheiten, gleiche Struktur) entspricht – schöne Kreuzvalidierung unseres
+  bereits bestätigten Fundes.
+- **Gear (0x165 Byte6-7) – geprüft, nicht übernommen.** Nur r=-0,48 gegen EngineRPM, sehr
+  hohe Kardinalität (2569 unterschiedliche Werte) – sieht nicht nach diskreten
+  Gang-Stufen aus, eher eine andere, nicht identifizierte Größe. Externe Quelle nutzt es
+  selbst nur indirekt (RPM-artiger Wert, manuell in Gang-Stufen gebucketed) – kein klarer
+  Gewinn für uns, nicht weiterverfolgt.
+- Nicht getestet (niedrige Priorität): Brems-Pedal-% als 12-Bit-Feld bei Bit 28 in 0x78
+  (andere Größe als unsere BrakePressure, überschneidet sich vermutlich bitweise), TPMS-
+  Druckformel `(raw·1,373)+20 kPa` (wir haben schon eine funktionierende TPMS-Kalibrierung).
