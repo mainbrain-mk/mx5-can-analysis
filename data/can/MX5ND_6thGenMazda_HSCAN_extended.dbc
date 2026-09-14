@@ -352,7 +352,8 @@ BO_ 834 HS_RCM: 8 HS_RCM
 BO_ 1108 HS_RCM: 8 HS_RCM
 
 BO_ 134 HS_EPAS: 8 HS_EPAS
-   SG_ SteeringAngle_related : 7|16@0+ (1,0) [0|1] "" Vector__XXX
+   SG_ SteeringAngle_EPAS : 6|15@0+ (0.1,-1600) [-1600|1676.7] "deg" Vector__XXX
+   SG_ SteeringAngle_EPAS_Invalid : 7|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ SteeringAngle_related_3 : 39|16@0- (1,0) [0|1] "" Vector__XXX
 
 BO_ 284 HS_EPAS: 8 HS_EPAS

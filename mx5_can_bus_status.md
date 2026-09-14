@@ -94,14 +94,15 @@ vertrauen, Details im Logbuch unten.
   BARO_Barometric_pressure (kPa), WheelSpeed_1-4✓ (km/h, Sentinel 0xFFFF gefiltert),
   DSC_Status (nur System an/aus, kein Regelungseingriff), VehicleSpeed✓ (km/h).
 - **Lenkung:** Steering_Wheel_Absolute_Angle✓ (deg) – Nullpunkt per GPS bestätigt (0,0°
-  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. `SteeringAngle_related` (0x86,
-  EPAS-Schätzung) – **2026-09-14 GEKLÄRT:** die seit Wochen offene "bleibt schwach
-  korreliert (r≈0,56)"-Frage war ein Messmethoden-Artefakt, kein reales schwaches Signal.
-  Mit Spearman statt Pearson: r=0,987 – die Beziehung ist monoton, aber stark nichtlinear
-  (sehr flach/grobauflösend um 0°, steiler außen), ein linearer Fit bewertet das
-  zwangsläufig als schwach. Nichtlineare Isotonic-Regression-Lookup-Tabelle gebaut
-  (`scripts/can_steering_angle_0x86.py`), Out-of-Sample-Validierung auf einem komplett
-  unbeteiligten Log: R²=0,90, RMSE=10,5°. `SteeringAngle_related_3` (0x86 Byte4-5, **neu
+  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. `SteeringAngle_EPAS` (0x86, EPAS, früher
+  `SteeringAngle_related`) – **2026-09-15 endgültig gelöst, die 09-14-Erklärung war falsch.**
+  Das oberste Bit ist ein Gültigkeits-/Init-Flag (eigenes Signal `SteeringAngle_EPAS_Invalid`),
+  kein Teil des Zahlenwerts; es ist nur in 0,0-0,5% der Frames gesetzt (Block am Logstart,
+  Rohwert konstant 16000 = 0°) und drückte den Pearson von 1,00 auf 0,50. Nach Abtrennen ist
+  das Signal **perfekt linear**: `0,1·raw − 1600` deg, R²=0,9997-0,99995, RMSE 0,65-0,94°
+  über 6 Logs. Die frühere "stark nichtlinear"-Diagnose und die daraus gebaute
+  Isotonic-Regression (`scripts/can_steering_angle_0x86.py`, R²=0,90, RMSE=10,5°) sind damit
+  **obsolet**, ebenso die am 09-15 verworfene externe lineare Formel – sie war richtig. `SteeringAngle_related_3` (0x86 Byte4-5, **neu
   2026-09-14**) – zweites, unabhängiges Signal in derselben Botschaft (überschneidet sich
   nicht bitweise mit dem ersten), r=0,88 mit dem echten Winkel, ebenfalls nichtlinear,
   noch keine Umrechnung gebaut.
@@ -1742,11 +1743,15 @@ aktualisierte Fahrzeug-Kanäle**, nicht 32. Aufschlüsselung nach tatsächlichem
   nach `CommandEquivalenceRatio`/`TimingAdvance` nie einen Treffer fanden: die existieren
   gar nicht unabhängig auf dem Bus.
 
-**Nutzer-Einschätzung: "Problem noch nicht gelöst, weiter untersuchen"** – die App hat
-nachweislich für mindestens 2 Kanäle eigenes CAN-Reverse-Engineering, das über unser
-eigenes hinausgeht (bzw. es bestätigt). Offen bleibt, ob es außerhalb der hier geprüften
-147 Signale noch weitere versteckte native Zugriffe gibt, die wir mangels eines bekannten
-Vergleichssignals nicht erkennen können. Kein aktiver nächster Schritt definiert.
+**Nutzer-Einschätzung: "Problem noch nicht gelöst, weiter untersuchen"** – zu Recht.
+**2026-09-15 aufgelöst, und zwar gegen die obige Analyse:** die App liest nichts nativ vom
+CAN und berechnet auch nichts clientseitig. Alle diese Kanäle sind echte OBD-Anfragen – wir
+konnten sie nur nicht sehen, weil `obd_from_can.py` (a) nur den Header `0x7E0/0x7E8`
+dekodierte und den EPS-Verkehr auf `0x730/0x738` (10.820 Frames pro Log!) ignorierte und
+(b) ISO-TP-Multiframe-Antworten verwarf, in denen die App fünf Mode-1-PIDs gebündelt
+abfragt. Beides ist behoben; siehe Abschnitt "Deep-Search-Projekt" unten. Damit sind
+VehicleSpeed, STEER_ANGL_EPS, STEER_SPD_EPS, MassAirFlowRate, CommandEquivalenceRatio
+(Lambda), TimingAdvance und ActualEnginePercentTorque als echte Messwerte verfügbar.
 
 ## Externe Quelle github.com/gitgc/mx5-miata-nd2-obd-can (2026-09-15)
 
@@ -1796,3 +1801,145 @@ blind übernommen) geprüft:
 - Nicht getestet (niedrige Priorität): Brems-Pedal-% als 12-Bit-Feld bei Bit 28 in 0x78
   (andere Größe als unsere BrakePressure, überschneidet sich vermutlich bitweise), TPMS-
   Druckformel `(raw·1,373)+20 kPa` (wir haben schon eine funktionierende TPMS-Kalibrierung).
+
+## Deep-Search-Projekt: opendbc, referenzfreie Segmentierung, verworfener UDS-Verkehr (2026-09-15)
+
+Systematische Online-Recherche mit dem Ziel, moeglichst viele weitere Daten aus den
+vorhandenen Logs zu dekodieren. Vollstaendiger Plan, alle sechs Tracks und die
+Detailergebnisse in [`mx5_can_deep_search_plan.md`](mx5_can_deep_search_plan.md); hier die
+Kurzfassung. **Zwei bisher als abgeschlossen gefuehrte Befunde wurden dabei widerlegt.**
+
+### 1. opendbc (comma.ai) ist die groesste bisher ungenutzte Fremdquelle
+`mazda_2017.dbc` (CX-5/Mazda3 ab MY2017) nutzt **exakt dieselben CAN-IDs wie unser ND** -
+gleiche SkyActiv-Busarchitektur, 84 von 102 IDs identisch. Bei **58 davon hat opendbc mehr
+Signale als wir**, darunter bei uns komplett leere Botschaften: `0x415 TRACTION`
+(Warnleuchten-Flags: ABS_MALFUNCTION, DSC_OFF, BRAKE_WARNING, TCS_DCS_MALFUNCTION),
+`0x217 CURVE_CTRS`, `0x21F CRZ_EVENTS`, `0x340 SEATBELT`, `0x436 HVAC`, `0x242-0x246`
+(Frontkamera/Spurdaten). Radar (`0x361-0x366`) hat unser Fahrzeug nicht.
+
+Neues Werkzeug `scripts/can_opendbc_crosscheck.py` dekodiert jedes Fremdsignal aus unseren
+eigenen Logs und bewertet es (Variabilitaet, Zaehler-/Checksummenverdacht, Bitueberlappung
+mit unserer DBC, Korrelation gegen die validierten Anker) - nichts wird blind uebernommen.
+Fremd-DBC liegt als `data/can/external/opendbc_mazda_2017.dbc` (nur Syntax gepatcht).
+
+Nebenbei geprueft und erschoepft: `berumiya`-Upstream hat seit unserem Stand nichts Neues
+(letzter Commit 2026-07-22); Racelogics VBOX-Datenblatt fuer den ND listet 9 Kanaele, alle
+bereits bei uns.
+
+### 2. WIDERLEGT: `SteeringAngle_related`@0x86 ist linear, nicht nichtlinear
+Der Befund vom 2026-09-14 ("stark nichtlinear, Isotonic-Regression noetig, R²=0,90,
+RMSE=10,5°") und die darauf gestuetzte Verwerfung der externen linearen Formel am
+2026-09-15 waren **beide falsch, aus demselben Grund**.
+
+Die Bitlage war immer richtig. Der Fehler: das oberste Bit ist **kein Teil des Zahlenwerts,
+sondern ein Gueltigkeits-/Init-Flag des EPAS**. Es ist in 0,0-0,5% der Frames gesetzt -
+ausschliesslich in einem Block am Logstart bei Stillstand, Rohwert konstant 16000 (= exakt
+0°) plus 32768. Diese wenigen Frames springen um 32768 und druecken den Pearson ueber das
+ganze Log von 1,00 auf 0,50. Spearman ist gegen solche Ausreisser robust - daher die
+Fehldiagnose "monoton, aber nichtlinear".
+
+Nach Abtrennen des Flags, ueber 6 Logs: **R² = 0,9997-0,99995, RMSE 0,65-0,94°** (altes
+Isotonic-Modell: R²=0,90, RMSE=10,5° - Faktor 11 schlechter). DBC korrigiert:
+`SteeringAngle_EPAS : 6|15@0+ (0.1,-1600) "deg"` plus `SteeringAngle_EPAS_Invalid : 7|1@0+`.
+**`scripts/can_steering_angle_0x86.py` (Isotonic-Lookup) ist damit obsolet.**
+
+Lehre: `can_re_toolkit.detect_extreme_outliers` haette das gefunden, wurde auf dieses Signal
+aber nie angewendet, weil es als "erklaert" galt.
+
+### 3. WIDERLEGT: OBD-Fusion liest nichts nativ vom CAN - wir haben nur nicht hingesehen
+Der Befund vom 2026-09-14 ("2 Kanaele sind gar keine OBD-Anfrage, die App liest nativ CAN
+mit; ~9-10 Kanaele clientseitig berechnet") war falsch. Unser `obd_from_can.py` hatte zwei
+blinde Flecken:
+
+- **Nur `0x7E0/0x7E8` wurde dekodiert.** Unsere Logs enthalten aber Verkehr auf drei
+  weiteren Headern: `0x730/0x738` (EPS, **10.820 Frames pro Log**), `0x760/0x768` (DSC),
+  `0x720/0x728` (unser eigener TPMS-Poller).
+- **ISO-TP-Multiframe-Antworten wurden verworfen.** OBD-Fusion buendelt fuenf Mode-1-PIDs
+  in eine Anfrage (`06 01 0D 10 44 0E 62`) - die Antwort passt nicht in einen Single Frame.
+
+`obd_from_can.py` kann jetzt beides (`ECU_HEADERS`, `_reassemble()`, `_split_mode1_multi()`).
+Damit stehen **sieben zusaetzliche echte Messkanaele** aus jedem Y-Kabel-Log zur Verfuegung:
+
+| Quelle | Kanal | Formel | Bereich | Validierung |
+|---|---|---|---|---|
+| EPS DID 0x3302 | STEER_ANGL_EPS | - | - | R²=0,998 gegen 0x82, 3 Logs |
+| EPS DID 0x3301 | STEER_SPD_EPS | - | 0-149 | r=0,82-0,94 gegen d(Winkel)/dt |
+| Mode1 0x0D | VehicleSpeed | A | 0-218 km/h | r=1,0000 gegen CAN |
+| Mode1 0x10 | MassAirFlowRate | A/100 | 0-152 g/s | plausibel |
+| Mode1 0x44 | **Lambda** | A/32768 | 0,81-2,00 | plausibel (fett WOT / Schubabschaltung) |
+| Mode1 0x0E | TimingAdvance | A/2-64 | -30..+53° | plausibel |
+| Mode1 0x62 | ActualEnginePercentTorque | A-125 | 0-97 % | plausibel |
+| DSC DID 0x2B0D | Bremspedalstellung | - | - | Zuordnung aus ND3-Quelle, noch nicht kalibriert |
+
+Besonders wertvoll ist **Lambda**: fuer AFR gibt es nachweislich kein natives CAN-Signal
+(rigoroser Bitsearch 2026-09-14) - jetzt liegt der echte Messwert mit 2 Hz vor. Und der
+**gemessene MAF** relativiert unsere Schaetzformel `0,00019*(RPM*MAP)-8,08`: gegen den
+echten Wert nur R²=0,87 (RMSE 7,4 g/s); neu gefittet `0,000163*(RPM*MAP)-3,63`, R²=0,90.
+
+### 4. Root-Cause-Bug: beide Beschleunigungsanker fehlten in JEDEM bisherigen Sweep
+`ANCHOR_SIGNALS` in `can_byte_search.py` hatte Laengs- und Querbeschleunigung vertauscht
+(`Longitudinal_Acc_Raw` auf 0x75 statt 0x76, `Lateral_Acc_Raw` auf 0x76 statt 0x75).
+`extract_anchors()` verwirft einen Anker **stillschweigend**, wenn der Signalname in der
+Botschaft fehlt - beide fehlten dadurch in jedem Sweep, und der davon abhaengige
+`PROXY_high_lat_g` wurde nie gebaut. Plausible Miterklaerung, warum der DSC-Eingriffs-
+indikator nie gefunden wurde: die relevanteste Referenzgroesse war nie dabei.
+Ankerzahl nach Fix plus den neuen OBD-Kanaelen: **29 statt 19**.
+
+### 5. Neues Werkzeug: referenzfreie Feld-Segmentierung (READ)
+`scripts/can_field_segmentation.py` nach Marchetti & Stabili (IEEE TIFS 2019). Schliesst die
+strukturelle Luecke aller bisherigen Werkzeuge: es braucht **keine Referenzgroesse**, sondern
+segmentiert Botschaften allein aus der Bit-Kipprate in Felder und klassifiziert sie
+(CONST / COUNTER / CRC / PHYSICAL / FLAG). Ergaenzt um einen **Signedness-Verdachtstest** fuer
+genau den Bug-Typ, der das Projekt zweimal getroffen hat (BrakePressure, AmbientTemp).
+
+Validierung gegen unsere 147 bekannten Signale: findet Drehzahl, Geschwindigkeit, Gaspedal,
+alle vier Radgeschwindigkeiten, Lenkwinkel, Gierrate und Querbeschleunigung bitgenau wieder.
+
+Ausbeute ueber 11 Logs: 2059 Felder, davon **177 unbelegte PHYSICAL/FLAG-Felder** in
+mindestens 6 Logs. Auffaelligste Kandidaten: `0x08A` (HS_DCDC, 100 Hz, fuenf analoge Felder,
+in KEINER DBC - Verdacht i-ELOOP/Lichtmaschinenregelung, waere als parasitaerer
+Widerstandsterm im Fahrleistungsmodell relevant), `0x45A`, `0x3D2`, `0x242/0x245/0x246`
+(Kameradaten) und `0x200` (zwei 16-Bit-Felder um 32768 zentriert = klassische signierte
+Sensoren).
+
+### 6. Neues Werkzeug: Ereignis-Bit-Differenzanalyse
+`scripts/can_event_bit_diff.py`. Korrelation ueber ein ganzes Log ist das falsche Werkzeug
+fuer ein Flag, das pro Fahrt einmal 300 ms gesetzt wird - es geht im Rauschen unter.
+Stattdessen: Setzquote jedes Bits innerhalb eines Ereignisfensters gegen ausserhalb.
+
+Funktionsnachweis am bekannten Bremsereignis bestanden (findet `BrakePressure` und, mit
+hoeherem Lift, `0x415` Bit 10 - bei uns bisher nur `BrakeRelated_weak_maybe`).
+
+**ABS/DSC weiterhin nicht gefunden, aber jetzt aus nachweisbarem Grund:** in keinem der 11
+Logs gibt es ein Ereignis, das die Schwellen erreicht (max. 154 Samples ueber 30 bar
+Bremsdruck, keine nennenswerte Radgeschwindigkeits-Divergenz). Es fehlen die Rohdaten, nicht
+die Methode - das Werkzeug steht fuer die gezielte Testfahrt bereit.
+
+### 7. Neues Werkzeug: UDS-DID-Sweep (gebaut, noch nicht am Fahrzeug gelaufen)
+`scripts/uds_did_sweep.py` probiert DID-Bereiche pro Steuergeraet durch und protokolliert,
+was antwortet - braucht keine externe Quelle und keine Referenzgroesse, jede positive
+Antwort ist der Fund. Nur Standardbibliothek (`socket.AF_CAN`), da python-can auf dem Pi im
+Default-Interpreter fehlt. **Ausschliesslich lesender Dienst 0x22**; schreibende/aendernde
+Dienste (0x2E, 0x31, 0x11, 0x28) sind bewusst nicht implementiert.
+End-to-end gegen ein vcan-Fake-Steuergeraet auf dem Pi getestet.
+
+Zielbereiche aus der ND3-Quelle (`drewid74/2024-nd3-mazda-obdii`, Range-Scan 2026-06-23):
+`0x760/22 2B xx` (11 Treffer, Fahrwerk - **wahrscheinlichster Ort fuer den ABS/DSC-
+Eingriffsindikator**), `0x760/22 20 xx` (4, Lenkung), `0x7E0/22 13 10` = **Oeltemperatur**
+(`((A*256)+B)/100-40`), `0x7E0/22 F4 xx` (60 Treffer, groesster Block), `22 DA xx` (36),
+`22 03 xx` (38), `22 09 xx` (8, Nockenwelle/VVT).
+
+### 8. MS-CAN (Track 2): Recherche abgeschlossen, Empfehlung zurueckstellen
+Zweiter Bus liegt bei Mazda auf **OBD-Pin 3/11 mit 125 kbit** (Pin 6/14 = HS-CAN 500 kbit).
+`data/can/MX5ND_6thGenMazda_MSCAN.dbc` liegt bereits im Repo, wird aber nie geladen (wir
+loggen nur `can0`): 34 Botschaften, nur 6 Signale - reines Geruest. Inhaltlich interessant
+sind `MS_EATC` (Klima - **erklaert, warum die Klima-Standtests am 2026-09-12 groesstenteils
+unbrauchbar waren**) und `MS_IC_BCMM` (Karosserie); viele `MS_IC_*`-IDs sind dagegen
+gateway-gespiegelte HS-CAN-Botschaften (0x78, 0x79, 0x202, 0x215 mit denselben Nummern).
+Ein zweiter Adapter (~30 EUR) plus Integration lohnt erst, wenn Klima-/Karosseriedaten
+gebraucht werden - die 177 unbelegten HS-CAN-Felder sind der billigere Hebel.
+
+### 9. `0x2A` ReadDataByPeriodicIdentifier: vermutlich Sackgasse
+Der Dienst nimmt nur 1-Byte-periodicDataIdentifier aus dem Bereich `0xF2xx`. Unsere DIDs
+(0xDA85, 0x093C, 0x2A0x, 0x33xx) liegen nicht darin. Billig mitzutesten, aber keine
+Erwartung - der DID-Sweep ist der sichere Hebel.

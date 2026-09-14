@@ -1,4 +1,22 @@
 """
+OBSOLET seit 2026-09-15 - NICHT MEHR BENUTZEN.
+
+Die Praemisse dieses Skripts ("das Signal ist stark nichtlinear") war falsch. Das oberste Bit
+von Byte0-1 ist ein Gueltigkeits-/Init-Flag des EPAS, kein Teil des Zahlenwerts. Es ist nur in
+0,0-0,5% der Frames gesetzt (ein Block am Logstart bei Stillstand, Rohwert konstant 16000 =
+exakt 0 Grad, plus 32768) - genug, um den Pearson ueber ein ganzes Log von 1,00 auf 0,50 zu
+druecken. Spearman ist gegen diese Ausreisser robust, daher die Fehldiagnose "monoton, aber
+nichtlinear".
+
+Nach Abtrennen des Flags ist das Signal perfekt LINEAR. Die DBC fuehrt es jetzt als
+`SteeringAngle_EPAS : 6|15@0+ (0.1,-1600) "deg"` plus `SteeringAngle_EPAS_Invalid : 7|1@0+`,
+mit R²=0,9997-0,99995 und RMSE 0,65-0,94 Grad ueber 6 Logs - gegenueber R²=0,90 / RMSE=10,5
+Grad dieser Lookup-Tabelle, also Faktor 11 besser. Einfach die DBC dekodieren und Frames mit
+gesetztem Invalid-Bit verwerfen.
+
+Bleibt nur als Beleg der Herleitung stehen. Details: mx5_can_deep_search_plan.md.
+
+--- urspruengliche Beschreibung ---
 Nichtlineare Umrechnung fuer SteeringAngle_related (CAN 0x86, HS_EPAS Byte0-1) - MX-5 Projekt.
 
 Hintergrund (siehe mx5_can_bus_logging.md, Phase-5-Eintrag 2026-09-14): das seit Wochen als

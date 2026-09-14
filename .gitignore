@@ -5,6 +5,7 @@
 !/data/can/
 /data/can/*
 !/data/can/*.dbc
+!/data/can/external/
 /höhendaten/
 /results/
 

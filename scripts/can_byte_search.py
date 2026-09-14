@@ -37,8 +37,12 @@ ANCHOR_SIGNALS = {
     "EngineRPM": 0x202,
     "VehicleSpeed": 0x202,
     "APP_Accelerator_Pedal_Position": 0x202,
-    "Longitudinal_Acc_Raw": 0x75,
-    "Lateral_Acc_Raw": 0x76,
+    # ACHTUNG (2026-09-15 korrigiert): diese beiden waren vertauscht (Longi auf 0x75,
+    # Lateral auf 0x76). extract_anchors() verwirft einen Anker stillschweigend, wenn der
+    # Signalname in der Botschaft fehlt - beide Beschleunigungsanker fehlten dadurch in
+    # JEDEM bisherigen Sweep, und der davon abhaengige PROXY_high_lat_g wurde nie gebaut.
+    "Longitudinal_Acc_Raw": 0x76,
+    "Lateral_Acc_Raw": 0x75,
     "YawRate_Raw": 0x75,
     "BrakePressure": 0x78,
     "Clutch_Pedal_Position_raw": 0x130,
@@ -54,7 +58,17 @@ ANCHOR_SIGNALS = {
 # Mode-22-DIDs aus map_obd_dids.py (2026-09-14, ueber 4 Logs bestaetigt) - als zusaetzliche
 # Anker, wo im Log OBD-Traffic vorhanden ist (siehe obd_from_can.py)
 KNOWN_DIDS = {"AFR_MZ": 0xDA85, "BFP_PRE_MZ": 0x280A, "ETC_ACT": 0x093C,
-              "CPP_PER_MZ": 0x0478, "FLI": 0xF42F}
+              "CPP_PER_MZ": 0x0478, "FLI": 0xF42F,
+              # 2026-09-15: zusaetzliche Module, vorher nie dekodiert (nur 0x7E0/0x7E8)
+              "STEER_SPD_EPS": 0x3301, "STEER_ANGL_EPS": 0x3302}
+
+# Standard-Mode-1-PIDs, die OBD-Fusion gebuendelt abfragt. Die Antworten kommen als ISO-TP-
+# Multiframe und wurden bis 2026-09-15 verworfen - deshalb galten diese Kanaele faelschlich
+# als "von der App berechnet". Es sind echte Messwerte und damit erstklassige Anker,
+# insbesondere Lambda (0x44), fuer das es nachweislich KEIN natives CAN-Signal gibt.
+KNOWN_MODE1_PIDS = {"OBD1_VehicleSpeed": 0x0D, "OBD1_MAF": 0x10,
+                    "OBD1_Lambda": 0x44, "OBD1_TimingAdvance": 0x0E,
+                    "OBD1_EnginePercentTorque": 0x62}
 
 
 def dbc_unclaimed_bytes(db):
@@ -102,6 +116,10 @@ def extract_anchors(raw_df, db, decoded_obd, log_has_obd):
     if log_has_obd:
         for name, did in KNOWN_DIDS.items():
             series = extract_did_series(decoded_obd, did, mode="mode22")
+            if len(series) > 20:
+                anchors[f"OBD_{name}"] = (series["t"].to_numpy(), series["raw_value"].to_numpy(dtype=float))
+        for name, pid in KNOWN_MODE1_PIDS.items():
+            series = extract_did_series(decoded_obd, pid, mode="mode1")
             if len(series) > 20:
                 anchors[f"OBD_{name}"] = (series["t"].to_numpy(), series["raw_value"].to_numpy(dtype=float))
 
