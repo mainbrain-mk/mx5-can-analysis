@@ -160,7 +160,11 @@ sind genauso dekodierbar, aber bisher nicht übernommen (bei Bedarf leicht ergä
 
 ### Neue Analyse-Tools (2026-09-14, portiert aus CSS-Electronics/can-bus-reverse-engineering-skills)
 Nach Durchsicht des CSS-Electronics-Artikels/-Repos zwei reine, hardwareunabhängige
-Analysebausteine übernommen (Plan + Details siehe `mx5_can_bus_logging.md`):
+Analysebausteine übernommen (Plan + Details siehe `mx5_can_bus_logging.md`), plus eigener
+Workflow-Skill **`.claude/skills/mx5-can-reverse-engineering/SKILL.md`** (Schritt-für-
+Schritt-Anleitung für künftige Reverse-Engineering-Sessions + Blueprint für eine mögliche
+künftige Live-Referenz-Erfassung über SocketCAN, falls je ein Signal ganz ohne
+OBD/CAN-Referenz gesucht werden muss):
 - **`scripts/can_re_toolkit.py`** – agnostische Sentinel-/Ausreißer-Erkennung
   (`detect_extreme_outliers`, Median±MAD/Gap/Teleport, wert-/vorzeichenunabhängig),
   referenzfreie Plausibilität (`plausibility`), und bias-gated (nicht R²-gated)
@@ -1709,6 +1713,40 @@ das braucht echte neue Daten, keine weitere Log-Analyse.
 Alle Zwischenergebnisse, Formeln und verworfenen Kandidaten sind zusätzlich direkt als
 `CM_`-Kommentare in `data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc` dokumentiert. Commit
 `f6b4ea2`.
+
+## OBD-Fusion-App: wie viele Datenpunkte finden wir im CAN wieder? (2026-09-14)
+
+Nutzerfrage: die App zeigt aktuell ~32 PIDs an – wie viele davon finden wir im CAN wieder?
+Tatsächlich zeigt die App (konsistent in allen drei 09-14-Logs) **20 durchgehend
+aktualisierte Fahrzeug-Kanäle**, nicht 32. Aufschlüsselung nach tatsächlichem Ursprung:
+
+- **6 echte, häufig abgefragte Mode-22-DIDs**: AFR_MZ, BFP_PRE_MZ, ETC_ACT, CPP_PER_MZ,
+  TM_GEST, FLI (siehe oben, "Bekannte offene Punkte" für den AFR_MZ/ETC_ACT/TM_GEST-Status).
+- **2 echte, aber seltene DIDs** (~alle 10-30s): ActualEnginePercentTorque (0x032B, deckt
+  sich mit `EngineLoad_or_Torque_pct_maybe`@0x167), VehicleOdometerReading (0x1310, deckt
+  sich mit `C001_ODO`@0x40A).
+- **2 Kanäle, die GAR KEINE OBD-Anfrage sind** – die App liest hier nachweislich selbst
+  nativ CAN mit, exakt wie wir: `VehicleSpeed` korreliert mit unserem `0x202.VehicleSpeed`
+  bei r=0,9998, `STEER_ANGL_EPS` mit unserem `0x82.Steering_Wheel_Absolute_Angle` bei
+  r=0,98. Bestätigt (auf Nutzer-Vermutung hin geprüft): OBD-Fusion hat für diese beiden
+  eigenes, unabhängiges Reverse-Engineering des Mazda-CAN.
+- **~9-10 clientseitig berechnete Werte, keine eigene Anfrage**: FuelRate,
+  InstantFuelEconomy, TotalFuelEconomy, CO2Flow, InstantCO2Rate, TotalCO2,
+  MassAirFlowRate, CommandEquivalenceRatio, TimingAdvance, vermutlich auch STEER_SPD_EPS
+  (Ableitung von STEER_ANGL_EPS). Gegen **alle 147 uns bekannten nativen CAN-Signale**
+  korreliert (nicht nur die OBD-Anker) – bester Treffer war nur 0,87-0,88 mit dem Gaspedal
+  (physikalische Kausalität: Verbrauch hängt vom Gasgeben ab, kein gemeinsames Signal) bzw.
+  0,97-0,99 mit dem Kilometerstand für die "Total"-Werte (Scheinkorrelation zweier über eine
+  Fahrt hinweg monoton steigender Größen). Keiner kommt in die Nähe der r>0,95, die die
+  echten Direktlesungen zeigen – erklärt nebenbei endgültig, warum frühere gezielte Suchen
+  nach `CommandEquivalenceRatio`/`TimingAdvance` nie einen Treffer fanden: die existieren
+  gar nicht unabhängig auf dem Bus.
+
+**Nutzer-Einschätzung: "Problem noch nicht gelöst, weiter untersuchen"** – die App hat
+nachweislich für mindestens 2 Kanäle eigenes CAN-Reverse-Engineering, das über unser
+eigenes hinausgeht (bzw. es bestätigt). Offen bleibt, ob es außerhalb der hier geprüften
+147 Signale noch weitere versteckte native Zugriffe gibt, die wir mangels eines bekannten
+Vergleichssignals nicht erkennen können. Kein aktiver nächster Schritt definiert.
 
 ## Externe Quelle github.com/gitgc/mx5-miata-nd2-obd-can (2026-09-15)
 
