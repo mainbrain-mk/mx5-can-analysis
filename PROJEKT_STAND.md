@@ -5243,3 +5243,95 @@ Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - script_error: .venv/bin/python scripts/drivetrain_model_validation.py: Exception: Command '['.venv/bin/python', 'scripts/drivetrain_model_validation.py']' timed out after 300 seconds
 - script_error: .venv/bin/python scripts/top_speed_validation.py: Exception: Command '['.venv/bin/python', 'scripts/top_speed_validation.py']' timed out after 300 seconds
+
+## TPMS erstmals live ausgewertet (2026-09-14)
+
+Nutzerfrage "können wir uns die Reifendruck daten anschauen?" - TPMS
+(`tpms_poller.py`/`session_logger.py`) war laut `mx5_tpms.md` gebaut+deployt,
+aber "noch NICHT live am Fahrzeug getestet". Check: 0x720/0x728-Frames sind
+tatsaechlich zuverlaessig in den Logs seit 2026-09-11 (~192-200 pro Fahrt,
+exakt Fahrtdauer/120s * 8 PIDs) - die Integration laeuft also laengst, nur
+nie ausgewertet.
+
+**Neues Skript `scripts/tpms_log_decode.py`** (parst 0x728-Antworten direkt
+aus einem candump-.log, reuse von `tpms_poller.py`s PID-Formeln/
+`decode_response()`). Dabei aufgefallen: die DBC (`BO_1832`) dekodiert die
+TPMS-Signale bereits korrekt in die `*_decoded.csv`, aber
+`build_datalake.py`s `CAN_SIGNAL_MAP` hatte sie nie aufgenommen - landeten
+also nirgends im Datalake. Nachgetragen (`TirePressure_CAN_Tire1-4` bar,
+`TireTemp_CAN_Tire1-4` °C), Datalake neu gebaut, Werte decken sich exakt mit
+dem eigenstaendigen Skript.
+
+**Ergebnis (2 Fahrten ausgewertet, 13.135400/14.081105):** physikalisch
+sauberes Bild - Druck steigt mit Temperatur (ideales Gasgesetz, 22-40°C),
+erste 2-3 Samples pro Fahrt zeigen oft noch "alte" warme Werte vom
+TPMS-Sensor bevor er nach etwas Raddrehung frische, oft deutlich kaeltere
+Werte sendet (erwartetes Sensorverhalten, kein Bug). **Auffaellig, dem
+Nutzer noch nicht bestaetigt:** Tire4 (hinten rechts) liegt in BEIDEN
+Fahrten durchgaengig ~0,15-0,2 bar ueber den anderen drei Reifen (z.B.
+13.135400: Ø2,07 bar vs. Ø1,83-1,94 bar) - konsistent, kein Ausreisser.
+
+Outputs: `results/tpms_decoded.json`, `results/tpms_candump-2026-09-13_135400.png`,
+`results/tpms_candump-2026-09-14_081105.png`.
+
+**Weiterhin offen:** Vorderachsen-Zuordnung (Tire1/Tire2) per gezieltem
+Luftablass-Test.
+
+**KORREKTUR (selber Tag, Nutzer-Richtigstellung):** zwei Fehler oben.
+1. "0x720/0x728-Frames seit 2026-09-11" ist falsch - am 11.09. lief der
+   CAN-Adapter noch nur als Sniffer, die TPMS-Abfrage kam vom HANDY (OBD-
+   Fusion Custom-PIDs). `tpms_poller.py` wurde erst am 13.09. geschrieben,
+   NACHDEM genau dieser 11.09.-Log als Beleg diente, dass TPMS auf HS-CAN
+   liegt (nicht nur MS-CAN, wie ein Forenpost fälschlich behauptete).
+2. **`candump-2026-09-13_135400.log`/`144611.log` sind vermutlich falsch
+   datiert - echtes Datum unbekannt.** Der Pi hat keine RTC; ohne WLAN
+   waehrend der Fahrt (Powerbank im Auto) bekommt die Systemuhr NIE eine
+   NTP-Korrektur und bleibt fuer die GANZE Session falsch, OHNE den
+   bekannten Zeitsprung zu zeigen (der nur bei einer Korrektur MITTEN im
+   Log entsteht) - unsichtbar fuer den bisherigen Sprung-Scan. Bestaetigt
+   per `uptime -p` auf dem Pi (`journalctl --list-boots` behauptete einen
+   seit 2026-09-11 20:18 durchgehenden Boot, echte monotone Uptime war nur
+   65 Minuten). `candump-2026-09-14_081105` gilt weiterhin als korrekt
+   datiert (gepaartes `2026-09-14 081132.dlg` mit eigener, vom Handynetz
+   synchronisierter Uhr als unabhaengiger Zeitanker) - reine CAN-only-Logs
+   ohne so einen Anker sind grundsaetzlich mit Vorsicht zu behandeln.
+   Details in `mx5_can_bus_logging`-Memory. Die eigentlichen Messwerte
+   (Kurven, Reifendruck/-temperatur) bleiben gueltig, nur die Datums-
+   zuordnung ist unsicher.
+
+## Datums-Korrektur abgeschlossen: 135400/144611 waren echte Fahrten von heute Nachmittag (2026-09-14)
+
+Nutzer-Hinweis: die beiden CAN-only-Logs gehoeren vermutlich zu den zwei
+OBD-Logs von heute Nachmittag. Abgleich per Dauer (47,3min/3,2min vs.
+48,1min/3,1min - fast exakt) UND per VehicleSpeed-Kreuzkorrelation
+(**r=1,0000** bzw. **r=0,9997**, eindeutig) bestaetigt:
+
+| CAN-Log (alter Name) | OBD-Log | wahre Startzeit | Fehler |
+|---|---|---|---|
+| candump-2026-09-13_135400 | 2026-09-14 163745 | **2026-09-14 16:37:11** | +1 Tag 2:43:11 |
+| candump-2026-09-13_144611 | 2026-09-14 173044 | **2026-09-14 17:30:58** | +1 Tag 2:44:47 |
+
+Fast identischer Fehler (~2:43-2:45h) in beiden Faellen - ein einziger,
+konsistenter Uhrenversatz fuer die ganze Pi-Session, kein Zufall. Beide
+CAN-Logs waren also, wie vom Nutzer vermutet, echte Fahrten von HEUTE
+Nachmittag, keine vom 13.09.
+
+**Korrektur durchgefuehrt:**
+- Dateien umbenannt (lokal UND auf dem Pi, damit kuenftige Syncs nicht die
+  alten Namen zurueckholen): `candump-2026-09-13_135400.log[.gz]` ->
+  `candump-2026-09-14_163711.log[.gz]`, `candump-2026-09-13_144611.log[.gz]`
+  -> `candump-2026-09-14_173057.log[.gz]` (jeweils jeweils die genaue
+  Sekunde aus der Kreuzkorrelation, nicht die grobe Minute).
+- `data/can_gps_pairs.json` (Log-Registrierung fuer `build_datalake.py`)
+  auf die neuen Namen aktualisiert - sonst werden die Logs beim naechsten
+  Build stillschweigend uebersprungen (genau das ist beim ersten
+  Rebuild-Versuch passiert, erst beim zweiten Versuch aufgefallen).
+- Datalake neu gebaut, `can_corner_event_analysis.py`/`tpms_log_decode.py`/
+  `corner_speed_model.py` neu gelaufen - alle Werte identisch zu vorher
+  (73/10 Kurven, TPMS-Werte), nur jetzt unter dem korrekten Namen/Datum.
+
+**Damit ist auch der TPMS-Zeitstrahl klar:** `tpms_poller.py` lief zum
+ersten Mal am 14.09. morgens (`081105`), dann nochmal nachmittags
+(`163711`/`173057`) - nicht wie zunaechst angenommen bereits am 13.09.
+Rohdateien selbst wurden nicht inhaltlich veraendert (nur umbenannt) -
+konsistent mit dem Projekt-Prinzip "Rohdateien werden nie veraendert".
