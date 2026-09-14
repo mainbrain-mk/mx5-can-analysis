@@ -64,10 +64,14 @@ KNOWN_DIDS = {"AFR_MZ": 0xDA85, "BFP_PRE_MZ": 0x280A, "ETC_ACT": 0x093C,
 
 # Standard-Mode-1-PIDs, die OBD-Fusion gebuendelt abfragt. Die Antworten kommen als ISO-TP-
 # Multiframe und wurden bis 2026-09-15 verworfen - deshalb galten diese Kanaele faelschlich
-# als "von der App berechnet". Es sind echte Messwerte und damit erstklassige Anker,
-# insbesondere Lambda (0x44), fuer das es nachweislich KEIN natives CAN-Signal gibt.
+# als "von der App berechnet".
+# ACHTUNG bei 0x44: das ist die COMMANDED equivalence ratio, also das vom Steuergeraet
+# ANGEFORDERTE Lambda, KEIN Sondenmesswert. Das Fahrzeug hat zwei Lambdasonden (vorn
+# Breitband-Regelsonde, hinten Diagnosesonde hinter dem Kat); ihre gemessenen Werte liefern
+# die Mode-1-Sonden-PIDs 0x24/0x25 bzw. 0x34/0x35 - noch nicht abgefragt, siehe
+# uds_did_sweep.py --mode1-survey.
 KNOWN_MODE1_PIDS = {"OBD1_VehicleSpeed": 0x0D, "OBD1_MAF": 0x10,
-                    "OBD1_Lambda": 0x44, "OBD1_TimingAdvance": 0x0E,
+                    "OBD1_LambdaCommanded": 0x44, "OBD1_TimingAdvance": 0x0E,
                     "OBD1_EnginePercentTorque": 0x62}
 
 

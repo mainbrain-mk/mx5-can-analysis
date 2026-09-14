@@ -71,6 +71,110 @@ def build_request(did):
     return bytes([0x03, 0x22, (did >> 8) & 0xFF, did & 0xFF, 0x00, 0x00, 0x00, 0x00])
 
 
+# Mode-1-Support-Bitmasken (SAE J1979): eine Antwort auf PID 0x00 sagt, welche der PIDs
+# 0x01-0x20 das Fahrzeug unterstuetzt, 0x20 deckt 0x21-0x40 ab und so weiter. Fuenf Anfragen
+# liefern damit die VOLLSTAENDIGE Liste der Standard-PIDs - unendlich viel billiger als
+# 256 einzeln durchzuprobieren.
+SUPPORT_PIDS = (0x00, 0x20, 0x40, 0x60, 0x80)
+
+# Standard-PIDs, die fuer dieses Projekt besonders interessant sind. Das Fahrzeug hat zwei
+# Lambdasonden (vorn Breitband/Regelsonde, hinten Diagnosesonde hinter dem Kat) - die
+# Mode-1-Sondenkanaele liefern das GEMESSENE Lambda je Sonde, waehrend das bisher genutzte
+# PID 0x44 nur das vom Steuergeraet ANGEFORDERTE Lambda ist.
+INTERESTING_MODE1 = {
+    0x13: "welche O2-Sonden verbaut sind (Bitmaske)",
+    0x1D: "dito, alternative Kodierung",
+    0x24: "O2 Bank1 Sensor1 (vorn) - Lambda + Spannung",
+    0x25: "O2 Bank1 Sensor2 (hinten) - Lambda + Spannung",
+    0x34: "O2 Bank1 Sensor1 (vorn) - Lambda + Strom",
+    0x35: "O2 Bank1 Sensor2 (hinten) - Lambda + Strom",
+    0x14: "O2 Bank1 Sensor1 schmalbandig - Spannung + Trim",
+    0x15: "O2 Bank1 Sensor2 schmalbandig - Spannung + Trim",
+    0x5C: "Motoroeltemperatur (Standard-PID, falls unterstuetzt)",
+    0x5E: "Kraftstoffverbrauchsrate",
+}
+
+
+def build_mode1_request(pid):
+    """Mode-1-Anfrage: [PCI=2, 0x01, PID, Padding]."""
+    return bytes([0x02, 0x01, pid, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+
+def decode_support_mask(base, raw):
+    """Antwort auf PID 0x00/0x20/... -> Liste der unterstuetzten PID-Nummern."""
+    if len(raw) < 4:
+        return []
+    bits = int.from_bytes(raw[:4], "big")
+    return [base + 1 + i for i in range(32) if bits & (1 << (31 - i))]
+
+
+def parse_mode1_response(pid, data):
+    """Wie parse_response, aber fuer Mode 1 (SID 0x41, 1-Byte-PID)."""
+    if len(data) < 3:
+        return None
+    kind = data[0] >> 4
+    if kind == 1:
+        if len(data) >= 4 and data[2] == 0x41 and data[3] == pid:
+            return ("multiframe", data[4:])
+        return None
+    if kind != 0:
+        return None
+    payload = data[1:1 + (data[0] & 0x0F)]
+    if len(payload) >= 2 and payload[0] == 0x41 and payload[1] == pid:
+        return ("hit", payload[2:])
+    if len(payload) >= 3 and payload[0] == 0x7F and payload[1] == 0x01:
+        return ("nrc", payload[2])
+    return None
+
+
+def probe_mode1(sock, req_id, resp_id, pid, timeout=0.15):
+    send(sock, req_id, build_mode1_request(pid))
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        got = recv(sock, deadline - time.time())
+        if got is None:
+            break
+        can_id, data = got
+        if can_id != resp_id:
+            continue
+        parsed = parse_mode1_response(pid, data)
+        if parsed is None:
+            continue
+        kind, detail = parsed
+        if kind == "nrc" and detail == 0x78:
+            deadline = time.time() + timeout
+            continue
+        return kind, detail
+    return "silent", b""
+
+
+def mode1_survey(sock, req_id, resp_id, timeout=0.15):
+    """Erst die Support-Bitmasken lesen, dann jeden unterstuetzten PID einmal abfragen.
+    Ergebnis: die vollstaendige Liste der Standard-OBD-Kanaele dieses Fahrzeugs."""
+    supported = []
+    for base in SUPPORT_PIDS:
+        kind, raw = probe_mode1(sock, req_id, resp_id, base, timeout)
+        if kind != "hit":
+            break
+        supported += decode_support_mask(base, bytes(raw))
+        if base + 0x20 not in [p for p in supported]:
+            break        # naechste Bitmaske nicht unterstuetzt -> hier ist Schluss
+    print(f"  {len(supported)} Standard-PIDs unterstuetzt: "
+          f"{' '.join(f'{p:02X}' for p in supported)}\n", flush=True)
+
+    rows = []
+    for pid in supported:
+        kind, raw = probe_mode1(sock, req_id, resp_id, pid, timeout)
+        if kind not in ("hit", "multiframe"):
+            continue
+        raw = bytes(raw)
+        note = INTERESTING_MODE1.get(pid, "")
+        rows.append(dict(did=f"01{pid:02X}", status=kind, n_bytes=len(raw),
+                         raw_hex=raw.hex(), raw_int=int.from_bytes(raw, "big") if raw else ""))
+        print(f"  PID {pid:02X}  {raw.hex():16s}{'  <- ' + note if note else ''}", flush=True)
+    return rows
+
+
 def parse_response(did, data):
     """-> ("hit", raw_bytes) | ("nrc", code) | ("multiframe", first_bytes) | None.
 
@@ -182,6 +286,14 @@ def self_test():
     assert kind == "multiframe" and first == b"\x11\x22\x33", (kind, first)
     # Fremdverkehr
     assert parse_response(0x2A05, bytes([0x00, 0x00, 0x00, 0, 0, 0, 0, 0])) is None
+
+    # Mode 1
+    assert build_mode1_request(0x0D) == bytes([0x02, 0x01, 0x0D, 0, 0, 0, 0, 0])
+    assert parse_mode1_response(0x0D, bytes([0x03, 0x41, 0x0D, 0x2A, 0, 0, 0, 0])) == ("hit", b"\x2a")
+    assert parse_mode1_response(0x0E, bytes([0x03, 0x41, 0x0D, 0x2A, 0, 0, 0, 0])) is None
+    # Support-Bitmaske: Bit31 gesetzt -> PID 0x01 unterstuetzt, Bit0 -> PID 0x20
+    assert decode_support_mask(0x00, bytes([0x80, 0x00, 0x00, 0x01])) == [0x01, 0x20]
+    assert decode_support_mask(0x20, bytes([0x00, 0x00, 0x00, 0x00])) == []
     print("self-test ok")
 
 
@@ -195,6 +307,10 @@ def main():
     ap.add_argument("--gap", type=float, default=0.01, help="Pause zwischen Anfragen (s)")
     ap.add_argument("--timeout", type=float, default=0.15, help="Antwort-Timeout (s)")
     ap.add_argument("--out", help="CSV-Ausgabe")
+    ap.add_argument("--mode1-survey", action="store_true",
+                    help="statt DID-Sweep: alle unterstuetzten Standard-Mode-1-PIDs "
+                         "ermitteln und einmal auslesen (5 Anfragen + je eine pro PID). "
+                         "Liefert u.a. die GEMESSENEN Lambdawerte beider Sonden.")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -203,6 +319,19 @@ def main():
         return
 
     req_id, resp_id = ECUS[args.ecu]
+    if args.mode1_survey:
+        print(f"Mode-1-Bestandsaufnahme an {args.ecu} (0x{req_id:03X}->0x{resp_id:03X})")
+        sock = open_bus(args.channel)
+        try:
+            rows = mode1_survey(sock, req_id, resp_id, args.timeout)
+        finally:
+            sock.close()
+        if args.out and rows:
+            with open(args.out, "w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+                w.writeheader(); w.writerows(rows)
+            print(f"-> {args.out}")
+        return
     dids = parse_range(args.rng)
     print(f"Sweep {args.ecu} (0x{req_id:03X}->0x{resp_id:03X}), "
           f"{len(dids)} DIDs, geschaetzt {len(dids)*(args.gap+0.02):.0f}-{len(dids)*(args.gap+args.timeout):.0f}s")

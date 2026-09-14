@@ -1727,8 +1727,8 @@ aktualisierte Fahrzeug-Kanäle**, nicht 32. Aufschlüsselung nach tatsächlichem
 - **6 echte, häufig abgefragte Mode-22-DIDs**: AFR_MZ, BFP_PRE_MZ, ETC_ACT, CPP_PER_MZ,
   TM_GEST, FLI (siehe oben, "Bekannte offene Punkte" für den AFR_MZ/ETC_ACT/TM_GEST-Status).
 - **2 echte, aber seltene DIDs** (~alle 10-30s): ActualEnginePercentTorque (0x032B, deckt
-  sich mit `EngineLoad_or_Torque_pct_maybe`@0x167), VehicleOdometerReading (0x1310, deckt
-  sich mit `C001_ODO`@0x40A).
+  sich mit `EngineLoad_or_Torque_pct_maybe`@0x167), ~~VehicleOdometerReading (0x1310)~~ - **2026-09-15
+  WIDERLEGT, siehe unten: 0x1310 ist die OELTEMPERATUR.**
 - **2 Kanäle, die GAR KEINE OBD-Anfrage sind** – die App liest hier nachweislich selbst
   nativ CAN mit, exakt wie wir: `VehicleSpeed` korreliert mit unserem `0x202.VehicleSpeed`
   bei r=0,9998, `STEER_ANGL_EPS` mit unserem `0x82.Steering_Wheel_Absolute_Angle` bei
@@ -1869,13 +1869,18 @@ Damit stehen **sieben zusaetzliche echte Messkanaele** aus jedem Y-Kabel-Log zur
 | EPS DID 0x3301 | STEER_SPD_EPS | - | 0-149 | r=0,82-0,94 gegen d(Winkel)/dt |
 | Mode1 0x0D | VehicleSpeed | A | 0-218 km/h | r=1,0000 gegen CAN |
 | Mode1 0x10 | MassAirFlowRate | A/100 | 0-152 g/s | plausibel |
-| Mode1 0x44 | **Lambda** | A/32768 | 0,81-2,00 | plausibel (fett WOT / Schubabschaltung) |
+| Mode1 0x44 | **Lambda (SOLL, commanded)** | A/32768 | 0,81-2,00 | plausibel (fett WOT / Schubabschaltung) |
 | Mode1 0x0E | TimingAdvance | A/2-64 | -30..+53° | plausibel |
 | Mode1 0x62 | ActualEnginePercentTorque | A-125 | 0-97 % | plausibel |
 | DSC DID 0x2B0D | Bremspedalstellung | - | - | Zuordnung aus ND3-Quelle, noch nicht kalibriert |
 
-Besonders wertvoll ist **Lambda**: fuer AFR gibt es nachweislich kein natives CAN-Signal
-(rigoroser Bitsearch 2026-09-14) - jetzt liegt der echte Messwert mit 2 Hz vor. Und der
+Zu Lambda (0x44) eine **Praezisierung vom 2026-09-15**: das ist die *commanded* equivalence
+ratio, also der SOLLWERT des Steuergeraets, kein Sondenmesswert. Das Fahrzeug hat zwei
+Lambdasonden (vorn Breitband-Regelsonde, hinten Diagnosesonde hinter dem Kat, Nutzerangabe);
+deren gemessene Werte liefern die Standard-PIDs 0x24/0x25 bzw. 0x34/0x35 - die fragt bisher
+niemand ab, `uds_did_sweep.py --mode1-survey` holt sie. Das erklaert die Abweichung zu
+AFR_MZ besser als die zuvor vermutete Abtastproblematik: Soll- und Ist-Lambda weichen im
+Transienten und in der Regelschwingung systematisch voneinander ab. Und der
 **gemessene MAF** relativiert unsere Schaetzformel `0,00019*(RPM*MAP)-8,08`: gegen den
 echten Wert nur R²=0,87 (RMSE 7,4 g/s); neu gefittet `0,000163*(RPM*MAP)-3,63`, R²=0,90.
 
@@ -1946,3 +1951,52 @@ gebraucht werden - die 177 unbelegten HS-CAN-Felder sind der billigere Hebel.
 Der Dienst nimmt nur 1-Byte-periodicDataIdentifier aus dem Bereich `0xF2xx`. Unsere DIDs
 (0xDA85, 0x093C, 0x2A0x, 0x33xx) liegen nicht darin. Billig mitzutesten, aber keine
 Erwartung - der DID-Sweep ist der sichere Hebel.
+
+## Nachtrag zum Deep-Search: Oeltemperatur gefunden, Lambda-PID praezisiert (2026-09-15)
+
+Anlass war die Nutzerangabe, dass der ND2 G184 **zwei Lambdasonden** hat (vorn
+Breitband-Regelsonde, hinten Diagnosesonde hinter dem Kat).
+
+### Praezisierung: PID 0x44 ist das SOLL-Lambda, kein Messwert
+`CommandEquivalenceRatio` ist per SAE J1979 die vom Steuergeraet **angeforderte**
+Gemischzusammensetzung. Im Deep-Search-Abschnitt oben war das als "echter Messwert"
+bezeichnet - falsch. Das aendert auch die Deutung der AFR_MZ-Abweichung: Soll- und
+Ist-Lambda weichen im Transienten und in der Regelschwingung systematisch voneinander ab -
+eine bessere Erklaerung als die zuvor vermutete reine Abtastproblematik.
+
+**Die gemessenen Sondenwerte fehlen uns noch.** Sie liegen in den Standard-PIDs
+0x24/0x25 (Lambda + Spannung je Sonde) bzw. 0x34/0x35 (Lambda + Strom); 0x13/0x1D sagen,
+welche Sonden verbaut sind. Keiner davon wird vom Handy abgefragt, also stehen sie auch
+nicht in unseren Logs. `uds_did_sweep.py --mode1-survey` holt sie: erst die
+Support-Bitmasken (5 Anfragen -> vollstaendige Liste aller Standard-PIDs dieses
+Fahrzeugs), dann jeden unterstuetzten PID einmal. End-to-end gegen ein vcan-Fake-
+Steuergeraet getestet.
+
+### DID 0xDA86 = zweite Sonde? UNENTSCHIEDEN
+Naheliegende Hypothese: `0xDA85`/`0xDA86` sind die beiden Sonden. `0xDA86` liegt in seinen
+20 Stichproben bei 125-129, also praktisch konstant bei Lambda~0,99 - genau, was eine
+Sonde hinter dem Kat zeigen wuerde. **Gegenprobe im SELBEN Zeitfenster widerlegt das als
+Beleg:** `0xDA85` liegt dort ebenfalls bei 126-130 (identische Streuung 0,85). Der schmale
+Bereich kommt allein daher, dass die 20 Stichproben in eine ruhige Teillastphase fallen
+(14-18% Gas, Regelbetrieb, beide Sonden bei Stoechiometrie). Erst `0xDA86`-Stichproben
+waehrend Volllast oder Schubabschaltung koennten die Frage entscheiden.
+
+### DID 0x1310 ist die OELTEMPERATUR, nicht der Kilometerstand
+Die Zuordnung vom 2026-09-14 ("VehicleOdometerReading, deckt sich mit `C001_ODO`@0x40A")
+ist falsch - ein weiterer Fall der Scheinkorrelation zweier ueber eine Fahrt monoton
+steigender Groessen, genau des Artefakts, das im selben Abschnitt fuer die "Total"-Werte
+schon beschrieben wurde. Belege:
+
+- Der echte Kilometerstand (`C001_ODO`) steht in diesem Log bei **169.765-169.795 km**,
+  `0x1310` bei **7053-7109**. Die Werte haben nichts miteinander zu tun.
+- Mit der Formel der ND3-Quelle (`((A*256)+B)/100-40`) ergibt `0x1310` **30,5-31,1 °C**,
+  waehrend das Kuehlwasser im selben Fenster bei **49-51 °C** liegt und ueber das Log von
+  29 auf 92 °C steigt. Oel deutlich kaelter als Kuehlwasser und langsamer steigend - genau
+  das Warmlaufverhalten, das man erwartet.
+- Der Wert steigt im 22-Sekunden-Fenster gleichmaessig um ~0,03 °C/s (~1,8 °C/min).
+
+**Oeltemperatur ist ein echter Neuzugang** und fuer das Fahrleistungsmodell relevant
+(Oelviskositaet -> Reibleistung). Sie wird bisher nur vom Handy abgefragt, und zwar selten
+(20 Stichproben pro Log); per `uds_did_sweep.py` bzw. einem eigenen Poller waere sie
+durchgehend verfuegbar - alternativ liefert der Standard-PID 0x5C dasselbe, falls
+unterstuetzt (im Mode-1-Survey mit abgedeckt).
