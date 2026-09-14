@@ -192,7 +192,27 @@ Analysebausteine übernommen (Plan + Details siehe `mx5_can_bus_logging.md`):
   Braucht entweder mehr Logs mit einem echten Eingriff oder eine gezielte Testfahrt.
 - AFR/Lambda, CommandEquivalenceRatio, TimingAdvance, ETC_ACT (echte Drosselklappenstellung):
   bestätigt nicht periodisch auf HS-CAN broadcastet (nur Mode-22-Polling) – seit 2026-09-14
-  aber direkt aus dem CAN-Log dekodierbar, ohne Handy/`.dlg` (siehe oben).
+  aber direkt aus dem CAN-Log dekodierbar, ohne Handy/`.dlg` (siehe oben). **2026-09-14,
+  gezielter `can_bitsearch.py`-Lauf (3 Logs) gegen AFR_MZ/ETC_ACT als Referenz:** bestätigt
+  dies nochmal deutlich rigoroser. Bester AFR_MZ-Kandidat (`0x0FD` Byte 5) fittet zwar über
+  alle 3 Logs auf dieselbe Bitlage, aber R² fällt 0,86→0,66→0,63 UND der Rohwert nimmt nur
+  3 diskrete Werte {0,1,2} an – kein analoges Lambda-Signal, eher ein Status-Flag (z.B.
+  Closed-Loop/Warmlauf-Zustand), das nur zufällig mit dem AFR-Trend mitläuft. Zweiter
+  Kandidat `0x20A` fittet R² 0,76→0,48→0,49, UND die Gewinner-Bitlage wechselt sogar
+  zwischen den Logs (39|10 vs. 29|11) – klares Zeichen für Zufallskorrelation statt echter
+  Kodierung. ETC_ACT-bester Kandidat `0x200`: R² 0,52→0,29→0,29, Gewinner ebenfalls
+  instabil zwischen zwei nahezu gleich schlecht fittenden Bitlagen (7|16 vs. 39|16). Beide
+  weit unter der Bestätigungsschwelle (alle bisher bestätigten Signale: R²>0,9, stabile
+  Bitlage über Logs hinweg) – keine der beiden Referenzen hat ein natives CAN-Gegenstück,
+  mit ziemlicher Sicherheit.
+- **Drei neue, bisher unbenannte Mode-22-DIDs** (2026-09-14, beim OBD-Überblick aufgefallen):
+  nur ~20 Treffer in einem einzigen Log (`candump-2026-09-12_211833`), in den drei
+  09-14-Logs gar nicht vorhanden – zu wenig Daten für eine belastbare Namens-/CAN-Zuordnung.
+  `DA86` (vermutlich 2. Lambda-nahe DID, schwacher/unsicherer `.dlg`-Match auf AFR_MZ,
+  r=0,70 bei 112s Lag), `F40C` (Match auf "TotalCO2" sieht nach Zufallstreffer aus, −102s
+  Lag), `4028` (Wert über die ganze Session konstant 88 – vermutlich einmalige Konfig-/
+  Capability-Abfrage, kein echter Messwert). Bei Gelegenheit mit einem längeren,
+  OBD-Traffic-reichen Log erneut prüfen.
 - Wischer-Test (Testplan-Punkt) strukturell dekodierbar seit dem LIGHT-Bit-Fix, aber inhaltlich
   noch nicht ausgewertet.
 - TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet.
