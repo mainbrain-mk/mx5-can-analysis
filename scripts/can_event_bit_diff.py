@@ -63,18 +63,23 @@ def anchor_series(raw_df, db, can_id, sig_name):
     return np.array(t), np.array(v, dtype=float)
 
 
+WINDOWS = []      # von main() gesetzt, wenn --window benutzt wird
+BASELINE = []     # dito; schraenkt das "ausserhalb" auf Vergleichsfenster ein
+PAD = PAD_S       # von main() ueberschreibbar
+
+
 def event_windows(raw_df, db, kind, hz=20.0):
     """(grid, bool-Maske) der Ereigniszeitpunkte."""
     t_bp, bp = anchor_series(raw_df, db, 0x78, "BrakePressure")
     t_ws = [anchor_series(raw_df, db, 0x215, f"WheelSpeed_{i}") for i in range(1, 5)]
     t_lat, lat = anchor_series(raw_df, db, 0x75, "Lateral_Acc_Raw")
     if len(t_bp) < 100 or any(len(t) < 100 for t, _ in t_ws):
-        return None, None
+        return None, None, None
 
     t0 = max([t_bp.min()] + [t.min() for t, _ in t_ws])
     t1 = min([t_bp.max()] + [t.max() for t, _ in t_ws])
     if t1 - t0 < 60:
-        return None, None
+        return None, None, None
     grid = np.arange(t0, t1, 1.0 / hz)
     BP = np.interp(grid, t_bp, bp)
     WS = np.array([np.interp(grid, t, v) for t, v in t_ws])
@@ -87,27 +92,45 @@ def event_windows(raw_df, db, kind, hz=20.0):
         mask = (BP > 30) & (spread > np.quantile(spread[BP > 30], 0.95) if (BP > 30).any() else False)
     elif kind == "dsc":
         if len(t_lat) < 100:
-            return None, None
+            return None, None, None, None
         LAT = np.abs(np.interp(grid, t_lat, lat))
         mask = LAT > np.quantile(LAT, 0.999)
     elif kind == "standstill":
         mask = speed < 0.5
     elif kind == "moving":
         mask = speed > 30
+    elif kind == "window":
+        mask = np.zeros(len(grid), dtype=bool)
+        for w in WINDOWS:
+            lo, hi = (float(x) for x in w.split(":"))
+            mask |= (grid - grid[0] >= lo) & (grid - grid[0] <= hi)
     else:
         raise ValueError(kind)
 
     mask = np.asarray(mask, dtype=bool)
-    if mask.sum() < 20 or (~mask).sum() < 20:
-        return None, None
+    valid = np.ones(len(grid), dtype=bool)
+    if BASELINE:
+        base = np.zeros(len(grid), dtype=bool)
+        for w in BASELINE:
+            lo, hi = (float(x) for x in w.split(":"))
+            base |= (grid - grid[0] >= lo) & (grid - grid[0] <= hi)
+        # Alles, was weder Ereignis noch Baseline ist, wird ignoriert. WICHTIG: das Raster
+        # darf dabei NICHT beschnitten werden - bit_lift ordnet Frames per searchsorted
+        # zu, und in ein lueckenhaftes Raster landen dann auch Frames von ausserhalb
+        # (Fehler vom 2026-09-15: alle drei "Treffer" waren so entstanden).
+        valid = mask | base
+    if mask.sum() < 15 or (valid & ~mask).sum() < 15:
+        return None, None, None
     # Fenster um PAD_S verbreitern - die Sender reagieren nicht framegenau
-    pad = int(PAD_S * hz)
+    pad = int(PAD * hz)
     if pad:
         mask = np.convolve(mask, np.ones(2 * pad + 1), mode="same") > 0
-    return grid, mask
+        if BASELINE:
+            valid = valid | mask          # verbreitertes Ereignis bleibt gueltig
+    return grid, mask, valid
 
 
-def bit_lift(raw_df, grid, mask, min_frames=200):
+def bit_lift(raw_df, grid, mask, min_frames=200, valid=None):
     """Pro (can_id, bit): Setzquote im Fenster vs. ausserhalb."""
     rows = []
     for can_id, sub in raw_df.groupby("can_id"):
@@ -122,17 +145,20 @@ def bit_lift(raw_df, grid, mask, min_frames=200):
         # jedem Frame zuordnen, ob er in ein Ereignisfenster faellt
         idx = np.searchsorted(grid, t).clip(0, len(grid) - 1)
         inside = mask[idx]
-        if inside.sum() < 10 or (~inside).sum() < 10:
+        usable = valid[idx] if valid is not None else np.ones(len(idx), dtype=bool)
+        inside = inside & usable
+        outside = (~mask[idx]) & usable
+        if inside.sum() < 10 or outside.sum() < 10:
             continue
         p_in = bits[inside].mean(axis=0)
-        p_out = bits[~inside].mean(axis=0)
+        p_out = bits[outside].mean(axis=0)
         for b in range(dlc * 8):
             if p_in[b] == p_out[b]:
                 continue
             rows.append(dict(can_id=f"0x{can_id:03X}", bit=b,
                              p_inside=float(p_in[b]), p_outside=float(p_out[b]),
                              lift=float(p_in[b] - p_out[b]),
-                             n_inside=int(inside.sum()), n_outside=int((~inside).sum())))
+                             n_inside=int(inside.sum()), n_outside=int(outside.sum())))
     return pd.DataFrame(rows)
 
 
@@ -163,6 +189,16 @@ def self_test():
         payloads.append(bytes(b))
     df = pd.DataFrame({"t": grid, "can_id": [0x123] * n, "data": payloads})
     res = bit_lift(df, grid, mask)
+    # Baseline-Pfad: nur ein Teil des "ausserhalb" zaehlt - ein Bit, das auch dort gesetzt
+    # ist, darf NICHT gewinnen (der Bug vom 2026-09-15)
+    valid = mask | ((grid > 20) & (grid < 25))
+    res_b = bit_lift(df, grid, mask, valid=valid)
+    top_b = res_b.sort_values("lift", ascending=False).iloc[0]
+    assert top_b["bit"] == 0 and top_b["lift"] > 0.9, res_b.sort_values("lift", ascending=False).head()
+    always = res_b[(res_b.bit >= 8) & (res_b.bit < 16)]["lift"]
+    # leer ist der Idealfall: ein durchgehend gesetztes Bit hat p_in == p_out und wird
+    # gar nicht erst als Zeile gefuehrt
+    assert always.empty or always.abs().max() < 0.05, "Dauer-Bit im Baseline-Pfad gewonnen"
     top = res.sort_values("lift", ascending=False).iloc[0]
     assert top["bit"] == 0 and top["lift"] > 0.9, res.sort_values("lift", ascending=False).head()
     always = res[(res.bit >= 8) & (res.bit < 16)]
@@ -173,7 +209,25 @@ def self_test():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--event", default="brake",
-                    choices=["brake", "abs", "dsc", "standstill", "moving"])
+                    choices=["brake", "abs", "dsc", "standstill", "moving", "window"])
+    ap.add_argument("--hz", type=float, default=20.0,
+                    help="Zeitraster der Ereignismaske. Fuer sehr kurze Ereignisse hoeher "
+                         "setzen - ein ABS-Eingriff dauert nur wenige Zehntelsekunden.")
+    ap.add_argument("--pad", type=float, default=PAD_S,
+                    help="Ereignisfenster vorne/hinten verbreitern (s). Bei von Hand exakt "
+                         "gesetzten Fenstern auf 0 setzen, sonst verschmiert das Ereignis "
+                         "in die Vergleichsphase hinein.")
+    ap.add_argument("--baseline", action="append", default=[],
+                    help="Vergleichsfenster 'von:bis'. Ohne das ist 'ausserhalb' der ganze "
+                         "Rest des Logs - dann findet man alles, was ueberhaupt mit dem "
+                         "Ereignistyp zusammenhaengt (beim Bremsen z.B. Bremslicht und "
+                         "Rueckschalten). Mit einer Baseline aus GLEICHARTIGEN Ereignissen "
+                         "ohne das gesuchte Merkmal kuerzen sich genau diese Begleiter heraus.")
+    ap.add_argument("--window", action="append", default=[],
+                    help="explizites Ereignisfenster 'von:bis' in Sekunden ab Logbeginn "
+                         "(mehrfach moeglich). Braucht --event window. Fuer Faelle, in denen "
+                         "das Ereignis bereits von Hand lokalisiert ist - die automatischen "
+                         "Schwellen sind dann nur unnoetige Unschaerfe.")
     ap.add_argument("--log", action="append")
     ap.add_argument("--min-bytes", type=int, default=2_000_000)
     ap.add_argument("--self-test", action="store_true")
@@ -183,17 +237,24 @@ def main():
         self_test()
         return
 
+    global WINDOWS, BASELINE, PAD
+    WINDOWS = args.window
+    BASELINE = args.baseline
+    PAD = args.pad
+    if args.event == "window" and not WINDOWS:
+        raise SystemExit("--event window braucht mindestens ein --window von:bis")
+
     logs = args.log or [p for p in sorted(glob.glob("data/can/candump-*.log"))
                         if os.path.getsize(p) >= args.min_bytes]
     db = load_db("hscan")
     frames = []
     for path in logs:
         raw_df = parse_candump(path)
-        grid, mask = event_windows(raw_df, db, args.event)
+        grid, mask, valid = event_windows(raw_df, db, args.event, hz=args.hz)
         if grid is None:
             print(f"  {os.path.basename(path)}: kein brauchbares Ereignisfenster")
             continue
-        res = bit_lift(raw_df, grid, mask)
+        res = bit_lift(raw_df, grid, mask, valid=valid)
         if res.empty:
             continue
         res["log"] = os.path.basename(path)

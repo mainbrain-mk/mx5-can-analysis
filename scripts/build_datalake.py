@@ -226,6 +226,11 @@ CAN_SIGNAL_MAP = {
     "Tire2_Pressure": ("TirePressure_CAN_Tire2", "bar"),
     "Tire3_Pressure": ("TirePressure_CAN_Tire3", "bar"),
     "Tire4_Pressure": ("TirePressure_CAN_Tire4", "bar"),
+    # Ereignis-Flags aus der Fahrdynamik (2026-09-15). ABS_Active ist der lange gesuchte
+    # ABS-Eingriffsindikator (0x211 HS_ABS, 50 Hz); FuelCut die Schubabschaltung
+    # (0x0FD) - beide sind fuer Brems- bzw. Schleppmomentanalysen direkt relevant.
+    "ABS_Active": ("ABS_Active_CAN", ""),
+    "FuelCut": ("FuelCut_CAN", ""),
     # OBD-Kanaele (kein DBC-Signal, sondern Diagnose-Antworten - siehe OBD_CHANNELS in
     # can_log_parser.py). OilTemp_OBD ist der wichtigste: die Motoroeltemperatur wird nicht
     # gebroadcastet, seit 2026-09-15 pollt tpms_poller.py sie alle 10s selbst. Aeltere Logs

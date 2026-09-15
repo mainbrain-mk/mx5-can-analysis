@@ -2229,3 +2229,62 @@ voller Botschaftsrate statt mit 1-2 Hz Polling - siehe `scripts/engine_braking_a
 "dieselbe Groesse". Ein Flag mit zwei Zustaenden kann eine analoge Referenz gut vorhersagen,
 wenn deren Varianz von genau diesem Zustand dominiert wird. Das Skript gibt die Kardinalitaet
 jetzt mit aus und warnt bei weniger als 10 verschiedenen Rohwerten.
+
+## ABS-EINGRIFFSINDIKATOR GEFUNDEN (2026-09-15, Heimfahrt ab t=1880s)
+
+Der seit Wochen offene Kernpunkt ist geloest. Moeglich wurde das durch die Heimfahrt vom
+15.09., das erste Log mit echten Regeleingriffen: ab t=1880 s enthaelt es ein voellig anderes
+Fahrprofil als alles bisher Aufgezeichnete - bis **1,0 g quer**, **-0,98 g laengs**, 100 %
+Gas, 6397 1/min, 73 bar Bremsdruck, Lenkwinkel bis -450 Grad (ueber das ganze Log sogar
+-1,09 g quer und 194,6 km/h).
+
+**`ABS_Active` = 0x211 (HS_ABS) Bit 42.** Die Botschaft war bis dahin komplett leer.
+
+### Befund
+Das Bit ist ueber das gesamte 35-Minuten-Log zu **0,052 %** gesetzt - in genau **zwei**
+zusammenhaengenden Phasen: 1888,05-1888,45 s (0,40 s) und 1961,97-1962,63 s (0,66 s).
+Genau dort und nur dort zeigen die Radgeschwindigkeiten (100 Hz) echte ABS-Modulation:
+
+- Bremsung 1 (90,8 -> 56,9 km/h, 67,7 bar): Rad 2 (vorn rechts) faellt zweimal um bis zu
+  9 km/h unter die drei anderen und springt jeweils wieder darueber zurueck -
+  Druckabbau/Wiederaufbau mit rund 3 Hz.
+- Bremsung 2 (109,8 -> 57,3 km/h, 72,6 bar): dasselbe Muster an Rad 1.
+
+Das Bit schaltet bei t=1888,052 ein, exakt als die Radspreizung erstmals 4 km/h
+ueberschreitet, bleibt waehrend der kurzen Erholung zwischen den Regelzyklen gesetzt (der
+Regler ist noch aktiv, Spreizung zwischenzeitlich nur 0,37 km/h) und faellt ab, sobald sich
+die Raeder gefangen haben.
+
+### Negativkontrollen
+- Hinfahrt desselben Tages (114.635 Frames von 0x211, 39 Minuten): **0,000 %** - dort lag
+  die maximale Radspreizung beim Bremsen auch nur bei 2,18 km/h.
+- `candump-2026-09-11_180456`: ebenfalls 0,000 %.
+- Feuert nicht bei den Standbrems-Tests mit 72 bar und nicht bei hoher Querbeschleunigung.
+
+### Warum es vorher nicht gefunden wurde - zwei methodische Gruende
+1. **Es gab schlicht kein Ereignis.** In allen frueheren Logs blieb die Radspreizung beim
+   Bremsen unter ~2,2 km/h. Kein Suchverfahren haette etwas finden koennen.
+2. **Das Vergleichsfenster war falsch.** Ein Vergleich der Regelphase gegen den ganzen Rest
+   des Logs findet nur Bremslichtschalter und Rueckschaltvorgaenge - alles, was mit Bremsen
+   ueberhaupt zusammenhaengt. Erst der Vergleich gegen den **Rest DERSELBEN Bremsungen**
+   isoliert den Eingriff (Lift 0,88; innen 93 %, in den Vergleichsphasen < 5 %). Dazu
+   mussten die Fenster auf die tatsaechliche Regelphase von 0,4-0,66 s eingegrenzt und das
+   Zeitraster auf 100 Hz erhoeht werden; mit 20 Hz und 0,5 s Fensterverbreiterung war das
+   Ereignis zu stark verduennt.
+
+`can_event_bit_diff.py` kann jetzt explizite `--window`/`--baseline`-Fenster sowie `--hz`
+und `--pad`.
+
+### Zwei Fehlalarme unterwegs - und ein eigener Bug
+Ein erster Lauf meldete `0x09E` Bit 57 und `0x21F` Bit 4 mit Lift 0,95. Beide waren
+**Artefakte eines Fehlers in meiner frisch gebauten `--baseline`-Option**: sie beschnitt das
+Zeitraster, `bit_lift()` ordnet Frames aber per `searchsorted` zu - in ein lueckenhaftes
+Raster fallen dann auch alle Frames von ausserhalb. Die beiden Bits sind in Wahrheit auch
+waehrend der Vergleichsbremsung ohne Schlupf zu 100 % gesetzt, unterscheiden also nichts.
+Behoben: das Raster bleibt vollstaendig, eine zusaetzliche `valid`-Maske blendet aus, was
+weder Ereignis noch Baseline ist. Selbsttest deckt jetzt genau diesen Fall ab.
+
+### Offen
+Ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne Bremsung gesetzt wird, ist
+mangels eines solchen Ereignisses nicht geprueft. `ABS_Active` und `FuelCut` sind als
+Datalake-Kanaele (`ABS_Active_CAN`, `FuelCut_CAN`) aufgenommen.
