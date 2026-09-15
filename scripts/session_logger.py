@@ -245,12 +245,14 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
-    # Verwaiste candump-Prozesse einer vorherigen Instanz abraeumen. Am 2026-09-15 hat ein
-    # solcher Waisenprozess weitergeschrieben, nachdem die Uhr zwischenzeitlich verstellt
-    # worden war - Ergebnis: ein 256-MB-Log, dessen Frame-Zeitstempel 7,7 h neben seinem
-    # Dateinamen lagen, und das mangels stop_logging() nie gezippt wurde.
-    # Muster ohne Selbsttreffer (pgrep -f matcht sonst die eigene Kommandozeile mit,
-    # siehe die entsprechende Erfahrung im Projekt).
+    # Verwaiste candump-Prozesse einer vorherigen Instanz abraeumen: startet systemd diesen
+    # Dienst neu (Restart=on-failure), ueberlebt das candump-Kind der alten Instanz und
+    # schreibt weiter in seine Datei, ohne dass je jemand stop_logging() dafuer aufruft.
+    # Reine Vorsichtsmassnahme - der Fall ist bisher NICHT beobachtet worden. Insbesondere
+    # erklaert er NICHT das unkomprimierte Log vom 2026-09-15: dort war die Ursache ein
+    # harter Stromverlust am Fahrtende (uptime -s = 17:49:26, drei Minuten nach dem letzten
+    # Frame), siehe mx5_can_bus_status.md.
+    # Muster ohne Selbsttreffer (pgrep/pkill -f matcht sonst die eigene Kommandozeile mit).
     subprocess.run(["pkill", "-f", "[c]andump -l"], capture_output=True)
     session.gzip_finished_logs()  # von vorherigen Fahrten liegengebliebene Logs nachtraeglich komprimieren
 
