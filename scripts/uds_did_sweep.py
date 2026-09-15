@@ -266,6 +266,47 @@ def sweep(sock, req_id, resp_id, dids, gap, timeout, verbose=True):
     return rows
 
 
+PROBE_STEPS = [
+    ("PCM", "mode1", None),        # welche Standard-PIDs gibt es + einmal auslesen
+    ("DSC", "did", "2B00-2BFF"),   # Fahrwerksblock (ND3: 11 Treffer, u.a. Bremspedal)
+    ("DSC", "did", "2000-20FF"),   # Lenkungsblock (ND3: 4 Treffer)
+    ("PCM", "did", "1300-13FF"),   # Thermoblock - hier liegt die Oeltemperatur (0x1310)
+]
+
+
+def run_probe(channel, timeout, gap, out_path=None):
+    """Einmal-Erhebung. Bewusst fehlertolerant: ein fehlschlagender Schritt darf die
+    uebrigen nicht verhindern - das Ding laeuft unbeaufsichtigt waehrend einer Fahrt."""
+    sock = open_bus(channel)
+    rows = []
+    try:
+        for ecu, kind, rng in PROBE_STEPS:
+            req_id, resp_id = ECUS[ecu]
+            label = f"{ecu} {kind} {rng or ''}".strip()
+            print(f"\n--- {label} ---", flush=True)
+            try:
+                if kind == "mode1":
+                    got = mode1_survey(sock, req_id, resp_id, timeout)
+                else:
+                    got = sweep(sock, req_id, resp_id, parse_range(rng), gap, timeout)
+                for r in got:
+                    r["step"] = label
+                rows += got
+            except Exception as exc:
+                print(f"  Schritt fehlgeschlagen: {exc!r}", flush=True)
+    finally:
+        sock.close()
+
+    print(f"\nEinmal-Erhebung fertig: {len(rows)} Treffer", flush=True)
+    if out_path and rows:
+        with open(out_path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+        print(f"-> {out_path}", flush=True)
+    return rows
+
+
 def parse_range(text):
     if "-" in text:
         lo, hi = text.split("-", 1)
@@ -311,11 +352,27 @@ def main():
                     help="statt DID-Sweep: alle unterstuetzten Standard-Mode-1-PIDs "
                          "ermitteln und einmal auslesen (5 Anfragen + je eine pro PID). "
                          "Liefert u.a. die GEMESSENEN Lambdawerte beider Sonden.")
+    ap.add_argument("--delay", type=float, default=0.0,
+                    help="vor dem Start so viele Sekunden warten - fuer den automatischen "
+                         "Lauf beim Fahrtbeginn, damit der Motor schon laeuft (Lambda, "
+                         "Oeltemperatur und Last sind bei blosser Zuendung ACC wertlos)")
+    ap.add_argument("--probe", action="store_true",
+                    help="vordefinierte Einmal-Erhebung: Mode-1-Bestandsaufnahme am PCM "
+                         "plus die beiden DSC-Bloecke, die laut ND3-Quelle Fahrwerks- und "
+                         "Lenkungsdaten tragen. Alles rein lesend.")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
     if args.self_test:
         self_test()
+        return
+
+    if args.delay > 0:
+        print(f"warte {args.delay:.0f}s (Motor soll laufen)...", flush=True)
+        time.sleep(args.delay)
+
+    if args.probe:
+        run_probe(args.channel, args.timeout, args.gap, args.out)
         return
 
     req_id, resp_id = ECUS[args.ecu]

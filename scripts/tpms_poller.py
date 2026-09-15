@@ -154,16 +154,25 @@ def main():
     try:
         while True:
             now = time.time()
+            # Beide Gruppen sind gegeneinander isoliert: ein Fehler in der (neueren,
+            # weniger erprobten) Oelgruppe darf die seit Wochen laufende TPMS-Abfrage
+            # nicht mitreissen. Der Poller laeuft unbeaufsichtigt bei jeder Fahrt.
             if now >= next_tpms:
-                values, unexpected = poll_once(bus)
-                print(values, flush=True)
-                for arb_id, hex_data in unexpected:
-                    print(f"  unerwarteter Frame auf {arb_id}: {hex_data}", flush=True)
+                try:
+                    values, unexpected = poll_once(bus)
+                    print(values, flush=True)
+                    for arb_id, hex_data in unexpected:
+                        print(f"  unerwarteter Frame auf {arb_id}: {hex_data}", flush=True)
+                except Exception as exc:
+                    print(f"  TPMS-Abfrage fehlgeschlagen: {exc!r}", flush=True)
                 next_tpms = now + args.interval if args.interval > 0 else float("inf")
             if not args.no_oil and time.time() >= next_oil:
-                values, _ = poll_oil(bus)   # Fremdantworten auf 0x7E8 sind hier der Normalfall
-                if values:                  # (das Handy pollt denselben Header) - nicht melden
-                    print(values, flush=True)
+                try:
+                    values, _ = poll_oil(bus)  # Fremdantworten auf 0x7E8 sind hier der
+                    if values:                 # Normalfall (Handy pollt denselben Header)
+                        print(values, flush=True)
+                except Exception as exc:
+                    print(f"  Oelabfrage fehlgeschlagen: {exc!r}", flush=True)
                 next_oil = time.time() + args.oil_interval if args.oil_interval > 0 else float("inf")
             if args.interval <= 0 and (args.no_oil or args.oil_interval <= 0):
                 break
