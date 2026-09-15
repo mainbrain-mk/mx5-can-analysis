@@ -10,7 +10,31 @@ Um höher aufgelöste Rohdaten als über OBD-Fusion-Polling zu bekommen, logge i
 Antriebsstrang, Teillast, Ausrollversuche, Vmax, IMU/Vibration etc.) steht in
 [`PROJEKT_STAND.md`](PROJEKT_STAND.md).
 
-## Kurzüberblick: aktueller Stand (2026-09-14)
+## Kurzüberblick: aktueller Stand (2026-09-15)
+
+**Status 2026-09-15 — drei Kernpunkte gelöst.** Details jeweils im Logbuch unten,
+Gesamtplan in [`mx5_can_deep_search_plan.md`](mx5_can_deep_search_plan.md).
+
+1. **ABS-Eingriffsindikator gefunden** (`ABS_Active`, 0x211 Bit 42) — das seit Wochen
+   offene Kernziel. Möglich wurde es durch die Heimfahrt vom 15.09., das erste Log mit
+   echten Regeleingriffen.
+2. **Motoröltemperatur erschlossen** (DID 0x1310) — wird nicht gebroadcastet und vom Handy
+   nur sporadisch abgefragt; seit 15.09. pollt der Pi sie selbst alle 10 s. Formel dreifach
+   unabhängig bestätigt. Vom Nutzer ausdrücklich als wichtiger Kanal markiert.
+3. **Der verworfene UDS-Verkehr** — `obd_from_can.py` las nur 1 von 4 Headern und keine
+   ISO-TP-Multiframes. Behoben: sieben zusätzliche echte Messkanäle aus jedem Y-Kabel-Log.
+
+Dabei wurden **drei früher als abgeschlossen geführte Befunde widerlegt** (0x86-Lenkwinkel
+ist linear statt nichtlinear; OBD-Fusion liest nichts nativ mit; DID 0x1310 ist die
+Öltemperatur, nicht der Kilometerstand) und ein Root-Cause-Bug gefunden, durch den in
+**jedem** früheren Sweep beide Beschleunigungsanker stillschweigend fehlten.
+
+Neue Werkzeuge: `can_opendbc_crosscheck.py`, `can_field_segmentation.py` (READ,
+referenzfrei), `can_event_bit_diff.py`, `can_find_native_counterpart.py`, `uds_did_sweep.py`.
+
+<details>
+<summary>Vorheriger Stand (2026-09-14)</summary>
+
 
 **Status:** Vollautomatisches CAN-Logging läuft produktiv seit 2026-09-11 (KeyState-getriggert,
 ein Log pro Fahrt, kein manueller Schritt nötig). Die DBC-Dekodierung deckt praktisch alle
@@ -27,6 +51,8 @@ mehr nötig, framegenau statt zeitversatz-geschätzt) — darauf aufbauend ein w
 Byte-Sweep-Tool gebaut, das 3 neue CAN-Signale gefunden und die `SteeringAngle_related`-
 "schwaches Signal"-Frage als Messmethoden-Artefakt aufgelöst hat (siehe Logbuch, Abschnitt
 "CAN-Byte-Search-Projekt").
+
+</details>
 
 ### Hardware & Infrastruktur
 - **Adapter:** DSD TECH SH-C31A (CANable 2.0) am OBD-Port, nur HS-CAN (`can0`), 500 kbit,
@@ -61,11 +87,18 @@ vertrauen, Details im Logbuch unten.
   Getriebe-Rohsignale), Clutch_Pedal_Position_raw✓ (0-199 roh, **kalibriert:**
   `CPP_PER_MZ% ≈ 0,4665·raw+0,56`, sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
   2026-09-14 über alle 4 Logs mit OBD-Traffic bestätigt, r=0,999), Fuel_Tank✓ (roh 0x09E,
-  **kalibriert:** `FLI% ≈ 2,486·raw-0,02`), EngineLoad_or_Torque_pct_maybe (0x167,
-  **kalibriert:** `Torque% ≈ raw·3,17-185,3`, ersetzt die frühere Fehlannahme
-  "MassAirFlowRate", **2026-09-14 cross-log bestätigt** (3-4/4 Logs, korreliert mit
-  Gaspedal/MAP) – vorher nur an einem Log geprüft), EngineLoad_related_maybe (0x200,
+  **kalibriert:** `FLI% ≈ 2,486·raw-0,02`), `ActualEnginePercentTorque`✓ (0x167 Byte4, bis
+  2026-09-15 `EngineLoad_or_Torque_pct_maybe`; ersetzte seinerzeit die Fehlannahme
+  "MassAirFlowRate", 2026-09-14 cross-log bestätigt, 2026-09-15 per Übertragungstest gegen
+  den Standard-PID 0x62 endgültig bestätigt und neu kalibriert – Details unten),
+  EngineLoad_related_maybe (0x200,
   ebenfalls 2026-09-14 cross-log bestätigt, gleiche Last-Domäne, kein reines Duplikat),
+  **`FuelCut`✓ (0x0FD Byte5 Bit1, NEU 2026-09-15)** – Schubabschaltung; bei Soll-Lambda>1,9
+  zu 99% gesetzt, außerhalb des Schubbetriebs zu 0,4%. Relevant fürs Schleppmoment, und zwar
+  mit voller Botschaftsrate statt 1-2 Hz OBD-Polling.
+  **`ActualEnginePercentTorque` (0x167 Byte4, 2026-09-15 von `_maybe` hochgestuft)** –
+  Übertragungstest gegen den Standard-PID 0x62 über zwei Fahrten: R²=0,962. Kalibrierung neu
+  gefittet `3,0242·raw−177,849` (RMSE 4,07 %p, auf beiden Fahrten besser als die alte Formel).
   EngineRPM_related_3_maybe (0x42B, **neu 2026-09-14**, Byte1-2, bisher komplett leere
   Botschaft – korreliert mit EngineRPM aber nur R²=0,44, kein reines Duplikat des
   bekannten "Drehzahl×2"-Signals auf 0x130, Rohwert-Durchreichung ohne Formel).
@@ -88,7 +121,9 @@ vertrauen, Details im Logbuch unten.
   war derselbe Bug-Typ wie BrakePressure (unsigned statt signed, plus falsche Skala/Offset);
   neue Formel `(0,0025, +32)` signed liefert plausible 3,8-25,9°C über 3 Logs (siehe Logbuch,
   Abschnitt "gitgc/mx5-miata-nd2-obd-can").
-- **Bremse/ABS:** BrakePressure✓ (bar) – Vorzeichen- UND Offsetfehler der Community-DBC
+- **Bremse/ABS:** **`ABS_Active`✓ (0x211 HS_ABS Bit42, NEU 2026-09-15)** – der
+  ABS-Eingriffsindikator, siehe Logbuch. Die Botschaft 0x211 war bis dahin komplett leer.
+  BrakePressure✓ (bar) – Vorzeichen- UND Offsetfehler der Community-DBC
   gefunden und behoben (2026-09-12, jetzt `(0,0012413, +32,7986)`, R²=0,986 gegen
   echten OBD-Referenzkanal), kein Rollover-Sonderfall mehr nötig. BBP_Brake_Booster_Pressure_2/
   BARO_Barometric_pressure (kPa), WheelSpeed_1-4✓ (km/h, Sentinel 0xFFFF gefiltert),
@@ -107,6 +142,13 @@ vertrauen, Details im Logbuch unten.
   auf 26|11 und ist nach Verwerfen der Invalid-Frames ebenfalls perfekt linear
   (`1,6·raw − 1600`, R²=0,9997-0,9999, RMSE 0,72-1,07° über 5 Logs) – eine grob aufgelöste
   Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 bleibt unidentifiziert.
+  **`SteeringTorque_maybe` (0x240 Byte0, neu 2026-09-15)** – vermutlich das EPAS-Lenkmoment:
+  Median exakt 0 im Stand und geradeaus, r gegen den Lenkwinkel nur 0,23-0,52 über das ganze
+  Log aber 0,78-0,86 gefiltert auf >40 km/h (bei Parkiergeschwindigkeit dominiert der
+  Reifenscrub), Streuung im Stand doppelt so hoch, und es läuft dem Winkel voraus.
+  Einschränkung: nach Herausrechnen des Winkels bleiben nur r=0,14 gegen die
+  Querbeschleunigung – keine unabhängige Querkraftmessung. Keine physikalische Einheit
+  kalibrierbar, es gibt im Fahrzeug keinen Referenz-Momentenkanal.
 - **Zündung/Fahrzustand:** KeyState✓/KeyStateInv (OFF/ACC/ON/START), StarterInterLockSW
   (Anlasssperren-Schalter), Parking_Brake (springt bei Zündung ACC/OFF fest auf "Applied",
   nur bei Motor ON aussagekräftig), CC_SetSpeed (km/h, Tempomat-Soll).
@@ -129,7 +171,17 @@ vertrauen, Details im Logbuch unten.
 - **Berechnete Ersatzgrößen (kein eigenes CAN-Byte, aber validiert):** echter Luftmassenstrom
   `MAF(g/s) ≈ 0,00019·(RPM·MAP) - 8,08` (R²=0,945); Drosselklappenstellung nur als Schätzung
   aus Pedal+Drehzahl (R²≈0,89), kein Broadcast-Signal gefunden.
-- **OBD-Kanäle direkt aus dem CAN-Log (neu 2026-09-14):** wann immer das Y-Splitter-Kabel
+- **Motoröltemperatur (DID 0x1310, NEU 2026-09-15):** `OilTemp_CAN`✓ (°C),
+  Formel `((A·256)+B)/100−40`. Wird **nicht** gebroadcastet (Broadcast-Suche negativ) und der
+  Standard-PID 0x5C wird vom Fahrzeug nicht unterstützt – deshalb pollt `tpms_poller.py` sie
+  seit 15.09. selbst alle 10 s. Formel dreifach unabhängig bestätigt (Kaltstart Öl = Kühlwasser
+  = Ansaugluft auf 0,3 °C; Warmlauf-Nachlauf bis 39 °C; warm 1,8 °C über dem Kühlwasser).
+- **OBD-Kanäle direkt aus dem CAN-Log (neu 2026-09-14, 2026-09-15 stark erweitert):**
+  Seit 15.09. werden **alle vier** UDS-Header dekodiert (vorher nur 0x7E0/0x7E8) und
+  ISO-TP-Multiframes zusammengesetzt. Dadurch zusätzlich verfügbar: `MassAirFlow_CAN`✓ (g/s),
+  `LambdaCommanded_CAN`✓ (SOLL-Lambda, kein Sondenmesswert!), `TimingAdvance_CAN`✓ (°),
+  `EnginePercentTorque_CAN`✓ (%), sowie STEER_ANGL_EPS/STEER_SPD_EPS vom EPS-Modul (0x730).
+  Die gemessenen Sondenwerte liefert PID 0x34 – unterstützt, aber noch nicht abgefragt. wann immer das Y-Splitter-Kabel
   genutzt wird, sind die Handy-OBD-Requests/-Antworten (`0x7E0`/`0x7E8`) selbst im CAN-Log
   enthalten – `scripts/obd_from_can.py` dekodiert sie direkt daraus, ganz ohne `.dlg`-Datei
   und ohne die bisherige Zeitversatz-Schätzung zwischen zwei unabhängig getakteten Dateien.
@@ -194,10 +246,15 @@ OBD/CAN-Referenz gesucht werden muss):
 ### Bekannte offene Punkte
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
-- **ABS/DSC-Eingriffsindikator weiterhin nicht gefunden** – Kernziel des 2026-09-14
-  CAN-Byte-Search-Projekts (siehe Logbuch), nicht erreicht. Der gefundene `YawRate_related`
-  (0x78) ist ein analoges Gierratensignal aus der ABS-Domäne, kein sauberes Eingriffs-Flag.
-  Braucht entweder mehr Logs mit einem echten Eingriff oder eine gezielte Testfahrt.
+- ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
+  `ABS_Active` = 0x211 (HS_ABS) Bit 42. Über ein 35-Minuten-Log zu 0,052 % gesetzt, in genau
+  den zwei Phasen mit echter ABS-Modulation; Negativkontrolle 0,000 % in der Hinfahrt
+  desselben Tages. Siehe Logbuch, Abschnitt "ABS-EINGRIFFSINDIKATOR GEFUNDEN". Es fehlte
+  beides gleichzeitig: ein echtes Ereignis (in allen früheren Logs blieb die Radspreizung
+  beim Bremsen unter 2,2 km/h) **und** das richtige Vergleichsfenster (Regelphase gegen den
+  Rest DERSELBEN Bremsung, nicht gegen den Rest des Logs).
+  **Weiterhin offen:** ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne
+  Bremsung gesetzt wird – dafür fehlt noch ein Ereignis.
 - AFR/Lambda, CommandEquivalenceRatio, TimingAdvance, ETC_ACT (echte Drosselklappenstellung):
   bestätigt nicht periodisch auf HS-CAN broadcastet (nur Mode-22-Polling) – seit 2026-09-14
   aber direkt aus dem CAN-Log dekodierbar, ohne Handy/`.dlg` (siehe oben). **2026-09-14,
@@ -205,7 +262,11 @@ OBD/CAN-Referenz gesucht werden muss):
   dies nochmal deutlich rigoroser. Bester AFR_MZ-Kandidat (`0x0FD` Byte 5) fittet zwar über
   alle 3 Logs auf dieselbe Bitlage, aber R² fällt 0,86→0,66→0,63 UND der Rohwert nimmt nur
   3 diskrete Werte {0,1,2} an – kein analoges Lambda-Signal, eher ein Status-Flag (z.B.
-  Closed-Loop/Warmlauf-Zustand), das nur zufällig mit dem AFR-Trend mitläuft. Zweiter
+  Closed-Loop/Warmlauf-Zustand), das nur zufällig mit dem AFR-Trend mitläuft.
+  **NACHTRAG 2026-09-15: dieses Status-Flag ist jetzt identifiziert** – es ist die
+  **Schubabschaltung** (`FuelCut`, 0x0FD Byte5 Bit1). Die Einschätzung von damals war also
+  richtig, nur die Bedeutung fehlte. Beleg: bei Soll-Lambda > 1,9 (Kraftstoff abgeschaltet)
+  ist das Bit zu 99,4 % bzw. 98,8 % gesetzt, außerhalb von Schubbetrieb nur zu 0,4 %. Zweiter
   Kandidat `0x20A` fittet R² 0,76→0,48→0,49, UND die Gewinner-Bitlage wechselt sogar
   zwischen den Logs (39|10 vs. 29|11) – klares Zeichen für Zufallskorrelation statt echter
   Kodierung. ETC_ACT-bester Kandidat `0x200`: R² 0,52→0,29→0,29, Gewinner ebenfalls
@@ -252,14 +313,29 @@ OBD/CAN-Referenz gesucht werden muss):
    validiert, Kurvenauswertung läuft inzwischen automatisch für jedes CAN-Log – siehe
    PROJEKT_STAND.md, 220 Kurven aus 7 Fahrten).
 6. Pi-GUI-Lag-Fix bei der nächsten Fahrt live prüfen (soll den >2s-Gauge-Lag behoben haben).
-7. **Gezielte Testfahrt für die zwei letzten offenen Kernfragen** (Plan-Phase 6, siehe Logbuch):
-   Rückwärtsgang mit vollständig durchgetretener statt rutschender Kupplung, und – falls sicher
-   möglich – eine Situation mit echtem ABS/DSC-Eingriff. Reine Log-Analyse kann beides nicht
-   mehr weiterbringen, es fehlen die Rohdaten dafür.
+7. **Gezielte Testfahrt** – der ABS-Teil hat sich am 2026-09-15 von selbst erledigt (die
+   Heimfahrt enthielt zwei echte Eingriffe, Indikator gefunden). Offen bleiben: Rückwärtsgang
+   mit vollständig durchgetretener statt rutschender Kupplung, und ein **reiner DSC-/
+   Traktionseingriff ohne Bremsung** – nur damit lässt sich klären, ob `ABS_Active` auch
+   dafür gesetzt wird oder ob es ein zweites Flag gibt.
 8. ~~Nichtlineare Umrechnung für `SteeringAngle_related_3`~~ – entfällt (2026-09-15, siehe oben:
    falsche Bitlage; der echte Kanal ist linear).
 9. Den CAN-Byte-Sweep (`scripts/can_byte_search.py`) bei künftigen neuen Logs erneut laufen
-   lassen – aktuell nur an den 5 vorhandenen "reichhaltigen" Logs geprüft.
+   lassen. **Wichtig (2026-09-15):** alle früheren Sweeps liefen mit unvollständigem Ankersatz –
+   beide Beschleunigungsanker und `PROXY_high_lat_g` fehlten wegen vertauschter CAN-IDs
+   stillschweigend. Jetzt 29 statt 19 Anker; ein Wiederholungslauf über die bestehenden Logs
+   lohnt sich unabhängig von neuen Fahrten.
+10. **Die Heimfahrt vom 15.09. ab t=1880 s als Referenzdatensatz nutzen** – sie ist mit ±1,0 g
+    quer, −0,98 g längs und zwei ABS-Eingriffen das mit Abstand dynamischste Material im
+    Bestand. Naheliegend: Bremsmodell gegen die Verzögerung *während* der Regelung prüfen
+    (das ist die tatsächliche Haftgrenze), und den Grip-Schätzer gegen die ±1,0-g-Kurven.
+11. **Mode-1-Bestandsaufnahme mit laufendem Motor wiederholen** (`RUN_PROBE` ist scharf, der
+    Auslöser wartet jetzt auf Drehzahl > 400). Der erste Lauf fiel bei stehendem Motor an;
+    die statischen Ergebnisse gelten, die gemessenen Lambdawerte (PID 0x34) fehlen noch.
+12. **Der 0x0FD-Byte4-5-Fund zeigt, dass sich ein zweiter Blick lohnt:** dasselbe Byte war
+    am 2026-09-14 schon als "Status-Flag" aufgefallen und mangels Deutung liegengeblieben.
+    Die übrigen damals verworfenen Kandidaten (`0x20A`, `0x200`) sind unter demselben
+    Gesichtspunkt nochmal anzusehen – nicht als analoge Messwerte, sondern als Zustandsbits.
 
 ## Zusätzliche Notizen (Claude-Memory)
 Ergänzend zu diesem Dokument gepflegt, überlebt Kontext-Resets:
