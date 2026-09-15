@@ -92,7 +92,17 @@ def restore_clock(clock_path=CLOCK_FILE_PATH, run=subprocess.run, now=None):
             capture_output=True, timeout=5)
     except Exception as exc:
         return "stellen_fehlgeschlagen", f"Uhr war {now:%Y-%m-%d %H:%M:%S}, Korrektur auf {saved:%Y-%m-%d %H:%M:%S} fehlgeschlagen: {exc!r}"
-    return "korrigiert", f"Uhr von {now:%Y-%m-%d %H:%M:%S} auf gespeicherte {saved:%Y-%m-%d %H:%M:%S} vorgestellt (kein NTP)"
+    # WICHTIG (Erfahrung 2026-09-15): der Anker ist nur so aktuell wie die letzte Fahrt.
+    # Stand das Auto dazwischen 8 Stunden, ist die korrigierte Zeit zwar besser als der
+    # Image-Wert (Fehler 2 Tage -> 8 Stunden), aber immer noch falsch - und schlimmer:
+    # Dateiname und Frames koennen sich dann auf dieselbe falsche Zeit einigen und der
+    # Fehler wird wieder unsichtbar. Deshalb wird die verbleibende Unsicherheit ausdruecklich
+    # in den Marker geschrieben, damit die Auswertung sie sieht.
+    return "korrigiert", (f"Uhr von {now:%Y-%m-%d %H:%M:%S} auf gespeicherte "
+                          f"{saved:%Y-%m-%d %H:%M:%S} vorgestellt (kein NTP). "
+                          f"ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre "
+                          f"Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit "
+                          f"externem Anker (Handy-.dlg oder GPS) verlaesslich.")
 
 
 def save_clock(clock_path=CLOCK_FILE_PATH):
@@ -235,6 +245,13 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
+    # Verwaiste candump-Prozesse einer vorherigen Instanz abraeumen. Am 2026-09-15 hat ein
+    # solcher Waisenprozess weitergeschrieben, nachdem die Uhr zwischenzeitlich verstellt
+    # worden war - Ergebnis: ein 256-MB-Log, dessen Frame-Zeitstempel 7,7 h neben seinem
+    # Dateinamen lagen, und das mangels stop_logging() nie gezippt wurde.
+    # Muster ohne Selbsttreffer (pgrep -f matcht sonst die eigene Kommandozeile mit,
+    # siehe die entsprechende Erfahrung im Projekt).
+    subprocess.run(["pkill", "-f", "[c]andump -l"], capture_output=True)
     session.gzip_finished_logs()  # von vorherigen Fahrten liegengebliebene Logs nachtraeglich komprimieren
 
     print(f"[session_logger] warte auf KeyState auf {CAN_CHANNEL}...", flush=True)
