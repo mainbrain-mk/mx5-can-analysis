@@ -46,10 +46,24 @@ TANK_LITERS = 45.0
 FUEL_DENSITY_KG_L = 0.745
 
 
-def run_script(args, errors, timeout=600):
+def run_script(args, errors, timeout=1800):
     """Fuehrt ein Analyseskript per subprocess aus. Nicht-Null-Exitcode
     oder Exception wird in errors gesammelt, der Lauf geht weiter (siehe
-    Docstring oben). Gibt CompletedProcess oder None (bei Fehler) zurueck."""
+    Docstring oben). Gibt CompletedProcess oder None (bei Fehler) zurueck.
+
+    Timeout grosszuegig (30min): das hier ist ein naechtlicher Batchlauf,
+    ein zu knappes Limit kostet mehr als ein zu weites. Die fuenf
+    langsamsten Schritte standen frueher auf 300s - also UNTER dem
+    damaligen Default von 600s - und `build_datalake.py` lief am
+    2026-09-15 genau deshalb in den Timeout. Schlimm daran war nicht der
+    fehlende Datalake-Bau selbst, sondern dass jeder nachfolgende Schritt
+    danach still auf dem TAGE ALTEN Datalake weiterrechnete (run_script
+    sammelt den Fehler und macht weiter) - die Kurven-/Schaltergebnisse
+    dieses Laufs waren dadurch unbemerkt veraltet. Gemessen 2026-09-15:
+    build_datalake 380s, drivetrain_model_validation 425s,
+    top_speed_validation 422s, coastdown_analysis 59s - und alle drei
+    grossen wachsen mit jedem neuen Log weiter. 600s waeren schon in
+    wenigen Wochen wieder zu knapp gewesen."""
     label = " ".join(args)
     try:
         res = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -323,7 +337,7 @@ def main():
         run_script([PYTHON, "scripts/corner_event_analysis.py", *new_logs], errors)
 
     if new_logs or new_can_logs:
-        run_script([PYTHON, "scripts/build_datalake.py"], errors, timeout=300)
+        run_script([PYTHON, "scripts/build_datalake.py"], errors)
 
     previous_shift_best = load_json("shift_time_best.json") or {}
     if new_can_logs:
@@ -339,13 +353,13 @@ def main():
 
     if new_logs:
         run_script([PYTHON, "scripts/partial_load_model.py"], errors)
-        run_script([PYTHON, "scripts/drivetrain_model_validation.py"], errors, timeout=300)
-        run_script([PYTHON, "scripts/top_speed_validation.py"], errors, timeout=300)
+        run_script([PYTHON, "scripts/drivetrain_model_validation.py"], errors)
+        run_script([PYTHON, "scripts/top_speed_validation.py"], errors)
         run_script([PYTHON, "scripts/check_dgm_coverage_gaps.py"], errors)
 
     previous_coastdown = load_json("coastdown_analysis_summary.json") or []
     if new_logs:
-        run_script([PYTHON, "scripts/coastdown_analysis.py", *new_logs], errors, timeout=300)
+        run_script([PYTHON, "scripts/coastdown_analysis.py", *new_logs], errors)
     current_coastdown = load_json("coastdown_analysis_summary.json") or []
 
     steering_ran = False
@@ -357,7 +371,7 @@ def main():
             except ValueError:
                 n_steering_logs = 0
             if n_steering_logs > 0:
-                run_script([PYTHON, "scripts/steering_zero_offset.py"], errors, timeout=300)
+                run_script([PYTHON, "scripts/steering_zero_offset.py"], errors)
                 run_script([PYTHON, "scripts/steering_lateral_model.py", *new_logs], errors)
                 steering_ran = True
 

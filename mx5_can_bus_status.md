@@ -2114,14 +2114,35 @@ deshalb veraltete Staende) und kam mit dem Datum vom 13.09. hoch - genau der
 fake-hwclock-Wert aus dem Overlay. Ohne den Fix waere das Log zwei Tage falsch datiert
 gewesen, ohne erkennbaren Sprung.
 
-**Nebenwirkung, kosmetisch:** das Log der Rueckfahrt heisst `candump-2026-09-15_171047.log`,
-obwohl seine Frames von 09:27:32 bis 10:02:56 laufen. `date -s` und `systemd-timesyncd`
-haben sich kurz gegenseitig ueberschrieben, und candump hat beim Anlegen der Datei genau
-den Transientwert erwischt. **Die Daten selbst sind in Ordnung** - im Log steckt kein
-einziger Sprung > 60 s ueber 5,57 Mio Frames, und `log_start_epoch()` liest ohnehin den
-ersten Frame-Epoch statt des Dateinamens. Der Datalake ist also immun; nur der Dateiname
-ist irrefuehrend. (Die Datei ist ausserdem unkomprimiert geblieben - die Session wurde hart
-beendet, `stop_logging()` kam nicht mehr zum gzip.)
+**KORREKTUR (nachtraeglich, siehe Abschnitt "Nachgeholtes Log candump-2026-09-15_171047"
+weiter unten): die Absicherung hat den Fehler nicht behoben, nur verkleinert - und die
+erste Deutung der Nebenwirkung war in allen drei Punkten falsch.** Was die Absicherung
+laut ihrem eigenen Protokoll getan hat: Uhr von 13.09. 13:54 auf den **gespeicherten
+Anker** 15.09. 09:27:11 vorgestellt, *ohne* NTP. Der Anker ist aber nur die zuletzt
+bekannte Zeit, also ungefaehr das Ende der Hinfahrt (09:28:09) - er stimmt nur, wenn der
+Pi durchgehend lief. Hier lag dazwischen der halbe Tag im Stand. Aus einem 2-Tage-Fehler
+wurde damit ein **7h43m-Fehler**, kein korrekter Wert.
+
+Konkret falsch war:
+- *"das Log heisst 171047"* - nein, der Pi hat es als `candump-2026-09-15_092732.log`
+  angelegt (21 s nach der Uhrkorrektur, passend zum Anker). Der Name `171047` stammt aus
+  der nachtraeglichen Umbenennung anhand der Kreuzkorrelation, nicht aus der Absicherung.
+- *"Nebenwirkung kosmetisch, nur der Dateiname ist irrefuehrend"* - genau andersherum:
+  der Dateiname traegt die **verifizierte** Zeit (17:10:47, r=0,99994 gegen das Handy-Log),
+  die Frames sind um 7h43m15s daneben.
+- *"`log_start_epoch()` liest ohnehin den ersten Frame-Epoch, der Datalake ist immun"* -
+  das war der Bug, nicht die Immunitaet. Genau dadurch standen die am 14.09. umbenannten
+  Logs einen Tag lang mit falschem Datum im Datalake. Seit 2026-09-15 gewinnt bei einer
+  Abweichung > 60 s der Dateiname.
+
+Richtig bleibt: **die Messdaten selbst sind in Ordnung** (kein Sprung > 60 s ueber 5,57 Mio
+Frames), und die Datei blieb unkomprimiert, weil die Session hart beendet wurde und
+`stop_logging()` nicht mehr zum gzip kam.
+
+**Lehre fuer die Absicherung:** ein gespeicherter Zeit-Anker ersetzt kein NTP und keine RTC.
+Er hilft gegen den fake-hwclock-Ruecksprung, aber jede Standzeit zwischen zwei Sessions
+geht als Fehler direkt durch. Solange keine RTC verbaut ist, bleibt die Kreuzkorrelation
+gegen ein Handy-Log der einzige belastbare Zeitbeleg.
 
 ### Einmal-Erhebung: statische Ergebnisse gueltig, dynamische wertlos
 Die Erhebung lief - aber **bei stehendem Motor** (Drehzahl 0, Laufzeit seit Start 0, Last 0,

@@ -5426,7 +5426,39 @@ kaputt (`PIDS`-Eintraege haben jetzt 3 statt 2 Felder) - gefixt.
 - vmax in dieser Fahrt 194,6 km/h; TPMS unauffaellig, Hinterachse (Tire3/4)
   wie gewohnt ueber der Vorderachse.
 
-**Offen:** der Pipeline-Timeout fuer `build_datalake.py` steht auf 300s, der
-Build braucht inzwischen ~380s - deshalb scheiterten oben auch
-`drivetrain_model_validation.py` und `top_speed_validation.py` (sie laufen auf
-einem Datalake, der gar nicht neu gebaut wurde). Nicht angefasst.
+### Pipeline-Timeouts angehoben (Nachtrag)
+
+Die drei `script_error`-Timeouts oben hatten eine gemeinsame, banale Ursache:
+`run_script()` in `run_daily_pipeline.py` hat einen Default von 600s, aber
+ausgerechnet die fuenf langsamsten Schritte setzten ihn per `timeout=300`
+**herunter**. Gemessen (2026-09-15, nach dem Neubau):
+
+| Skript | Laufzeit |
+|---|---|
+| `drivetrain_model_validation.py` | 425 s |
+| `top_speed_validation.py` | 422 s |
+| `build_datalake.py` | ~380 s |
+| `coastdown_analysis.py` | 59 s |
+| `steering_zero_offset.py` | 19 s |
+
+Die drei grossen liegen also alle ueber dem gesetzten Limit - und wachsen mit
+jedem neuen Log weiter, 600s waeren in wenigen Wochen wieder zu knapp gewesen.
+Die fuenf `timeout=300`-Overrides sind jetzt raus, der Default steht auf
+**1800s**. Das hier ist ein naechtlicher Batchlauf; ein zu knappes Limit kostet
+mehr als ein zu weites.
+
+**Der eigentliche Schaden war nicht der fehlende Datalake-Bau**, sondern dass
+`run_script()` den Fehler nur sammelt und weitermacht: jeder nachfolgende
+Schritt rechnete danach still auf dem Datalake vom Vortag weiter. Die Kurven-,
+Schalt- und Modellergebnisse des automatischen Laufs oben waren dadurch
+unbemerkt veraltet. Alle datalake-abhaengigen Skripte wurden deshalb nach dem
+Neubau von Hand nachgezogen (`partial_load_model`, `drivetrain_model_validation`,
+`top_speed_validation`, `coastdown_analysis`, `check_steering_channel`,
+`steering_zero_offset`, `steering_lateral_model`, `shift_time_analysis`,
+`can_corner_event_analysis`, `corner_peak_tracker`, `corner_speed_model`,
+`check_dgm_coverage_gaps`) - die oben genannten Kurven-/Schaltbefunde stammen
+bereits aus diesen frischen Laeufen.
+
+**Nicht angefasst:** dass ein gescheiterter `build_datalake.py` die
+nachfolgenden Schritte nicht stoppt. Mit dem neuen Timeout ist der konkrete
+Ausloeser weg, die Bauart bleibt aber anfaellig.
