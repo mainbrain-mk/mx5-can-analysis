@@ -254,7 +254,12 @@ OBD/CAN-Referenz gesucht werden muss):
   beim Bremsen unter 2,2 km/h) **und** das richtige Vergleichsfenster (Regelphase gegen den
   Rest DERSELBEN Bremsung, nicht gegen den Rest des Logs).
   **Weiterhin offen:** ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne
-  Bremsung gesetzt wird – dafür fehlt noch ein Ereignis.
+  Bremsung gesetzt wird – dafür fehlt noch ein Ereignis. **Erster Kandidat 2026-09-15 geprüft
+  und verworfen** (Vollgas-Pull mit echtem Hinterradschlupf, Heimfahrt t=708–745 s): es gab
+  dort gar keinen Eingriff – weder `ABS_Active`, noch Bremsdruck, noch ein Momenteneinbruch,
+  und ein Rarity-Scan über alle 105 IDs × 64 Bits findet kein Ereignisbit. Siehe Logbuch,
+  letzter Abschnitt. Nebenbefund: `DSC_Status` (0x415 Bit 4) ist als Zustandsbeleg unbrauchbar
+  (dauerhaft "Off" bei nie gedrücktem `DSC_OFF_Switch`).
 - AFR/Lambda, CommandEquivalenceRatio, TimingAdvance, ETC_ACT (echte Drosselklappenstellung):
   bestätigt nicht periodisch auf HS-CAN broadcastet (nur Mode-22-Polling) – seit 2026-09-14
   aber direkt aus dem CAN-Log dekodierbar, ohne Handy/`.dlg` (siehe oben). **2026-09-14,
@@ -2364,3 +2369,238 @@ weder Ereignis noch Baseline ist. Selbsttest deckt jetzt genau diesen Fall ab.
 Ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne Bremsung gesetzt wird, ist
 mangels eines solchen Ereignisses nicht geprueft. `ABS_Active` und `FuelCut` sind als
 Datalake-Kanaele (`ABS_Active_CAN`, `FuelCut_CAN`) aufgenommen.
+
+## Erster geprüfter Kandidat für einen DSC-Eingriff ohne Bremsung – negativ (2026-09-15)
+
+Nutzerhinweis: an einem bestimmten Ort (52,53923 / 13,32655) gab es auf der Heimfahrt einen
+Vollgas-Pull, der einen DSC-Regeleingriff ausgelöst haben könnte. Das ist genau der Fall, der
+zur Klärung von `ABS_Active` (feuert es auch ohne Bremsung?) fehlt – deshalb gezielt geprüft.
+
+### Ortszuordnung: Handy-GPS statt GPX
+`candump-2026-09-15_171047` hat keinen GPX-Track, aber das Y-Kabel-Handy-Log
+`2026-09-15 170941.dlg` liefert GPS. Zeitbezug per VehicleSpeed-Kreuzkorrelation im Datalake:
+**CAN t = dlg t − 66,4 s** (r=0,99997, 10287 Samples im 0,2s-Raster). Der Punkt wird genau
+**einmal** passiert, minimale Distanz **8 m** bei dlg t=796 s → **CAN t ≈ 708–745 s**
+(17:22:35–17:23:12). Hinweis: die `.dlg`-Zeitstempel stehen im Datalake in UTC, die
+CAN-Zeitstempel lokal – ein Abgleich über `timestamp_local` wäre um 2 h danebengegangen,
+deshalb der Umweg über `t_elapsed_s` + Kreuzkorrelation.
+
+### Das Ereignis ist echt
+| CAN t | Vorgang |
+|---|---|
+| 719–721 s | Rückschaltung 6 → 2 |
+| 722–726 s | enge Linkskurve: Lenkwinkel −151°, Gierrate −40 °/s, −0,76 g quer (0,25s-Mittel; Einzelsample-Spitze −1,04 g während des Hoppelns) |
+| 726,5–728,9 s | **Vollgas im 2. Gang**, APP 100 %, 3600 → 6100 1/min, 46 → 84 km/h, bis +0,6 g längs |
+| 729 s | Lupfen, Schaltung in den 4. |
+
+Und es gab **echten Hinterradschlupf**: die Hinterachse läuft bis **9,3 km/h** über der
+Vorderachse (Einzelrad bis 13,1 km/h), in vier Stößen mit ~12 Hz – Radhoppeln/Traktionsabriss
+am Kurvenausgang, nicht Sensorrauschen (die Drehzahl zeigt die passende Delle). Spreizung
+> 4 km/h über 0,25 s, > 2 km/h über 1,17 s.
+
+### Trotzdem kein Eingriff
+- `ABS_Active` (0x211 Bit 42): **0,000 %** im Fenster. Im ganzen Log ist das Bit nur in den
+  zwei bekannten Bremsphasen (1888 s / 1962 s) gesetzt, 55 Frames insgesamt.
+- Bremsdruck ≈ 0 bar.
+- `ActualEnginePercentTorque` steigt durchgehend auf 85 %, OBD-Moment 84 → 94 %, MAP konstant
+  ~100 kPa, Zündwinkel fällt glatt lastbedingt auf 10,5° – **kein Momenten-, Drossel- oder
+  Zündeingriff** bei APP = 100 %.
+- **Rarity-Scan über alle 105 IDs × 64 Bits** (im Fenster ≥ 80 % gesetzt, über das ganze Log
+  ≤ 2 %): **kein einziges** Ereignisbit. Gegenprobe mit derselben Methode auf die zwei
+  bekannten ABS-Fenster: findet sauber 0x211 Bit 42 (bei Ereignis 1 zusätzlich Bit 43) – das
+  Verfahren funktioniert also, das Ereignis war schlicht keins.
+
+### Einziger Treffer war kein DSC-Flag
+`0x0FD` Bit 16 (1,3 % über das Log) sitzt direkt unter dem 3-Bit-Feld `MT_Gear_Actual` und ist
+auch **im Stand, beim lastfreien Cruisen und bei voll getretener Kupplung** gesetzt – ein
+Gang-Gültigkeits-/Übergangsbit, kein Eingriffsindikator. In der ruhigen Hinfahrt desselben
+Tages liegt es bei 0,158 %, in der Heimfahrt bei 1,288 % (mehr Schaltvorgänge), in
+`candump-2026-09-11_180456` bei 0,000 %. Erste Fehldeutung unterwegs: ein `can_event_bit_diff`
+-Lauf mit nur 1,65 s Vergleichsfenster meldete 0x08A Bit 15 und 0x45A Bit 12 mit Lift 1,0 –
+beides sind Bits schnell veränderlicher Analogfelder (Duty 38 % bzw. 51 % über das Log), die in
+einem so kurzen Baseline-Fenster zufällig konstant bleiben. **Lehre:** bei Ereignisfenstern
+unter ~1 s zusätzlich gegen die Duty über das GANZE Log filtern, nicht nur gegen die Baseline.
+
+### Zwei Vorbehalte
+- Ein **radindividueller** Bremseingriff müsste im Hauptbremszylinderdruck nicht zwingend
+  sichtbar sein. Das Radmuster spricht aber für Hoppeln (ein Rad springt hoch und wird beim
+  Aufsetzen schlagartig zurückgezogen), nicht für einen geregelten Bremsimpuls – und ein
+  aktiver Regler hätte fast sicher irgendein Statusbit gekippt, wie bei ABS.
+- **`DSC_Status` (0x415 Bit 4) ist unbrauchbar:** steht über das ganze Log auf "Off", obwohl
+  `DSC_OFF_Switch` nie gedrückt wurde (ebenfalls über das ganze Log 0). Das DBC-Label taugt
+  nicht als Beleg für den DSC-Zustand – wer den Zustand braucht, muss ihn erst neu suchen.
+
+**Fazit:** der Grenzbereich war da, das DSC hat ihn durchgehen lassen. Die Frage, ob
+`ABS_Active` auch bei reinem Traktionseingriff feuert, bleibt offen – es braucht ein Ereignis,
+bei dem das DSC nachweislich eingreift (Warnleuchte im Blick behalten).
+
+## Renncockpit-Ansicht implementiert und auf dem Pi verifiziert (2026-09-15)
+
+Der "ND Renncockpit"-Vorschlag (Artefakt, siehe Chat) ist jetzt echtes Tkinter in
+`scripts/status_gui.py` (`DriveDashPanel` + `RpmArcGauge`/`GMeterGauge`/`ShiftLightBar`) und
+auf dem Pi deployt. **Schaltet automatisch um**, sobald `EngineRPM` > 300/min bei Status
+"LOGGING LÄUFT" ist (`DRIVE_RPM_THRESHOLD`) – Testmodus hat immer Vorrang, auch bei laufendem
+Motor. Redline 7500, Bernstein 7000–7400, Rot 7400–7500 (Nutzer bestätigt); eigene enge
+Lenkwinkel-Spanne ±60° nur für diese Ansicht (Lock-to-Lock-Balken im Testmodus bleibt ±480°).
+
+**Neue Kanäle verkabelt:** `ABS_Active` (0x211), `Lateral_Acc_Raw`/`Longitudinal_Acc_Raw`
+(0x75/0x76, G-Kreis), `CoolantTemp` (0x420), `Fuel_Tank` (0x9E, FLI-Formel angewendet).
+**Öltemperatur erstmals live im GUI**: `tpms_poller.py`s eigener UDS-Response-Frame (0x7E8,
+DID 0x1310) wird vom selben `LiveCanValues`-Socket mitgelesen statt selbst zu pollen –
+`decode_response()`/`PCM_PIDS` werden direkt von dort importiert (kein Logik-Duplikat).
+
+**ponytail-Vereinfachung:** Gas/Bremse/Kupplung/Lenkwinkel blieben horizontale `BarGauge`-
+Balken (bestehende Klasse, nur mit anderer Lenkwinkel-Spanne) statt neuer vertikaler Balken
+wie im Web-Mockup – spart eine ganze Widget-Klasse, bei Bedarf später nachrüstbar.
+
+**Verifikation:**
+- Lokaler Tk-Selbsttest (`scripts/test_status_gui_drive_dash.py`, `python3 test_status_gui_drive_dash.py`
+  im `scripts`-Verzeichnis): Winkel-Konvention, Live-Wert-Formatierung inkl. fehlender Kanäle,
+  automatischer Screen-Wechsel inkl. Testmodus-Vorrang.
+- **Live auf der echten Pi-Hardware** über `vcan0` + `cantools`-encodierte synthetische Frames
+  (RPM 6800, Speed 140, Lenkwinkel -15°, G -0,32/+0,37 etc.), Screenshot per `grim`.
+- **Ein echter Bug dabei gefunden und behoben:** der physische Bildschirm ist **1920×1080**
+  (nicht wie angenommen ~1280×800, per `wlr-randr` bestätigt) – bei voller Fensterbreite
+  drückte die Top-Leiste (Shift-Lights/ABS/Schub-Lampen) bis an den Fensterrand und
+  überlappte dort mit den TPMS-Ecken. Fix: Top-Leiste ohne `fill="x"`, dadurch von `pack()`
+  automatisch zentriert statt randbündig.
+- **Nutzer-Feedback nach dem ersten Screenshot: "noch überhaupt nicht zufriedenstellend"**
+  im Vergleich zum Mockup – berechtigt. Zweiter Durchlauf (selber Tag): feste, deutlich
+  größere "Geräte"-Karte (1680×900, `DriveDashPanel.CARD_W/CARD_H`) statt bildschirmfüllend
+  gestreckter Einzelwidgets, auf dem Screen zentriert (genau wie im Mockup die `.dash`-Karte
+  kleiner als die Seite ist). RPM-Arc/G-Kreis/Shift-Lights deutlich vergrößert. **TPMS jetzt
+  als eigenes 2x2-Raster INNERHALB der Karte** (`TpmsMiniGrid`) statt an den echten
+  Bildschirmecken (`TpmsCornersPanel` bleibt für den normalen Status-/Testmodus-Screen
+  unverändert) – löst die Top-Leisten-Kollision von vorhin strukturell. Gas/Bremse/Kupplung
+  jetzt doch als eigene `VerticalBarGauge`-Klasse (hohe Balken wie im Mockup) statt der
+  horizontalen `BarGauge`-Wiederverwendung vom ersten Wurf – die Lenkwinkel-Anzeige blieb
+  horizontal (passt so auch im Mockup). Labels nutzen jetzt "Piboto Condensed" (auf dem Pi
+  bereits installiert, kommt Barlow Condensed aus dem Mockup näher als DejaVu Sans). Erneut
+  live über `vcan0` verifiziert, Screenshot bestätigt: keine Überlappungen mehr, deutlich
+  näher am Mockup.
+- Manueller Neustart lief unfullscreened (Fensterrahmen sichtbar) – wie dokumentiert normal,
+  da `-fullscreen` sonst vom `labwc`-Autostart übernommen wird; nächster echter Boot/Fahrt
+  sollte das wie gewohnt regeln.
+
+
+## Renncockpit: chamfered Panels + engere Mockup-Angleichung (2026-09-15, dritter Durchlauf)
+
+Nutzer hat direkt das Mockup-Bild gegen den zweiten Screenshot gehalten: "noch besser treffen".
+Groesster verbleibender Unterschied war das wiederkehrende Chamfer-Motiv (angeschnittene
+oben-links/unten-rechts-Ecke) aus dem Web-Mockup, das Tkinter nicht nativ kennt (kein
+clip-path). Neue Hilfsfunktion **`make_chamfer_panel()`**: zeichnet das Panel als
+Canvas-Polygon (Fuellung + Outline), echte Widgets kommen per `canvas.create_window()`
+hinein - angewendet auf ABS/Schub-Lampen, Öl/Kühlwasser/Tank-Zellen, TPMS-Minizellen und neu
+auf die Gang-Anzeige. Lenkwinkel und G-Kreis haben jetzt eigene umrandete Boxen (vorher frei
+auf der Karte schwebend, im Mockup aber `.plate`-umrandet) - Lenkwinkel zeigt den Wert jetzt
+gross im Box-Kopf statt klein neben dem Balken (`BarGauge` hat dafuer einen neuen
+`show_label`-Schalter bekommen, ohne den Testmodus-Screen zu beruehren). Dazu ein schwacher
+warmer Glow hinter dem Drehzahlmesser (zwei kaum abgesetzte Ovale - Tk kennt keine echten
+Gradients/Transparenz).
+
+**Lokale Iteration statt jedes Mal auf den Pi**: `local_preview.py` (Scratch-Verzeichnis)
+startet `DriveDashPanel` direkt mit einem `FakeLive`-Stub in einem 1920x1080-Fenster und
+schiesst per `PIL.ImageGrab` einen Screenshot - deutlich schneller als der `vcan0`+SSH+`grim`-
+Weg fuers reine Layout-Feintuning, echte Hardware-Verifikation (Fonts, echte Aufloesung,
+CAN-Pfad) blieb trotzdem der letzte Schritt vor dem Deploy.
+
+
+## Renncockpit: Skizzen-Feedback umgesetzt + Wayland-Renderflackern gefunden (2026-09-16)
+
+Nutzer hat Aenderungswuensche direkt auf einen Screenshot skizziert. Umgesetzt: Titel-Header
+("MX-5 ND RF G184" + neutrale Rauten-Logo-Platzhalter, kein echtes Mazda-Logo wegen
+Markenrechten), Top-Leiste jetzt kompakt zentriert statt mit grosser Luecke, Drehzahlskala
+geht bis 8 wie ein echter Tacho (Redline bleibt 7000/7400 bestaetigt, `DRIVE_RPM_MAX=8000`
+nur fuer die Visualisierung), der Drehzahlmesser hat jetzt eine eigene umrandete Box wie alle
+anderen Module, TPMS-Hoehe an die Ribbon-Zellen angeglichen, mehr Bildschirmbreite/-hoehe
+genutzt (G-Kreis-Box vergroessert).
+
+**Ernsthafter Zwischenfall dabei: intermittentes Leer-Rendern einzelner Panels auf dem
+Pi.** Beim Chamfer-Versuch (angeschnittene Ecke aus dem Mockup, per Canvas nachgebaut) blieben
+TPMS-Raster/Gang-Anzeige/Lenkwinkel-Box beim Live-Test sporadisch leer - lokal auf X11 nie
+reproduzierbar. Zwei Techniken durchprobiert (`canvas.create_window()`, dann zwei per
+`place()` uebereinandergelegte Geschwister-Widgets) - beide zeigten dasselbe Symptom.
+Rueckbau auf einfache, nicht ueberlappende `tk.Frame`/`tk.Label` (dieselbe Technik wie im
+Rest der Datei seit Monaten) - das Flackern trat **trotzdem weiter auf**, sogar bei den
+**monatelang unveraenderten** `PedalGaugesPanel`/`LiveValuesPanel`/`TpmsCornersPanel`-Klassen
+im normalen Status-Screen, sobald mit demselben aggressiven Rhythmus getestet wurde (viele
+`cansend`-Bursts + `grim`-Screenshots im Sekundentakt). Ein Versuch mit zusaetzlichem
+`update_idletasks()` nach jedem Refresh machte es **schlimmer** (erstmals blieb sogar der
+Drehzahlmesser leer) - sofort zurueckgenommen.
+
+**Schlussfolgerung:** sehr wahrscheinlich ein Artefakt der eigenen Stresstest-Methode
+(schnelle `grim`/wlr-screencopy-Aufrufe kurz hintereinander unter XWayland/labwc), nicht ein
+echter Darstellungsfehler - echtes Fahren erzeugt diese Screenshot-Rate nie. Aber **nicht
+abschliessend bewiesen**, da ich den echten Bildschirm nicht selbst ansehen kann. `make_panel()`
+(einfache Rahmen-Panels, kein Chamfer mehr) ist die jetzt deployte, robusteste Variante -
+TPMS wieder ueber die bewaehrte `TpmsCornersPanel` an den Bildschirmecken. **Nutzer sollte bei
+der naechsten echten Fahrt gezielt darauf achten, ob je ein Panel (v.a. Gang-Anzeige,
+Lenkwinkel-Box, G-Kreis) kurz leer bleibt** - das waere der einzige wirklich schluessige Beleg
+in die eine oder andere Richtung.
+
+## Renncockpit: TPMS zurück in die Ribbon + Performance-Untersuchung (2026-09-16, Nacht vor einer Fahrt)
+
+**TPMS-Layout:** Nutzer wollte TPMS doch wieder wie im Mockup unten rechts in der Ribbon statt
+an den Bildschirmecken (die Ecken waren eine Vorgabe für den alten Testmodus-Screen, nicht
+fürs Renncockpit). Neue, schlanke `TpmsMiniGrid`-Klasse (2x2-Raster, einfache `make_panel()`-
+Rahmen, kein Chamfer) lebt jetzt in der Ribbon neben Öl/Kühlwasser/Tank, alle vier Zellen auf
+volle Kartenbreite gestreckt (315px Öl/Kühlwasser/Tank, 298px×2 TPMS-Spalten). Seither in
+mehreren Live-Tests (inkl. der unten beschriebenen Replay-Sessions) durchgehend stabil
+gerendert - kein Wiederauftreten des früheren Flacker-Verdachts.
+
+### Performance-Untersuchung: gemessen statt geraten
+
+Nutzer bemerkte Ruckeln beim Log-Replay-Test. Temporäre Instrumentierung (`MX5_PERF_DEBUG=1`,
+bleibt dauerhaft im Code als No-Op-Diagnosewerkzeug) protokolliert pro Refresh das Intervall
+zum letzten Refresh + das Alter des zuletzt empfangenen `EngineRPM`-Samples.
+
+**Befund 1 (Datenlatenz):** exzellent, ~5ms Mittel / ~12ms Max von Bus bis Refresh - kein
+Datenproblem.
+
+**Befund 2 (Refresh-Kadenz):** Median trifft die 300ms-Vorgabe exakt, aber 13-18% der Frames
+rissen bis zu 1,8s aus - das gemessene Ruckeln.
+
+**Root Cause gefunden (mit `py-spy`, echtes Profiling statt Vermutung):** `StatusGui.
+update_state()` verließ sich darauf, dass ein unsichtbarer Vorfahre (`status_frame.
+pack_forget()`) auch dessen `place()`-Kinder (TPMS-Ecken, inzwischen obsolet) und andere
+Panels automatisch mit verdeckt - tat es aber nicht zuverlässig. `PedalGaugesPanel`/
+`LiveValuesPanel`/`TpmsCornersPanel` liefen dadurch mit eigenem 300ms-Timer weiter, auch wenn
+laengst das Renncockpit sichtbar war. Gefixt: jeder Screen-Wechsel blendet jetzt zuerst ALLES
+explizit aus, dann nur das Ziel ein (`update_state()`), und die drei alten Panels prüfen
+zusätzlich `winfo_ismapped()` in ihrem eigenen Refresh, bevor sie arbeiten.
+
+**Nach dem Fix, py-spy erneut auf dem *bestätigten* Renncockpit-Screen (nicht mehr dem alten
+Status-Screen) laufen lassen:** `.config()`-Aufrufe fielen von 20-23% auf 3,4% der Profilzeit -
+die frühere hohe Zahl war fast komplett die (jetzt korrekt stillgelegte) `LiveValuesPanel` mit
+ihren ~28 Textfeldern. Der eigentliche Renncockpit-Screen verbringt seine aktive Zeit
+überwiegend in der CAN-Dekodierung selbst (`capture_message`/`decode_data`/Enum-Lookups für
+`decode_choices=True`, zusammen gut 30%+).
+
+**Wichtige Einschränkung, nicht auflösbar ohne echte Fahrt:** die gesamte Messung lief über
+`vcan0` (Log-Replay via `canplayer`), das anders als der echte 500kbit-Bus **keine
+Bandbreitenbremse** kennt - Frame-Bursts können dort dichter ankommen als am echten Auto
+physikalisch möglich. Ein Teil des gemessenen Ruckelns könnte also ein Artefakt der
+Simulationsmethode sein, kein echtes Fahrverhalten. **Bei der nächsten echten Fahrt gezielt
+beobachten, ob es dort genauso ruckelt** - das ist der einzige schlüssige Test.
+
+**Sonstige umgesetzte Maßnahmen (sicher, reversibel, nicht Boot-persistent):**
+- CPU-Governor auf `performance` gesetzt (war `ondemand`) - alle 4 Kerne fest auf 1800MHz.
+- GUI-Prozess-Priorität angehoben (`renice -5`).
+- Beide gelten nur bis zum nächsten Reboot (liegen außerhalb von `/home/pi/canlogs`, dem
+  einzigen persistenten Bereich) - falls der Pi vor der Fahrt neu startet, sind sie weg und
+  müssten manuell wiederholt werden. Bewusst NICHT boot-persistent gemacht (Risiko, die
+  Boot-Kette der Nacht vor einer Fahrt ungetestet zu verändern, wurde als groesser eingeschätzt
+  als der Nutzen).
+- `decode_choices=True` bewusst NICHT abgeschaltet, obwohl er ~5-6% Profilzeit kostet - wird
+  für lesbare Klartext-Werte (Türen, Licht, etc.) im Testmodus-Screen gebraucht, eine
+  Regression dort wog schwerer als der Gewinn.
+
+**Tier 2 (Architekturumbau: CAN-Dekodierung in einen eigenen Prozess statt Thread auslagern,
+umgeht GIL-Konkurrenz strukturell) bewusst NICHT in dieser Nacht angegangen** - zu riskant für
+ungetesteten Einsatz bei der Fahrt am nächsten Morgen. Naechster Schritt, falls das Ruckeln bei
+echtem Fahren bestätigt wird.
+
+**Pi-Zustand am Ende der Nacht:** `vcan0` entfernt, `canplayer` gestoppt, echter
+`status_gui.py`-Prozess läuft gegen echtes `can0` (meldet erwartungsgemäß "WARTE AUF CAN-BUS",
+da nachts kein Adapter dran hängt), Governor auf `performance`, Priorität angehoben. Bereit für
+die Fahrt.
