@@ -60,7 +60,14 @@ ANCHOR_SIGNALS = {
 KNOWN_DIDS = {"AFR_MZ": 0xDA85, "BFP_PRE_MZ": 0x280A, "ETC_ACT": 0x093C,
               "CPP_PER_MZ": 0x0478, "FLI": 0xF42F,
               # 2026-09-15: zusaetzliche Module, vorher nie dekodiert (nur 0x7E0/0x7E8)
-              "STEER_SPD_EPS": 0x3301, "STEER_ANGL_EPS": 0x3302}
+              "STEER_SPD_EPS": 0x3301, "STEER_ANGL_EPS": 0x3302,
+              # Oeltemperatur: seit 2026-09-15 pollt tpms_poller.py sie selbst alle 10s,
+              # steht also in jedem neuen Log. ACHTUNG beim Auswerten: sie ist eine langsame
+              # Monotonie - die Doppelschwelle dieses Skripts (roh UND detrended) verwirft
+              # ein echtes Gegenstueck dort systematisch. Fuer diese Groesse ist
+              # can_find_native_counterpart.py das richtige Werkzeug (Partialkorrelation +
+              # Uebertragungstest ueber zwei Fahrten).
+              "OilTemp": 0x1310}
 
 # Standard-Mode-1-PIDs, die OBD-Fusion gebuendelt abfragt. Die Antworten kommen als ISO-TP-
 # Multiframe und wurden bis 2026-09-15 verworfen - deshalb galten diese Kanaele faelschlich
