@@ -26,7 +26,7 @@ CANDIDATES = [
     (0x09F, "Reverse_Flag_maybe"),
     (0x130, "EngineRPM_related_2"),
     (0x166, "Clutch_Pedal_Position_related_2"),
-    (0x167, "EngineLoad_or_Torque_pct_maybe"),
+    (0x167, "ActualEnginePercentTorque"),   # 2026-09-15 bestaetigt, war _maybe
     (0x200, "EngineLoad_related_maybe"),
     (0x240, "SteeringAngle_related_2_maybe"),
     (0x240, "SteeringTorque_related"),

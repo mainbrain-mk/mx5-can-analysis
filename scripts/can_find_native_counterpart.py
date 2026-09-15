@@ -408,6 +408,21 @@ def main():
             ok = tc[tc.r2_transfer > 0.7]
             print(f"\n  -> {len(ok)} Kandidat(en) mit uebertragbarer Kalibrierung (R2 > 0,7)."
                   + ("" if len(ok) else " Also KEIN natives Gegenstueck gefunden."))
+            if len(ok):
+                # Ein bestandener Uebertragungstest heisst NICHT automatisch "dieselbe
+                # Groesse". Ein Flag mit zwei Zustaenden kann eine analoge Referenz gut
+                # vorhersagen, wenn deren Varianz von genau diesem Zustand dominiert wird -
+                # 2026-09-15 passiert: 0x0FD Byte4-5 sagte das Soll-Lambda mit R2=0,88
+                # vorher, ist aber ein Schubabschaltungs-Bit mit zwei Werten, kein Lambda.
+                # Deshalb die Kardinalitaet mit ausgeben und darauf hinweisen.
+                card = (df.groupby(["can_id", "field"])["n_unique"].max()
+                          .reindex(list(zip(ok.can_id, ok.field))).to_numpy())
+                low = card < 10
+                if low.any():
+                    print(f"  ACHTUNG: {int(low.sum())} davon haben weniger als 10 verschiedene "
+                          f"Rohwerte - das sind Flags/Stufen, keine analogen Messwerte. Sie "
+                          f"koennen die Referenz trotzdem gut vorhersagen, wenn deren Varianz "
+                          f"von genau diesem Zustand dominiert wird. Einzeln pruefen.")
 
     print(f"\n=== Top {args.top} Kandidaten fuer '{args.ref}'"
           f"{f' (Kontrolle: {args.control})' if args.control else ''} -> {out} ===")

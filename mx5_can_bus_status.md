@@ -2167,3 +2167,65 @@ Was trotzdem gesichert ist, weil es nicht vom Motorzustand abhaengt:
   2033/2034 Lenkwinkel/-rate = 0). `2B11 = 0xFFF5` (signed −11) und `2B05 = 0x40000000`
   sind die einzigen von null verschiedenen Werte. Ein ABS/DSC-Eingriffsindikator laesst sich
   daraus im Stand nicht identifizieren - dafuer braucht es dieselben DIDs waehrend der Fahrt.
+
+## Broadcast-Gegenstuecke zu den OBD-Kanaelen gesucht (2026-09-15)
+
+Nutzerfrage: die per Diagnose geholten Werte kommen mit 1-2 Hz. Werden dieselben Groessen
+zusaetzlich nativ gebroadcastet, haetten wir sie mit voller Botschaftsrate und ohne eigene
+Anfragen. Werkzeug: `scripts/can_find_native_counterpart.py` (Partialkorrelation gegen eine
+Kontrollgroesse + **Uebertragungstest ueber zwei Fahrten** + Multiplex-Erkennung).
+
+**Positivkontrolle bestanden:** mit `EngineRPM` als Referenz findet das Werkzeug `0x202`
+(die echte Drehzahl) und `0x130` (das bekannte Drehzahl-mal-2-Duplikat) mit Transfer-R²
+= +1,000, dazu die Radgeschwindigkeiten mit +0,70 (ueber die Uebersetzung gekoppelt).
+
+| Referenz | bester Kandidat | R² je Fahrt | **Transfer** | Ergebnis |
+|---|---|---|---|---|
+| ActualEnginePercentTorque (PID 0x62) | `0x167` Byte4 | 0,967 / 0,965 | **+0,962** | **bestaetigt** |
+| LambdaCommanded (PID 0x44) | `0x0FD` Byte4-5 | 0,874 / 0,887 | +0,881 | **kein Lambda** - siehe unten |
+| Oeltemperatur (DID 0x1310) | `0x4DF` Byte5 | 0,811 / 0,941 | −0,369 | kein Gegenstueck |
+| TimingAdvance (PID 0x0E) | `0x0FD` Byte6-7 | 0,453 / 0,235 | +0,202 | kein Gegenstueck |
+| MassAirFlow (PID 0x10) | `0x167` Byte4-5 | 0,719 / 0,623 | +0,570 | kein Gegenstueck |
+
+Der Uebertragungstest ist dabei das Entscheidende: bei der Oeltemperatur sahen **alle**
+Kandidaten innerhalb einer Fahrt mit R²=0,81-0,94 hervorragend aus und lieferten uebertragen
+−0,37 bis −0,66, also schlechter als der blosse Mittelwert. Reine "steigt auch ueber die
+Fahrt"-Artefakte (Kilometerstand und Aehnliches). Zum Vergleich: die Kontrollbotschaft mit
+dem echten Kuehlwasser uebertraegt mit +0,57, weil Kuehlwasser und Oel physikalisch wirklich
+zusammenhaengen.
+
+**Methodische Falle, in die ich zuerst gelaufen bin:** Botschaft `0x45B` belegte die gesamte
+Trefferliste mit partial_r ~ 0,91 - bis auffiel, dass Byte0 dort 1..5 zykliert. Eine
+multiplexte Botschaft mischt bei flacher Byte-Lesung Werte verschiedener Bedeutung, und das
+blosse Rotationsmuster korreliert mit allem, was ueber die Fahrt monoton laeuft. Multiplexte
+Botschaften werden jetzt pro Gruppe durchsucht.
+
+### `ActualEnginePercentTorque` (0x167 Byte4) - bestaetigt und neu kalibriert
+War `EngineLoad_or_Torque_pct_maybe`. Der Uebertragungstest gegen den Standard-PID 0x62 hebt
+das von einer Vermutung zu einer Bestaetigung. Kalibrierung gemeinsam ueber beide Fahrten
+neu gefittet (n=4410): **3,0242·raw − 177,849**, R²=0,962, RMSE 4,07 Prozentpunkte. Die
+alte Formel (3,17, −185,3) stammte aus einem einzelnen Log; die neue ist auf **beiden**
+Fahrten besser (RMSE 4,07 gegen 4,70). Einschraenkung: die Steigung schwankt zwischen den
+Fahrten um 3,4 % - praeziser als ~4 Prozentpunkte wird die Formel nicht.
+
+### Neuer Fund: `FuelCut` (0x0FD Byte5 Bit1) - Schubabschaltung
+Der Lambda-Kandidat ist **kein Lambda**: der Rohwert von Byte4-5 springt nur zwischen 0x1E00
+und 0x1E02, kennt also genau zwei Zustaende. Die Korrelation von 0,88 kam daher, dass die
+Varianz des Soll-Lambdas von den Schubphasen dominiert wird. Das Bit selbst ist aber ein
+echter, wertvoller Fund - ueber beide Fahrten bestaetigt:
+
+- Ist das Soll-Lambda > 1,9 (Kraftstoff abgeschaltet), ist das Bit in **99,4 %** bzw.
+  **98,8 %** der Faelle gesetzt.
+- Gesetzt ist es zu **96-98 %** nur bei geschlossenem Gaspedal UND Drehzahl > 1200 1/min,
+  ausserhalb dieser Bedingung nur zu 0,4 %.
+- Es deckt rund 38 % aller Schubphasen ab - passend dazu, dass die Schubabschaltung erst
+  oberhalb einer Drehzahlschwelle greift und vor dem Leerlauf wieder aufmacht.
+
+**Relevanz fuers Fahrleistungsmodell:** das Schleppmoment unterscheidet sich grundlegend
+zwischen abgeschalteter und weiterlaufender Einspritzung. Dieses Bit liefert den Zustand mit
+voller Botschaftsrate statt mit 1-2 Hz Polling - siehe `scripts/engine_braking_analysis.py`.
+
+**Lehre fuers Werkzeug:** ein bestandener Uebertragungstest heisst nicht automatisch
+"dieselbe Groesse". Ein Flag mit zwei Zustaenden kann eine analoge Referenz gut vorhersagen,
+wenn deren Varianz von genau diesem Zustand dominiert wird. Das Skript gibt die Kardinalitaet
+jetzt mit aus und warnt bei weniger als 10 verschiedenen Rohwerten.
