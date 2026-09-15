@@ -226,6 +226,15 @@ CAN_SIGNAL_MAP = {
     "Tire2_Pressure": ("TirePressure_CAN_Tire2", "bar"),
     "Tire3_Pressure": ("TirePressure_CAN_Tire3", "bar"),
     "Tire4_Pressure": ("TirePressure_CAN_Tire4", "bar"),
+    # OBD-Kanaele (kein DBC-Signal, sondern Diagnose-Antworten - siehe OBD_CHANNELS in
+    # can_log_parser.py). OilTemp_OBD ist der wichtigste: die Motoroeltemperatur wird nicht
+    # gebroadcastet, seit 2026-09-15 pollt tpms_poller.py sie alle 10s selbst. Aeltere Logs
+    # haben sie daher nur sporadisch oder gar nicht.
+    "OilTemp_OBD": ("OilTemp_CAN", "°C"),
+    "MassAirFlow_OBD": ("MassAirFlow_CAN", "g/s"),
+    "LambdaCommanded_OBD": ("LambdaCommanded_CAN", ""),
+    "TimingAdvance_OBD": ("TimingAdvance_CAN", "°"),
+    "EnginePercentTorque_OBD": ("EnginePercentTorque_CAN", "%"),
     "Tire1_Temp_maybe": ("TireTemp_CAN_Tire1", "°C"),
     "Tire2_Temp_maybe": ("TireTemp_CAN_Tire2", "°C"),
     "Tire3_Temp_maybe": ("TireTemp_CAN_Tire3", "°C"),

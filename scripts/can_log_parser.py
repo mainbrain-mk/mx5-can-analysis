@@ -66,6 +66,44 @@ def parse_candump(path):
     return pd.DataFrame(rows, columns=["t", "can_id", "data"])
 
 
+# OBD-Kanaele, die NICHT als CAN-Botschaft gebroadcastet werden, sondern nur als Antwort auf
+# eine Diagnoseanfrage im Log stehen (Y-Splitter-Kabel bzw. unser eigener tpms_poller.py).
+# Sie durchlaufen nicht die DBC, werden aber hier in dasselbe Long-Format gebracht, damit
+# build_datalake.py sie wie jedes andere Signal uebernehmen kann.
+#
+# OilTemp_OBD (DID 0x1310) ist der Grund fuer diesen Block: die Motoroeltemperatur wird nicht
+# gebroadcastet und vom Handy nur sporadisch abgefragt (in 12 Logs zusammen 20 Stichproben).
+# Seit 2026-09-15 pollt tpms_poller.py sie selbst alle 10s, damit sie in jeder Fahrt vorliegt.
+# Die uebrigen vier sind Standard-Mode-1-PIDs (SAE J1979), die OBD-Fusion gebuendelt abfragt
+# und deren Multiframe-Antworten bis 2026-09-15 verworfen wurden.
+OBD_CHANNELS = {
+    ("mode22", 0x1310): ("OilTemp_OBD", lambda r: r / 100 - 40),
+    ("mode1", 0x10): ("MassAirFlow_OBD", lambda r: r / 100),
+    ("mode1", 0x44): ("LambdaCommanded_OBD", lambda r: r / 32768),
+    ("mode1", 0x0E): ("TimingAdvance_OBD", lambda r: r / 2 - 64),
+    ("mode1", 0x62): ("EnginePercentTorque_OBD", lambda r: r - 125),
+}
+
+
+def decode_obd_channels(df):
+    """OBD-Antworten aus den Rohframes in dasselbe Long-Format bringen wie decode().
+
+    can_id wird auf die Antwort-ID gesetzt, message auf "OBD" - so bleibt im Datalake
+    nachvollziehbar, dass diese Werte NICHT aus der DBC stammen."""
+    from obd_from_can import decode_obd_traffic
+
+    decoded = decode_obd_traffic(df)
+    if decoded.empty:
+        return pd.DataFrame(columns=["t", "can_id", "message", "signal", "value"])
+    resp = decoded[decoded["direction"] == "response"]
+    rows = []
+    for (mode, id_), (name, formula) in OBD_CHANNELS.items():
+        sel = resp[(resp["mode"] == mode) & (resp["id_"] == id_)]
+        for t, raw in sel[["t", "raw_value"]].itertuples(index=False):
+            rows.append((t, 0x7E8, "OBD", name, formula(raw)))
+    return pd.DataFrame(rows, columns=["t", "can_id", "message", "signal", "value"])
+
+
 def decode(df, db):
     """Long-Format: t, can_id, message, signal, value"""
     by_id = {m.frame_id: m for m in db.messages}
@@ -90,7 +128,13 @@ def decode(df, db):
               f"Frame(s) nicht dekodierbar - z.B. neuer Bit-Konflikt oder kaputte Signaldefinition):")
         for can_id, (name, count, last_err) in sorted(decode_errors.items()):
             print(f"  0x{can_id:03X} {name}: {count} Frame(s) fehlgeschlagen, zuletzt: {last_err}")
-    return pd.DataFrame(out, columns=["t", "can_id", "message", "signal", "value"]), undecoded_ids
+    result = pd.DataFrame(out, columns=["t", "can_id", "message", "signal", "value"])
+    obd = decode_obd_channels(df)
+    if not obd.empty:
+        print(f"{len(obd)} OBD-Samples ergaenzt "
+              f"({', '.join(sorted(obd['signal'].unique()))})")
+        result = pd.concat([result, obd], ignore_index=True)
+    return result, undecoded_ids
 
 
 if __name__ == "__main__":
