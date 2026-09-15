@@ -56,13 +56,26 @@ def load_db(bus="hscan"):
 
 
 def parse_candump(path):
-    """candump -l Zeile: '(1789142696.996778) can0 20A#35C8D45080000F80'"""
-    rows = []
+    """candump -l Zeile: '(1789142696.996778) can0 20A#35C8D45080000F80'
+
+    Defekte Zeilen werden uebersprungen statt den ganzen Lauf abzubrechen.
+    Grund: wird candump hart getoetet (Stromverlust an der Powerbank, Pi
+    aus), endet die Datei mitten in einer Zeile - genau so passiert bei
+    candump-2026-09-15_171047.log (urspr. falsch datiert 092732), das
+    dadurch komplett aus der automatischen Pipeline fiel. Die Anzahl uebersprungener Zeilen wird
+    gemeldet, damit echte Korruption nicht still bleibt."""
+    rows, skipped = [], 0
     with open(path) as f:
         for line in f:
-            ts_str, _, rest = line.split(" ", 2)
-            can_id_str, data_str = rest.strip().split("#", 1)
-            rows.append((float(ts_str.strip("()")), int(can_id_str, 16), bytes.fromhex(data_str)))
+            try:
+                ts_str, _, rest = line.split(" ", 2)
+                can_id_str, data_str = rest.strip().split("#", 1)
+                rows.append((float(ts_str.strip("()")), int(can_id_str, 16), bytes.fromhex(data_str)))
+            except ValueError:
+                skipped += 1
+    if skipped:
+        print(f"WARNUNG: {skipped} defekte Zeile(n) in {os.path.basename(path)} uebersprungen "
+              f"(abgeschnittenes Log? harter Stromverlust?)", file=sys.stderr)
     return pd.DataFrame(rows, columns=["t", "can_id", "data"])
 
 

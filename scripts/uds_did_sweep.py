@@ -274,6 +274,34 @@ PROBE_STEPS = [
 ]
 
 
+def engine_rpm(sock, timeout=0.3):
+    """Aktuelle Drehzahl per Standard-PID 0x0C. None, wenn keine Antwort kommt."""
+    req_id, resp_id = ECUS["PCM"]
+    kind, raw = probe_mode1(sock, req_id, resp_id, 0x0C, timeout)
+    if kind != "hit" or len(raw) < 2:
+        return None
+    return (raw[0] * 256 + raw[1]) / 4
+
+
+def wait_for_engine(channel, max_wait_s, min_rpm=400, poll_s=5.0):
+    """Warten, bis der Motor laeuft. -> True, wenn er laeuft; False bei Zeitablauf."""
+    sock = open_bus(channel)
+    deadline = time.time() + max_wait_s
+    try:
+        while time.time() < deadline:
+            rpm = engine_rpm(sock)
+            if rpm is not None and rpm > min_rpm:
+                print(f"Motor laeuft ({rpm:.0f} 1/min), starte Erhebung", flush=True)
+                return True
+            time.sleep(poll_s)
+    except Exception as exc:
+        print(f"Drehzahlpruefung fehlgeschlagen: {exc!r}", flush=True)
+        return False
+    finally:
+        sock.close()
+    return False
+
+
 def run_probe(channel, timeout, gap, out_path=None):
     """Einmal-Erhebung. Bewusst fehlertolerant: ein fehlschlagender Schritt darf die
     uebrigen nicht verhindern - das Ding laeuft unbeaufsichtigt waehrend einer Fahrt."""
@@ -325,6 +353,14 @@ def self_test():
     # Multiframe-Antwort (First Frame)
     kind, first = parse_response(0x3302, bytes([0x10, 0x0A, 0x62, 0x33, 0x02, 0x11, 0x22, 0x33]))
     assert kind == "multiframe" and first == b"\x11\x22\x33", (kind, first)
+    # Drehzahl-Auswertung (PID 0x0C, (A*256+B)/4) - die Bedingung, an der die erste
+    # Erhebung am 2026-09-15 gescheitert ist (lief bei Drehzahl 0)
+    assert parse_mode1_response(0x0C, bytes([0x04, 0x41, 0x0C, 0x0F, 0xA0, 0, 0, 0])) == ("hit", b"\x0f\xa0")
+    _kind, _raw = parse_mode1_response(0x0C, bytes([0x04, 0x41, 0x0C, 0x0F, 0xA0, 0, 0, 0]))
+    assert (_raw[0] * 256 + _raw[1]) / 4 == 1000.0          # 0x0FA0 = 4000 -> 1000 1/min
+    _kind, _raw = parse_mode1_response(0x0C, bytes([0x04, 0x41, 0x0C, 0x00, 0x00, 0, 0, 0]))
+    assert (_raw[0] * 256 + _raw[1]) / 4 == 0.0             # Motor aus -> Erhebung muss warten
+
     # Fremdverkehr
     assert parse_response(0x2A05, bytes([0x00, 0x00, 0x00, 0, 0, 0, 0, 0])) is None
 
@@ -353,9 +389,13 @@ def main():
                          "ermitteln und einmal auslesen (5 Anfragen + je eine pro PID). "
                          "Liefert u.a. die GEMESSENEN Lambdawerte beider Sonden.")
     ap.add_argument("--delay", type=float, default=0.0,
-                    help="vor dem Start so viele Sekunden warten - fuer den automatischen "
-                         "Lauf beim Fahrtbeginn, damit der Motor schon laeuft (Lambda, "
-                         "Oeltemperatur und Last sind bei blosser Zuendung ACC wertlos)")
+                    help="vor dem Start so viele Sekunden warten")
+    ap.add_argument("--wait-rpm", type=float, default=0.0,
+                    help="vor dem Start warten, bis der Motor laeuft (Drehzahl > 400), "
+                         "hoechstens so viele Sekunden. Eine feste Wartezeit reicht NICHT: "
+                         "KeyState loest schon bei Zuendung ACC aus, und bei stehendem Motor "
+                         "liefern Lambda, Last und Zuendwinkel nur Ruhewerte (2026-09-15 "
+                         "genau so passiert - die erste Erhebung lief mit Drehzahl 0).")
     ap.add_argument("--probe", action="store_true",
                     help="vordefinierte Einmal-Erhebung: Mode-1-Bestandsaufnahme am PCM "
                          "plus die beiden DSC-Bloecke, die laut ND3-Quelle Fahrwerks- und "
@@ -368,8 +408,12 @@ def main():
         return
 
     if args.delay > 0:
-        print(f"warte {args.delay:.0f}s (Motor soll laufen)...", flush=True)
+        print(f"warte {args.delay:.0f}s...", flush=True)
         time.sleep(args.delay)
+
+    if args.wait_rpm > 0 and not wait_for_engine(args.channel, args.wait_rpm):
+        print("Motor lief nicht rechtzeitig - Erhebung wird trotzdem gestartet "
+              "(statische PIDs sind auch so gueltig)", flush=True)
 
     if args.probe:
         run_probe(args.channel, args.timeout, args.gap, args.out)

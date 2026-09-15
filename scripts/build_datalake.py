@@ -481,13 +481,34 @@ def log_start_epoch(can_log_path):
     ebenfalls UTC-basierten GPX-Zeitstempeln vergleichbar, kein manueller
     Offset noetig. None, falls die Datei keine einzige candump-Zeile enthaelt
     (z.B. eine Session, die sofort nach Start wieder endete - kommt seit dem
-    automatischen Pi-Sync in run_daily_pipeline.py vor, siehe mx5_can_bus_status.md)."""
+    automatischen Pi-Sync in run_daily_pipeline.py vor, siehe mx5_can_bus_status.md).
+
+    ABER: der Pi hat keine RTC. Faehrt er ohne NTP los, sind Dateiname UND
+    Frame-Zeitstempel gleichermassen falsch (bisher 3x passiert, siehe
+    mx5_can_bus_status.md). Die Korrektur besteht im Projekt darin, die Datei
+    auf die per Kreuzkorrelation ermittelte wahre Startzeit umzubenennen - der
+    Dateiname ist damit die verlaesslichere Quelle als die Frames. Weichen
+    beide um mehr als eine Minute voneinander ab, gewinnt deshalb der Name.
+    Ohne das blieb der Datalake nach so einer Umbenennung still falsch
+    (candump-2026-09-14_163711/173057 standen dort bis 2026-09-15 unter dem
+    alten 13.09.-Zeitstempel)."""
     with open(can_log_path) as f:
         first_line = f.readline()
     try:
-        return float(first_line.split(")", 1)[0].strip("("))
+        frame_epoch = float(first_line.split(")", 1)[0].strip("("))
     except ValueError:
         return None
+    m = re.search(r"candump-(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})",
+                  os.path.basename(can_log_path))
+    if not m:
+        return frame_epoch
+    name_epoch = datetime(*(int(g) for g in m.groups()), tzinfo=LOCAL_TZ).timestamp()
+    if abs(name_epoch - frame_epoch) <= 60:
+        return frame_epoch
+    print(f"  Hinweis: {os.path.basename(can_log_path)} - Frame-Zeitstempel weichen "
+          f"{(name_epoch - frame_epoch) / 3600:+.2f}h vom Dateinamen ab (Pi-Uhr ohne NTP); "
+          f"Dateiname gewinnt.")
+    return name_epoch
 
 
 def _derive_gear_status(raw_decoded):

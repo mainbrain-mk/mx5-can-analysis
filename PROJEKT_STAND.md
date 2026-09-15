@@ -5335,3 +5335,98 @@ ersten Mal am 14.09. morgens (`081105`), dann nochmal nachmittags
 (`163711`/`173057`) - nicht wie zunaechst angenommen bereits am 13.09.
 Rohdateien selbst wurden nicht inhaltlich veraendert (nur umbenannt) -
 konsistent mit dem Projekt-Prinzip "Rohdateien werden nie veraendert".
+
+## Automatischer Lauf: 2 neue Logs verarbeitet (2026-09-15)
+
+- `2026-09-15 085014`, Dauer=38min, Masse=1167.0kg (FLI ~25.8%->~21.9%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-15 170941`, Dauer=37min, Masse=1164.8kg (FLI ~20.3%->~14.5%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-15 085014: Resonanz auf AccelerationX bei 8.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-15 085014: Resonanz auf AccelerationZ bei 11.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-15 170941 t=1958-1961s: a_lat_peak/mean-Verhaeltnis 2.2 > 2.0 (peak=+0.55g, mean=+0.25g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-15 170941 t=312-317s: a_lat_peak/mean-Verhaeltnis 2.1 > 2.0 (peak=+0.41g, mean=+0.20g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-15 170941 t=267-271s: a_lat_peak/mean-Verhaeltnis 2.5 > 2.0 (peak=+0.26g, mean=+0.10g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 3 -> 4 (upshift): 0.98s (vorher 1.02s), candump-2026-09-14_163711 @ t=792.9s.
+- shift_record: Neue Bestzeit 4 -> 5 (upshift): 0.96s (vorher 1.06s), candump-2026-09-14_163711 @ t=2552.7s.
+- shift_record: Neue Bestzeit 3 -> 2 (downshift): 1.76s (vorher 2.44s), candump-2026-09-15_084853 @ t=1671.3s.
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (links): 0.83g (vorher 0.82g), candump-2026-09-14_081105 @ t=2160.0s, v=36km/h - unverifizierter Kandidat, manuell pruefen.
+- script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
+- script_error: .venv/bin/python scripts/can_log_parser.py data/can/candump-2026-09-15_092732.log: exit code 1: Traceback (most recent call last):
+  File "/home/manuel/claude/scripts/can_log_parser.py", line 144, in <module>
+    raw = parse_candump(log_path)
+          ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/manuel/claude/scripts/can_log_parser.py", line 64, in parse_candump
+    can_id_str, data_str = rest.strip().split("#", 1)
+    ^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+- script_error: .venv/bin/python scripts/build_datalake.py: Exception: Command '['.venv/bin/python', 'scripts/build_datalake.py']' timed out after 300 seconds
+- script_error: .venv/bin/python scripts/drivetrain_model_validation.py: Exception: Command '['.venv/bin/python', 'scripts/drivetrain_model_validation.py']' timed out after 300 seconds
+- script_error: .venv/bin/python scripts/top_speed_validation.py: Exception: Command '['.venv/bin/python', 'scripts/top_speed_validation.py']' timed out after 300 seconds
+
+## Nachtrag: das gescheiterte Log nachgeholt (candump-2026-09-15_171047, 2026-09-15)
+
+Das im automatischen Lauf oben abgestuerzte Log
+(`candump-2026-09-15_092732.log`) war die **Nachmittagsfahrt vom 15.09.** und
+ist jetzt vollstaendig verarbeitet. Zwei unabhaengige Fehler steckten drin:
+
+**1. Abgeschnittene letzte Zeile (Ursache des Pipeline-Absturzes).** Die Datei
+endet mitten im Frame (`(1789459376.467328) can0 076`, kein `#`, kein
+Zeilenumbruch) und hatte als einzige kein `.gz`-Geschwister. Grund: der Pi
+verlor am Fahrtende hart den Strom (`uptime -s` auf dem Pi = 17:49:26, also
+3 Minuten nach dem letzten Frame - Neustart erst zu Hause). `candump` wurde
+dabei getoetet, bevor es die Zeile fertig schreiben und `session_logger.py`
+gzippen konnte. `parse_candump()` in `scripts/can_log_parser.py` ueberspringt
+defekte Zeilen jetzt statt abzubrechen und meldet die Anzahl (Test:
+`scripts/test_can_log_parser.py`). 1 Zeile uebersprungen, 5.567.710 Frames
+verarbeitet, 104/105 IDs per DBC abgedeckt.
+
+**2. Dritter Pi-Uhr-ohne-NTP-Fall.** Die Frame-Zeitstempel lagen **7h43m15s
+zu frueh** (Log lief scheinbar 09:27:32-10:02:56). Belegt per
+VehicleSpeed-Kreuzkorrelation gegen das Handy-Log `2026-09-15 170941.dlg`:
+**r=0,99994** bei Lag +27795s (2125 gemeinsame Sekunden). Gegenprobe: das
+Morgen-Log `candump-2026-09-15_084853` passt mit Lag **-0,4s** (r=0,99996) auf
+`2026-09-15 085014.dlg`, dessen Uhr war also korrekt. Der Pi startete die
+Nachmittags-Session mit einer Uhr, die ziemlich genau dort weiterlief, wo die
+Morgen-Session endete (09:27:32 vs. Morgen-Ende 09:28:09) - die typische
+Signatur einer wiederhergestellten statt synchronisierten Uhr.
+Wahre Fahrtzeit: **17:10:47-17:46:11**. Datei lokal und auf dem Pi umbenannt,
+`data/can_gps_pairs.json` nachgezogen.
+
+**Dabei aufgefallen: das Umbenennen allein reichte nie.** `log_start_epoch()`
+in `build_datalake.py` las die Startzeit aus dem ersten Frame - die beiden am
+14.09. korrigierten Logs standen deshalb bis heute mit dem **falschen
+13.09.-Zeitstempel** im Datalake (`timestamp_local`), obwohl die Dateien laengst
+richtig hiessen. Gefixt: weichen Dateiname und Frame-Zeitstempel um >60s
+voneinander ab, gewinnt der Dateiname (er traegt im Projekt die per
+Kreuzkorrelation ermittelte Wahrheit). Greift genau bei den drei bekannten
+Faellen (163711, 173057, 171047), alle uebrigen Logs bleiben unveraendert.
+
+**Nebenbefund:** `tpms_log_decode.py` war seit der Oeltemperatur-Erweiterung
+kaputt (`PIDS`-Eintraege haben jetzt 3 statt 2 Felder) - gefixt.
+
+### Was in der Fahrt drinsteckt
+- **Oeltemperatur zum ersten Mal ueber eine ganze Fahrt** (180 Samples, der
+  10s-Poller lief erstmals live): **31,3 -> 102,5 °C**. Das Kuehlwasser steht
+  nach ~12 Minuten bei 89 °C und bleibt dort, das Oel zieht erst danach
+  weiter hoch und liegt am Ende **~12 K ueber dem Kuehlwasser** - genau das
+  erwartete Bild. Der Kanal ist damit produktiv nutzbar.
+- **Staerkste je per CAN gemessene Kurven des Projekts**, beide in dieser
+  Fahrt: **+1,09g rechts** (t=1876,7s, 120 km/h, 3. Gang) und **-1,00g links**
+  (t=1916,1s). Der Rechts-Peak ist kein Sensor-Ausreisser: die unabhaengige
+  Rechnung `a_lat = v·ω` aus VehicleSpeed und Gierrate liefert im selben
+  Moment **0,98g** (r=0,96 ueber das Kurvenfenster), das 0,25s-Mittel um den
+  Peak 0,92g vs. 0,95g. Ueber 0,9g blieb es ~0,48s.
+- Damit gibt es **erstmals einen CAN-bestaetigten Punkt an der unteren Kante
+  des Lap-Sim-Brackets** (mu=1,0-1,3) - bisher lag dort nur der GPS/Gyro-
+  Referenzpunkt aus 170146. `corner_speed_model.py` warnt jetzt entsprechend.
+- Neue Schaltbestzeit 3->2 (downshift): 1,60s (vorher 1,76s).
+- vmax in dieser Fahrt 194,6 km/h; TPMS unauffaellig, Hinterachse (Tire3/4)
+  wie gewohnt ueber der Vorderachse.
+
+**Offen:** der Pipeline-Timeout fuer `build_datalake.py` steht auf 300s, der
+Build braucht inzwischen ~380s - deshalb scheiterten oben auch
+`drivetrain_model_validation.py` und `top_speed_validation.py` (sie laufen auf
+einem Datalake, der gar nicht neu gebaut wurde). Nicht angefasst.

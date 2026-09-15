@@ -232,8 +232,12 @@ OBD/CAN-Referenz gesucht werden muss):
   nichtlinearer Lenkwinkel ist nicht belegt.
 - Bei jedem CAN-only-Log ohne GPS-/OBD-Zeitanker: Datum mit Vorsicht behandeln – der
   Pi hat keine RTC, ohne NTP während der ganzen Session bleibt die Uhr durchgehend falsch,
-  OHNE einen erkennbaren Sprung im Log zu zeigen (2026-09-14 zum zweiten Mal aufgetreten,
-  siehe Logbuch).
+  OHNE einen erkennbaren Sprung im Log zu zeigen (**2026-09-15 zum dritten Mal** aufgetreten,
+  siehe Logbuch). Seit 2026-09-15 korrigiert `log_start_epoch()` in
+  `build_datalake.py` das selbst: weichen Dateiname und Frame-Zeitstempel um >60s ab,
+  gewinnt der Dateiname. Vorher war ein umbenanntes Log im Datalake **weiterhin falsch
+  datiert** – die beiden 09-14-Logs standen dort einen Tag lang unter dem alten
+  13.09.-Zeitstempel.
 
 ### Nächste Schritte
 1. Standtests wiederholen: Zündung durchgehend auf ON/Motor an (nicht nur ACC), Start-Tap
@@ -2000,3 +2004,145 @@ schon beschrieben wurde. Belege:
 (20 Stichproben pro Log); per `uds_did_sweep.py` bzw. einem eigenen Poller waere sie
 durchgehend verfuegbar - alternativ liefert der Standard-PID 0x5C dasselbe, falls
 unterstuetzt (im Mode-1-Survey mit abgedeckt).
+
+## Nachgeholtes Log candump-2026-09-15_171047: zwei Bugs, Öltemperatur live, stärkste CAN-Kurve (2026-09-15)
+
+Das Log fiel im automatischen Durchlauf komplett aus (Parser-Absturz) und trug
+zusätzlich die falsche Uhrzeit. Beides aufgelöst, Log vollständig verarbeitet.
+
+### Bug 1: abgeschnittene letzte Zeile bricht den ganzen Parser ab
+Die Datei endet mitten im Frame (`(1789459376.467328) can0 076` – kein `#`, kein
+Zeilenumbruch) und war als einzige nie gegzippt. Ursache: harter Stromverlust am
+Fahrtende. Belegt über den Pi selbst – `uptime -s` = 17:49:26, also 3 Minuten nach
+dem letzten Frame; der Pi bootete erst zu Hause wieder. `candump` wurde getötet,
+bevor die Zeile fertig war und `session_logger.py` gzippen konnte.
+
+`parse_candump()` überspringt defekte Zeilen jetzt (`try/except ValueError`) statt
+den Lauf abzubrechen, und meldet die Anzahl auf stderr – stilles Verschlucken wäre
+hier der gefährlichere Fehler, weil echte Korruption dann unsichtbar bliebe.
+Ein Fix, neun Aufrufer (`can_bitsearch`, `can_byte_search`, `can_field_segmentation`,
+`can_event_bit_diff`, `can_opendbc_crosscheck`, `can_retest_maybe_signals`,
+`can_steering_angle_0x86`, `can_gps_yawrate_and_steering_offset`, das Skript selbst).
+Test: `scripts/test_can_log_parser.py`.
+
+Ergebnis: 1 Zeile übersprungen, **5.567.710 Frames**, 105 unique IDs, 104 davon per
+DBC abgedeckt (nur `0x7df` fehlt), 9,34 Mio Signal-Samples.
+
+### Bug 2: dritter Pi-Uhr-ohne-NTP-Fall (−7h43m15s)
+Die Frame-Zeitstempel behaupteten 09:27:32–10:02:56. Widerlegt per
+VehicleSpeed-Kreuzkorrelation (dieselbe Methode wie am 14.09.):
+
+| Vergleich | bester Lag | r | gemeinsame Samples |
+|---|---|---|---|
+| `092732` vs. `2026-09-15 170941.dlg` | **+27795,0 s** (7h43m15s) | **0,99994** | 10032 (0,2s-Raster) |
+| `084853` vs. `2026-09-15 085014.dlg` | −0,4 s | 0,99996 | 5888 |
+
+Das Morgen-Log war also korrekt datiert, nur die Nachmittags-Session nicht. Die
+Signatur ist eindeutig: der Pi startete die zweite Session mit einer Uhr bei
+09:27:32 – 37 Sekunden **vor** dem Ende der Morgen-Session (09:28:09). Er hat die
+Zeit also dort wieder aufgenommen, wo sie zuletzt bekannt war, statt sie zu
+synchronisieren. Wahre Fahrtzeit: **17:10:47–17:46:11**.
+
+Umbenannt lokal und auf dem Pi (`candump-2026-09-15_171047.log`),
+`data/can_gps_pairs.json` nachgezogen, Rohinhalt unverändert.
+
+### Folgefund: Umbenennen allein hat den Datalake nie mitkorrigiert
+`log_start_epoch()` in `build_datalake.py` las die Startzeit aus dem **ersten Frame**.
+Die am 14.09. umbenannten Logs standen deshalb bis heute mit dem alten
+13.09.-Zeitstempel in `measurements.timestamp_local` – die Dateien hießen richtig,
+der Datalake log weiter. Gefixt an dieser einen Stelle: weichen Dateiname und
+Frame-Zeitstempel um >60s ab, gewinnt der Dateiname (er trägt im Projekt die per
+Kreuzkorrelation ermittelte Wahrheit), mit Hinweis beim Build. Greift bei genau
+den drei bekannten Fällen und lässt alle anderen Logs unberührt – verifiziert:
+
+```
+candump-2026-09-14_163711  13.09. 13:54 -> 14.09. 16:37
+candump-2026-09-14_173057  13.09. 14:46 -> 14.09. 17:30
+candump-2026-09-15_171047  15.09. 09:27 -> 15.09. 17:10
+```
+
+### Bug 3 (nebenbei): tpms_log_decode.py war seit der Öltemperatur kaputt
+`tpms_poller.PIDS` bekam beim Oil-Temp-Umbau ein drittes Feld (Byte-Anzahl),
+`tpms_log_decode.py` entpackte weiter zwei → `ValueError`. Einzeiler gefixt.
+
+### Inhalt der Fahrt
+- **Öltemperatur erstmals über eine ganze Fahrt** (180 Samples, erster Live-Lauf des
+  10s-Pollers): **31,3 → 102,5 °C**. Das Kühlwasser steht nach ~12 min bei 89 °C und
+  bleibt dort, das Öl zieht danach weiter und endet **~12 K darüber** – genau das
+  erwartete Warmlauf-/Lastbild. `OilTemp_CAN` ist damit produktiv.
+- **Stärkste je per CAN gemessene Kurven des Projekts**, beide in dieser Fahrt:
+  **+1,09g rechts** (t=1876,7s, 120 km/h, 3. Gang) und **−1,00g links** (t=1916,1s).
+  Der Rechts-Peak hält der Gegenprobe stand: `a_lat = v·ω` aus VehicleSpeed und
+  Gierrate liefert im selben Sample **0,98g**, r=0,96 über das Kurvenfenster, das
+  0,25s-Mittel um den Peak 0,92g (v·ω: 0,95g). Über 0,9g blieb es ~0,48s. Also kein
+  Einzelsample-Ausreißer, sondern ein echter Grenzbereich – anders als die
+  bekannten `a_lat_peak`-Überschätzungen beim Rutschen.
+- Damit existiert **erstmals ein CAN-bestätigter Punkt an der unteren Kante des
+  Lap-Sim-Brackets** (mu=1,0–1,3); bisher lag dort nur der GPS/Gyro-Referenzpunkt
+  aus 170146. `corner_speed_model.py` warnt jetzt entsprechend (p90 aller Kurven
+  weiterhin nur 0,59g).
+- vmax 194,6 km/h, neue Schaltbestzeit 3→2 (downshift) 1,60s, TPMS unauffällig
+  (Hinterachse wie gewohnt über der Vorderachse).
+
+## Erster Fahrtlauf mit Oeltemperatur-Polling und Einmal-Erhebung (2026-09-15, Hinfahrt)
+
+### Oeltemperatur: Formel dreifach unabhaengig bestaetigt
+Hinfahrt `candump-2026-09-15_084853` (39,3 Min, 6,02 Mio Frames): **222 Stichproben im
+exakten 10-Sekunden-Takt**, 11,7 -> 92,3 °C. Zum Vergleich: in allen 12 Logs davor
+zusammen gab es 20 Stichproben, alle in einem einzigen Log.
+
+| t [min] | Oel °C | Kuehlwasser °C | Diff |
+|---|---|---|---|
+| 1,1 | 11,66 | 12,0 | −0,3 |
+| 4,6 | 13,96 | 42,0 | −28,0 |
+| 6,6 | 31,12 | 70,0 | −38,9 |
+| 10,3 | 70,29 | 87,0 | −16,7 |
+| 16,4 | 87,98 | 88,0 | 0,0 |
+| 23,9 | 90,82 | 89,0 | +1,8 |
+| 39,1 | 92,30 | 93,0 | −0,7 |
+
+Die Formel `((A*256)+B)/100-40` ist damit ohne jeden Anpassungsparameter bestaetigt:
+(1) beim Kaltstart stimmen Oel, Kuehlwasser und Ansauglufttemperatur auf 0,3 °C ueberein,
+(2) im Warmlauf haengt das Oel mit bis zu 39 °C hinterher (groessere Waermekapazitaet),
+(3) im warmen Zustand liegt es 1,8 °C ueber dem Kuehlwasser. Alles physikalisch korrekt.
+
+### Uhr-Absicherung hat am ersten Tag einen echten Fehler gefangen
+`clockstate-20260915-092732.txt`: *"Uhr von 2026-09-13 13:54:00 auf gespeicherte
+2026-09-15 09:27:11 vorgestellt (kein NTP)"*. Der Pi war neu gebootet (`uptime -s` bestaetigt
+einen Boot heute; `last reboot` und das Journal liegen auf dem RAM-Overlay und zeigen
+deshalb veraltete Staende) und kam mit dem Datum vom 13.09. hoch - genau der
+fake-hwclock-Wert aus dem Overlay. Ohne den Fix waere das Log zwei Tage falsch datiert
+gewesen, ohne erkennbaren Sprung.
+
+**Nebenwirkung, kosmetisch:** das Log der Rueckfahrt heisst `candump-2026-09-15_171047.log`,
+obwohl seine Frames von 09:27:32 bis 10:02:56 laufen. `date -s` und `systemd-timesyncd`
+haben sich kurz gegenseitig ueberschrieben, und candump hat beim Anlegen der Datei genau
+den Transientwert erwischt. **Die Daten selbst sind in Ordnung** - im Log steckt kein
+einziger Sprung > 60 s ueber 5,57 Mio Frames, und `log_start_epoch()` liest ohnehin den
+ersten Frame-Epoch statt des Dateinamens. Der Datalake ist also immun; nur der Dateiname
+ist irrefuehrend. (Die Datei ist ausserdem unkomprimiert geblieben - die Session wurde hart
+beendet, `stop_logging()` kam nicht mehr zum gzip.)
+
+### Einmal-Erhebung: statische Ergebnisse gueltig, dynamische wertlos
+Die Erhebung lief - aber **bei stehendem Motor** (Drehzahl 0, Laufzeit seit Start 0, Last 0,
+MAF 0). Ursache: die feste Wartezeit von 90 s reichte nicht, weil KeyState schon bei
+Zuendung ACC ausloest. Behoben: der Ausloeser wartet jetzt auf Drehzahl > 400 (Standard-PID
+0x0C), hoechstens 10 Minuten. Live gegen ein vcan-Fake-Steuergeraet geprueft.
+
+Was trotzdem gesichert ist, weil es nicht vom Motorzustand abhaengt:
+
+- **52 Standard-Mode-1-PIDs werden unterstuetzt** (vollstaendige Liste in
+  `probe-20260915-084853.csv`).
+- **PID 0x5C (Motoroeltemperatur) wird NICHT unterstuetzt.** Damit ist DID 0x1310 die
+  einzige Quelle - die Entscheidung, sie selbst zu pollen, war richtig.
+- **PID 0x34 WIRD unterstuetzt**: O2 Bank1 Sensor1, Breitband-Lambda + Sondenstrom. Das ist
+  der gemessene Wert der vorderen Regelsonde, der uns bisher komplett fehlte (wir hatten nur
+  das SOLL-Lambda aus PID 0x44). Bei stehendem Motor lieferte er den Ruhewert lambda=1,0000 /
+  −0,47 mA - der echte Messwert kommt beim naechsten Lauf.
+- **PID 0x13 = 0b00000011**: genau zwei Sonden, Bank 1 Sensor 1 und Sensor 2 - deckt sich
+  mit der Nutzerangabe. Fuer Sensor 2 gibt es nur den Schmalband-PID 0x15, kein 0x25/0x35.
+- **DSC-Bloecke bestaetigt**: `2B00-2BFF` liefert 11 Treffer, `2000-20FF` vier - exakt wie in
+  der ND3-Quelle. Im Stand sind erwartungsgemaess fast alle null (2B0D Bremspedal = 0,
+  2033/2034 Lenkwinkel/-rate = 0). `2B11 = 0xFFF5` (signed −11) und `2B05 = 0x40000000`
+  sind die einzigen von null verschiedenen Werte. Ein ABS/DSC-Eingriffsindikator laesst sich
+  daraus im Stand nicht identifizieren - dafuer braucht es dieselben DIDs waehrend der Fahrt.

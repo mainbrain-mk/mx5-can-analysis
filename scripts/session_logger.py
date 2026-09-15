@@ -45,7 +45,10 @@ PROBE_FLAG_PATH = os.path.join(LOG_DIR, "RUN_PROBE")
 PROBE_SCRIPT_PATH = os.environ.get(
     "MX5_PROBE_SCRIPT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "uds_did_sweep.py")
 )
-PROBE_DELAY_S = 90   # Motor soll laufen - bei blosser Zuendung ACC sind die Werte wertlos
+# Erster Lauf am 2026-09-15 zeigte: eine feste Wartezeit reicht nicht. KeyState loest schon
+# bei Zuendung ACC aus, der Motor lief nach 90s noch nicht (Drehzahl 0, Laufzeit seit Start 0)
+# - die dynamischen Werte waren damit wertlos. Jetzt wird auf Drehzahl > 400 gewartet.
+PROBE_WAIT_RPM_S = 600   # hoechstens 10 Minuten auf den Motorstart warten
 
 # Uhr-Absicherung (2026-09-15). Der Pi hat keine RTC. fake-hwclock IST installiert und
 # aktiviert, kann aber nichts ausrichten: seine Datei /etc/fake-hwclock.data liegt auf dem
@@ -164,7 +167,7 @@ class SessionLogger:
             os.rename(PROBE_FLAG_PATH, f"{PROBE_FLAG_PATH}.gestartet-{stamp}")
             self.probe_proc = self._popen(
                 [sys.executable, PROBE_SCRIPT_PATH, "--channel", self.can_channel,
-                 "--probe", "--delay", str(PROBE_DELAY_S), "--out", out_path],
+                 "--probe", "--wait-rpm", str(PROBE_WAIT_RPM_S), "--out", out_path],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             print(f"[session_logger] Einmal-Erhebung gestartet -> {out_path}", flush=True)

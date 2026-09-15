@@ -60,7 +60,7 @@ def decode_log(path):
             if first_t0 is None:
                 first_t0 = t_abs
             data = bytes.fromhex(data_hex)
-            for did, (name, formula) in PIDS.items():
+            for did, (name, _nbytes, formula) in PIDS.items():
                 raw = decode_response(did, data)
                 if raw is not None:
                     rows.append({"t": t_abs - first_t0, "signal": name, "value": formula(raw)})
