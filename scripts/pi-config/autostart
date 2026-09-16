@@ -1,0 +1,6 @@
+# Altes Tkinter-Cockpit (Fallback) - bei Bedarf: diese Zeile einkommentieren,
+# die beiden dash_gui.py-Zeilen darunter auskommentieren.
+# DISPLAY=:0 /home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/status_gui.py &
+
+DISPLAY=:0 /home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/can_backend.py &
+DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1 /home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/dash_gui.py &

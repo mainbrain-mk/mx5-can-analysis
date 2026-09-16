@@ -1,0 +1,17 @@
+[Unit]
+Description=MX-5 CAN bus logger (KeyState-getriggert)
+After=sys-subsystem-net-devices-can0.device
+BindsTo=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/canlogs
+ExecStartPre=-/sbin/ip link set can0 down
+ExecStartPre=/sbin/ip link set can0 type can bitrate 500000
+ExecStartPre=/sbin/ip link set can0 up
+ExecStart=/home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/session_logger.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
