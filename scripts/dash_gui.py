@@ -41,6 +41,11 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
 # Neben dem Skript statt in LOG_DIR - ein Asset, kein Laufzeit-/Log-Artefakt.
 CAR_TOP_VIEW_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mx5_top_view.png")
+# Titillium Web Bold Italic (Google Fonts, OFL) statt Kivys Standard-Roboto -
+# Nutzer zeigte ein Foto des echten Chrom-Emblems: fett UND kursiv/schraeg,
+# nicht aufrecht. Kein Font trifft das handgezeichnete Original exakt, das
+# ist nur eine Annaeherung (siehe scripts/fonts/OFL.txt fuer die Lizenz).
+MX5_LOGO_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "TitilliumWeb-BoldItalic.ttf")
 UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
 # Gegenstueck zu can_backend.py SIM_TRIGGER_PATH - siehe SimController unten.
 SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
@@ -82,6 +87,7 @@ YELLOW = (1, 0.83, 0, 1)
 ORANGE = (1, 0.55, 0.1, 1)
 GREEN = (0.18, 0.8, 0.32, 1)
 BLUE = (0.22, 0.53, 0.9, 1)
+SILVER = (0.75, 0.76, 0.79, 1)
 GOOD = GREEN
 WARN = YELLOW
 
@@ -578,8 +584,12 @@ class DriveScreen(Screen):
                                     size_hint_y=None, height=26, halign="left"))
         self.gear_value = Label(text="-", font_size="205sp", bold=True, color=TEXT)
         gear_card.add_widget(self.gear_value)
-        gear_card.add_widget(Label(text="MX-5\nTRACKDAY", font_size="16sp", color=RED, bold=True,
-                                    halign="center", size_hint_y=None, height=42))
+        # Hoehe (108) ist kein Zufallswert: gleicht die Fixhoehe unterhalb
+        # des Werts an die der SPEED-Karte an (km/h+Trenner+VMAX-Zeile dort),
+        # damit GEAR und SPEED auf derselben Hoehe zentriert sind.
+        gear_card.add_widget(Label(text="MX-5", font_size="74sp", color=SILVER,
+                                    font_name=MX5_LOGO_FONT,
+                                    halign="center", size_hint_y=None, height=108))
         mid.add_widget(gear_card)
 
         stat_col = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.2)

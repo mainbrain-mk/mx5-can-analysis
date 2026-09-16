@@ -26,6 +26,7 @@ die bestehende Oeltemp-Abfrage, selber Header, selber konservativer Takt.
 """
 import json
 import os
+import signal
 import socket
 import threading
 import time
@@ -152,6 +153,30 @@ def process_running(pattern):
     return False
 
 
+def kill_processes(pattern):
+    """Wie process_running(), aber schickt Treffern SIGTERM statt nur zu
+    pruefen - fuer den canplayer der Vcan-Simulation (siehe run_process_watch()
+    unten), der in dash_gui.py per subprocess.Popen gestartet wird, also kein
+    Kindprozess von uns ist und nicht ueber .terminate() erreichbar."""
+    try:
+        pids = os.listdir("/proc")
+    except FileNotFoundError:
+        return
+    for pid in pids:
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\x00", b" ").decode(errors="replace")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if pattern in cmdline:
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
 def _load_db():
     import logging
     import cantools
@@ -218,11 +243,27 @@ class CanBackend:
                 self._proc_state = {"can_up": False, "logging": False, "session_logger_running": False}
             elif forced == "ERROR":
                 self._proc_state = {"can_up": True, "logging": False, "session_logger_running": False}
-            elif os.path.exists(SIM_TRIGGER_PATH):
+            elif os.path.exists(SIM_TRIGGER_PATH) and not can0_up(self.channel):
                 # Vcan-Simulation vom "Warte auf CAN-Bus"-Knopf aus dash_gui.py -
                 # so tun, als waere die Zuendung an und das Logging aktiv, damit
                 # auch der Drive-Screen automatisch erscheint.
                 self._proc_state = {"can_up": True, "logging": True, "session_logger_running": True}
+            elif os.path.exists(SIM_TRIGGER_PATH):
+                # can0_up() ist jetzt True - genau das Event, das sonst WARTE-
+                # AUF-CAN-BUS auf BUS-AKTIV umschaltet: der echte Adapter ist
+                # da. Simulation beenden statt sie im Hintergrund weiterlaufen
+                # zu lassen, run_decode_loop() erkennt die geloeschte Trigger-
+                # Datei binnen einer Sekunde und verbindet sich neu auf can0.
+                kill_processes("canplayer")
+                try:
+                    os.remove(SIM_TRIGGER_PATH)
+                except FileNotFoundError:
+                    pass
+                self._proc_state = {
+                    "can_up": True,
+                    "logging": process_running("candump -l"),
+                    "session_logger_running": process_running("session_logger.py"),
+                }
             else:
                 self._proc_state = {
                     "can_up": can0_up(self.channel),
@@ -256,6 +297,14 @@ class CanBackend:
             self.error = None
             try:
                 while True:
+                    # Laufend pruefen, nicht nur beim (Re-)Connect oben -
+                    # solange auf vcan0 (oder gar nichts mehr) Frames
+                    # ankommen, wirft bus.recv() nie eine Exception, die
+                    # Schleife wuerde sonst auf vcan0 haengen bleiben, selbst
+                    # nachdem run_process_watch() die Simulation schon laengst
+                    # beendet hat (echter can0 jetzt verfuegbar).
+                    if ("vcan0" if os.path.exists(SIM_TRIGGER_PATH) else self.channel) != channel:
+                        break
                     msg = bus.recv(timeout=1.0)
                     if msg is None:
                         continue
