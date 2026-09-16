@@ -221,8 +221,7 @@ class CanBackend:
             elif os.path.exists(SIM_TRIGGER_PATH):
                 # Vcan-Simulation vom "Warte auf CAN-Bus"-Knopf aus dash_gui.py -
                 # so tun, als waere die Zuendung an und das Logging aktiv, damit
-                # auch der Drive-Screen automatisch erscheint (sobald der Replay
-                # RPM > DRIVE_RPM_THRESHOLD liefert).
+                # auch der Drive-Screen automatisch erscheint.
                 self._proc_state = {"can_up": True, "logging": True, "session_logger_running": True}
             else:
                 self._proc_state = {

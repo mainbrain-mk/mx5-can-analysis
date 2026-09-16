@@ -53,7 +53,6 @@ TPMS_STALE_S = 200
 LAMBDA_STALE_S = 25
 BATTERY_STALE_S = 25
 
-DRIVE_RPM_THRESHOLD = 300
 DRIVE_RPM_MAX = 8000
 DRIVE_RPM_YELLOW = 7000
 DRIVE_RPM_ORANGE = 7400
@@ -99,6 +98,14 @@ def _rpm_zone_color(rpm):
     return TEXT
 
 
+def _darken(color, factor=0.19):
+    # Gleicher Faktor, mit dem TEXT (weisse Zone) bisher auf das feste
+    # Inaktiv-Grau (0.16, 0.17, 0.2) abgedunkelt wirkte - jetzt auf jede
+    # Zonenfarbe angewandt statt nur auf Weiss.
+    r, g, b, a = color
+    return (r * factor, g * factor, b * factor, a)
+
+
 def _format_gear(raw):
     if raw is None:
         return "-"
@@ -111,6 +118,14 @@ def _format_gear(raw):
     if n == 7:
         return "R"
     return str(n)
+
+
+def _measure_text_width(text, font_size, bold=False):
+    """Rendert eine Textur nur zur Breitenmessung (fuer den SPEED-Trenner
+    unten) - kein Widget im Baum noetig, texture_update() reicht."""
+    probe = Label(text=text, font_size=font_size, bold=bold)
+    probe.texture_update()
+    return probe.texture_size[0]
 
 
 # --- IPC: liest die can_backend.py-UDP-Snapshots -----------------------------------------
@@ -189,10 +204,10 @@ class MetricCard(Panel):
         self.unit = unit
         self.bar_max = bar_max
         self.value_fmt = value_fmt
-        self.title_label = Label(text=title, font_size="14sp", color=TEXT_DIM, bold=True,
-                                  size_hint_y=None, height=22, halign="left", valign="middle")
+        self.title_label = Label(text=title, font_size="18sp", color=TEXT_DIM, bold=True,
+                                  size_hint_y=None, height=26, halign="left", valign="middle")
         self.title_label.bind(size=lambda w, s: setattr(w, "text_size", s))
-        self.value_label = Label(text="–", font_size="34sp", color=TEXT, bold=True,
+        self.value_label = Label(text="–", font_size="52sp", color=TEXT, bold=True,
                                   halign="left", valign="middle")
         self.value_label.bind(size=lambda w, s: setattr(w, "text_size", s))
         self.add_widget(self.title_label)
@@ -245,28 +260,48 @@ class FillBar(Widget):
         self._redraw()
 
 
+class _HDivider(Widget):
+    """Feste horizontale Trennlinie (SPEED-Trenner unter der km/h-Einheit) -
+    Breite kommt von aussen (an "188" bei der Hero-Schriftgroesse gemessen),
+    keine eigene Logik noetig."""
+
+    def __init__(self, color, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas:
+            Color(*color)
+            self._rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._redraw, size=self._redraw)
+
+    def _redraw(self, *_args):
+        self._rect.pos = self.pos
+        self._rect.size = self.size
+
+
 class ShiftLightRow(BoxLayout):
     """LED-Kette, faerbt sich von unten (Basis) ueber Gelb/Orange bis Rot je
     nach Drehzahl - Nachfolger von ShiftLightBar in status_gui.py, hier als
     horizontale Punktreihe wie in der Design-Vorlage."""
 
-    DOT_SIZE = 34
+    # Ausgefuellt auf die volle Zeilenhoehe (kein "SHIFT LIGHTS"-Schriftzug
+    # mehr, der Platz darunter fraass) - Breite bleibt unter der Bildschirm-
+    # breite, damit die Punkte rund bleiben (feste size=(DOT_SIZE, DOT_SIZE),
+    # kein Stretching).
+    DOT_SIZE = 104
+    DOT_GAP = 8
 
     def __init__(self, **kwargs):
-        super().__init__(orientation="vertical", spacing=4, **kwargs)
-        anchor = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=self.DOT_SIZE)
-        dots_row = BoxLayout(orientation="horizontal", spacing=8, size_hint=(None, None),
-                              size=(DRIVE_SHIFTLIGHT_N * (self.DOT_SIZE + 8), self.DOT_SIZE))
+        super().__init__(orientation="vertical", **kwargs)
+        anchor = AnchorLayout(anchor_x="center", anchor_y="center")
+        row_width = DRIVE_SHIFTLIGHT_N * self.DOT_SIZE + (DRIVE_SHIFTLIGHT_N - 1) * self.DOT_GAP
+        dots_row = BoxLayout(orientation="horizontal", spacing=self.DOT_GAP, size_hint=(None, None),
+                              size=(row_width, self.DOT_SIZE))
         self.dots = []
         for i in range(DRIVE_SHIFTLIGHT_N):
             dot = LedDot(size_hint=(None, None), size=(self.DOT_SIZE, self.DOT_SIZE))
             dots_row.add_widget(dot)
             self.dots.append(dot)
         anchor.add_widget(dots_row)
-        label_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=16)
-        label_row.add_widget(Label(text="SHIFT LIGHTS", font_size="11sp", color=TEXT_DIM))
         self.add_widget(anchor)
-        self.add_widget(label_row)
 
     def update(self, rpm):
         span = DRIVE_RPM_MAX - DRIVE_SHIFTLIGHT_MIN
@@ -284,7 +319,7 @@ class LedDot(Widget):
         self.lit = False
         self.color = GREEN
         with self.canvas:
-            Color(0.2, 0.2, 0.22, 1)
+            Color(*_darken(self.color))
             self._circle = Ellipse(pos=self.pos, size=self.size)
         self.bind(pos=self._redraw, size=self._redraw)
 
@@ -298,10 +333,9 @@ class LedDot(Widget):
         self.lit, self.color = lit, color
         self.canvas.clear()
         with self.canvas:
-            if lit:
-                Color(*color)
-            else:
-                Color(0.2, 0.2, 0.22, 1)
+            # Unlit-Punkte in der abgedunkelten eigenen Zonenfarbe statt
+            # festem Grau - gleiches Prinzip wie beim RPM-Balken (_darken()).
+            Color(*(color if lit else _darken(color)))
             self._circle = Ellipse(pos=self.pos, size=self.size)
 
 
@@ -312,14 +346,22 @@ class RpmBar(Panel):
 
     N_SEGMENTS = 60
 
+    LEFT_COL_WIDTH = 230
+
     def __init__(self, **kwargs):
         super().__init__(padding=(20, 10), spacing=4, **kwargs)
-        top = BoxLayout(orientation="horizontal", size_hint_y=None, height=60)
-        left = BoxLayout(orientation="vertical", size_hint_x=None, width=200)
-        self.rpm_value = Label(text="0", font_size="44sp", bold=True, color=TEXT, halign="left")
+
+        scale_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=26)
+        scale_row.add_widget(Widget(size_hint_x=None, width=self.LEFT_COL_WIDTH))
+        scale_row.add_widget(_RpmScaleRow())
+        self.add_widget(scale_row)
+
+        top = BoxLayout(orientation="horizontal", size_hint_y=None, height=84)
+        left = BoxLayout(orientation="vertical", size_hint_x=None, width=self.LEFT_COL_WIDTH)
+        self.rpm_value = Label(text="0", font_size="64sp", bold=True, color=TEXT, halign="left")
         self.rpm_value.bind(size=lambda w, s: setattr(w, "text_size", s))
-        left.add_widget(Label(text="RPM", font_size="13sp", color=TEXT_DIM, size_hint_y=None,
-                               height=16, halign="left"))
+        left.add_widget(Label(text="RPM", font_size="16sp", color=TEXT_DIM, size_hint_y=None,
+                               height=20, halign="left"))
         left.add_widget(self.rpm_value)
         top.add_widget(left)
         self.bar_widget = _RpmBarCanvas(self.N_SEGMENTS)
@@ -354,13 +396,29 @@ class _RpmBarCanvas(Widget):
         with self.canvas:
             for i in range(self.n_segments):
                 seg_rpm = (i / self.n_segments) * DRIVE_RPM_MAX
-                if i < lit_n:
-                    r, g, b, a = _rpm_zone_color(seg_rpm)
-                else:
-                    r, g, b, a = (0.16, 0.17, 0.2, 1)
+                zone_color = _rpm_zone_color(seg_rpm)
+                r, g, b, a = zone_color if i < lit_n else _darken(zone_color)
                 Color(r, g, b, a)
                 x = self.x + i * (seg_w + gap)
                 Rectangle(pos=(x, self.y), size=(seg_w, self.height))
+
+
+class _RpmScaleRow(FloatLayout):
+    """Zahlenskala ueber dem Drehzahlbalken (0-8, x1000) wie in der
+    Design-Vorlage - reine Beschriftung, keine eigene Logik. Faerbt sich wie
+    der Balken selbst (weiss bis gelbe Zone, dann Zonenfarbe)."""
+
+    MARKS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for v in self.MARKS:
+            rpm = v * 1000
+            color = _rpm_zone_color(rpm) if rpm >= DRIVE_RPM_YELLOW else TEXT_DIM
+            frac = min(max(rpm / DRIVE_RPM_MAX, 0.015), 0.985)
+            self.add_widget(Label(text=f"{v:g}", font_size="20sp", bold=True, color=color,
+                                   size_hint=(None, None), size=(60, 26),
+                                   pos_hint={"center_x": frac, "top": 1.0}))
 
 
 class TpmsCarView(Panel):
@@ -373,31 +431,38 @@ class TpmsCarView(Panel):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.title_label = Label(text="TPMS", font_size="14sp", color=TEXT_DIM, bold=True,
-                                  size_hint_y=None, height=22)
+        self.title_label = Label(text="TPMS", font_size="36sp", color=TEXT_DIM, bold=True,
+                                  size_hint_y=None, height=52)
         self.add_widget(self.title_label)
         body = FloatLayout()
         self.add_widget(body)
+        # Kleiner als vorher (0.4->0.3), damit bei den jetzt doppelt so
+        # breiten Eckkacheln kein Textüberlapp mit der Silhouette entsteht -
+        # dafür jetzt wirklich mittig (center_y war 0.44, leicht nach unten
+        # versetzt).
         self._car = Image(source=CAR_TOP_VIEW_PNG, allow_stretch=True, keep_ratio=True,
-                           color=CAR_LINE, size_hint=(0.4, 0.92),
-                           pos_hint={"center_x": 0.5, "center_y": 0.44})
+                           color=CAR_LINE, size_hint=(0.3, 0.92),
+                           pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
         # halign ueber text_size=size erzwungen (sonst zentriert Kivy trotz halign).
+        # Unten ueber "y" (Abstand von unten) statt "top" verankert - robust
+        # gegen die jetzt groessere Kachelhoehe, "top" haette sie nach unten
+        # aus dem Panel herausragen lassen.
         specs = [("VL", True, True), ("VR", False, True), ("HL", True, False), ("HR", False, False)]
         for key, left, top in specs:
-            pos_hint = {"top": 0.98 if top else 0.42}
+            pos_hint = {"top": 0.98} if top else {"y": 0.02}
             pos_hint["x" if left else "right"] = 0.02 if left else 0.98
             halign = "left" if left else "right"
-            col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(130, 66),
+            col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(300, 176),
                              pos_hint=pos_hint)
-            head = Label(text=key, font_size="12sp", color=TEXT_DIM, halign=halign,
-                         size_hint_y=None, height=16)
-            val = Label(text="– bar", font_size="20sp", bold=True, color=TEXT, halign=halign,
-                        size_hint_y=None, height=28)
-            temp = Label(text="–°C", font_size="13sp", color=TEXT_DIM, halign=halign,
-                         size_hint_y=None, height=20)
+            head = Label(text=key, font_size="32sp", color=TEXT_DIM, halign=halign,
+                         size_hint_y=None, height=40)
+            val = Label(text="– bar", font_size="64sp", bold=True, color=TEXT, halign=halign,
+                        size_hint_y=None, height=84)
+            temp = Label(text="–°C", font_size="34sp", color=TEXT_DIM, halign=halign,
+                         size_hint_y=None, height=52)
             for lbl in (head, val, temp):
                 lbl.bind(size=lambda w, s: setattr(w, "text_size", s))
             col.add_widget(head)
@@ -421,7 +486,7 @@ class StatusBar(BoxLayout):
     """Fusszeile: CAN-Framerate/DBC-Status/GPS-Platzhalter/Log-Status+Timer/Uhr."""
 
     def __init__(self, **kwargs):
-        super().__init__(orientation="horizontal", size_hint_y=None, height=28,
+        super().__init__(orientation="horizontal", size_hint_y=None, height=40,
                           padding=(20, 0), spacing=24, **kwargs)
         self.can_label = self._make_label()
         self.dbc_label = self._make_label()
@@ -437,7 +502,7 @@ class StatusBar(BoxLayout):
         self.gps_label.color = TEXT_DIM
 
     def _make_label(self):
-        lbl = Label(text="", font_size="13sp", color=TEXT_DIM, size_hint_x=None, halign="left")
+        lbl = Label(text="", font_size="18sp", color=TEXT_DIM, size_hint_x=None, halign="left")
         lbl.bind(texture_size=lambda w, s: setattr(w, "width", s[0]))
         return lbl
 
@@ -467,7 +532,9 @@ class DriveScreen(Screen):
         self.client = client
         self.session_max_speed = 0.0
 
-        root = BoxLayout(orientation="vertical", spacing=10, padding=14)
+        # Oben knapper gepolstert als unten - macht Platz fuer die groessere
+        # Fusszeile (StatusBar), ohne die proportionalen Kacheln zu stauchen.
+        root = BoxLayout(orientation="vertical", spacing=8, padding=(14, 6, 14, 4))
         with root.canvas.before:
             Color(*BG)
             self._bg_rect = Rectangle(pos=root.pos, size=root.size)
@@ -482,27 +549,37 @@ class DriveScreen(Screen):
         root.add_widget(mid)
 
         speed_card = Panel(size_hint_x=0.22, padding=18, spacing=4)
-        speed_card.add_widget(Label(text="SPEED", font_size="15sp", color=TEXT_DIM, bold=True,
-                                     size_hint_y=None, height=20, halign="left"))
-        self.speed_value = Label(text="0", font_size="72sp", bold=True, color=TEXT, halign="left")
-        self.speed_value.bind(size=lambda w, s: setattr(w, "text_size", s))
+        speed_card.add_widget(Label(text="SPEED", font_size="19sp", color=TEXT_DIM, bold=True,
+                                     size_hint_y=None, height=26, halign="left"))
+        # Kein text_size-Bind (wie bei gear_value) - Label zentriert die Textur
+        # dann automatisch in der Box, statt linksbuendig zu kleben.
+        self.speed_value = Label(text="0", font_size="205sp", bold=True, color=TEXT)
         speed_card.add_widget(self.speed_value)
-        speed_card.add_widget(Label(text="km/h", font_size="14sp", color=TEXT_DIM,
-                                     size_hint_y=None, height=18, halign="left"))
-        vmax_row = BoxLayout(size_hint_y=None, height=24)
-        vmax_row.add_widget(Label(text="VMAX", font_size="12sp", color=TEXT_DIM, halign="left"))
-        self.vmax_value = Label(text="0 km/h", font_size="14sp", color=TEXT, bold=True, halign="right")
+        # Einheitsbeschriftung in derselben Groesse wie die TPMS-Reifendruck-
+        # Anzeige (val-Label dort: 32sp) - fuer einheitliche Sekundaerschrift.
+        speed_card.add_widget(Label(text="km/h", font_size="32sp", color=TEXT_DIM,
+                                     size_hint_y=None, height=40, halign="left"))
+        # Roter Trenner darunter, feste Breite wie "188" bei der Hero-Schrift-
+        # groesse (nicht am aktuellen Wert orientiert - bleibt so konstant).
+        divider_row = AnchorLayout(anchor_x="center", size_hint_y=None, height=10)
+        divider_width = _measure_text_width("188", "205sp", bold=True)
+        divider_row.add_widget(_HDivider(color=RED, size_hint=(None, None),
+                                          size=(divider_width, 3)))
+        speed_card.add_widget(divider_row)
+        vmax_row = BoxLayout(size_hint_y=None, height=46)
+        vmax_row.add_widget(Label(text="VMAX", font_size="32sp", color=TEXT_DIM, halign="left"))
+        self.vmax_value = Label(text="0 km/h", font_size="35sp", color=TEXT, bold=True, halign="right")
         vmax_row.add_widget(self.vmax_value)
         speed_card.add_widget(vmax_row)
         mid.add_widget(speed_card)
 
         gear_card = Panel(size_hint_x=0.18, padding=18, spacing=2)
-        gear_card.add_widget(Label(text="GEAR", font_size="15sp", color=RED, bold=True,
-                                    size_hint_y=None, height=20, halign="left"))
-        self.gear_value = Label(text="-", font_size="80sp", bold=True, color=TEXT)
+        gear_card.add_widget(Label(text="GEAR", font_size="19sp", color=RED, bold=True,
+                                    size_hint_y=None, height=26, halign="left"))
+        self.gear_value = Label(text="-", font_size="205sp", bold=True, color=TEXT)
         gear_card.add_widget(self.gear_value)
-        gear_card.add_widget(Label(text="MX-5\nTRACKDAY", font_size="13sp", color=RED, bold=True,
-                                    halign="center", size_hint_y=None, height=36))
+        gear_card.add_widget(Label(text="MX-5\nTRACKDAY", font_size="16sp", color=RED, bold=True,
+                                    halign="center", size_hint_y=None, height=42))
         mid.add_widget(gear_card)
 
         stat_col = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.2)
@@ -1047,12 +1124,10 @@ class MX5DashApp(App):
     def update_state(self, *_args):
         snap = self.client.snapshot()
         logging_now = snap.get("logging", False)
-        rpm = self.drive_screen.get_rpm() if logging_now else None
-        engine_running = logging_now and rpm is not None and rpm > DRIVE_RPM_THRESHOLD
 
         if self._in_testmode:
             target = "testmode"
-        elif engine_running:
+        elif logging_now:
             target = "drive"
         else:
             target = "status"
