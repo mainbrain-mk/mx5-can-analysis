@@ -10,7 +10,36 @@ Um höher aufgelöste Rohdaten als über OBD-Fusion-Polling zu bekommen, logge i
 Antriebsstrang, Teillast, Ausrollversuche, Vmax, IMU/Vibration etc.) steht in
 [`PROJEKT_STAND.md`](PROJEKT_STAND.md).
 
-## Kurzüberblick: aktueller Stand (2026-09-15)
+## Kurzüberblick: aktueller Stand (2026-09-16)
+
+**Status 2026-09-16 — Renncockpit-Ansicht für den Pi gebaut, ein echter Zuverlässigkeits-
+und ein echter Performance-Bug gefunden und gefixt.** Details im Logbuch unten
+("Renncockpit-Ansicht implementiert…" bis "…TPMS zurück in die Ribbon + Performance-
+Untersuchung"), volle Design-Historie inkl. Mockup-Vergleich im Chat-Verlauf der Nacht.
+
+1. **Renncockpit-Ansicht (`DriveDashPanel`)** ersetzt den Status-/Testmodus-Screen auf dem
+   Touchdisplay automatisch, sobald `EngineRPM > 300` bei laufendem Logging — RPM-Rundinstrument
+   (Skala bis 8, Redline 7000–7400 bestätigt), Gas/Bremse/Kupplung als vertikale Balken,
+   Lenkwinkel- und G-Kreis-Box, TPMS als 2×2-Raster neben Öl/Kühlwasser/Tank. Über mehrere
+   Runden nach Nutzer-Feedback iteriert (Web-Mockup als Vorlage, dann eine handgezeichnete
+   Korrektur-Skizze umgesetzt).
+2. **Zuverlässigkeitsbug gefunden und gefixt:** ein angeschnittenes Ecken-Design (Chamfer) ließ
+   auf dem Pi (Wayland/labwc) wiederholt und unvorhersehbar Panels leer — lokal auf X11 nie
+   reproduzierbar, zwei Techniken probiert, beide fragil. Zurückgebaut auf einfache,
+   nicht überlappende `tk.Frame`-Panels (`make_panel()`) — seither stabil.
+3. **Performance-Bug mit echtem Profiling gefunden (`py-spy`, nicht geraten):**
+   `StatusGui.update_state()` blendete beim Screen-Wechsel alte Panels nicht zuverlässig aus,
+   die liefen mit eigenem 300ms-Timer unsichtbar weiter mit. Gefixt — Refresh-Kadenz spürbar
+   verbessert, Median trifft jetzt die 300ms-Vorgabe exakt.
+4. **Offen, noch nicht bei echter Fahrt verifiziert:** ein Rest an Latenz-Ausreißern (bis ~1s)
+   blieb auch nach dem Fix — Verdacht auf ein Artefakt der Test-Simulation (`vcan0` kennt anders
+   als der echte 500kbit-Bus keine Bandbreitenbremse), nicht bewiesen. Bei der nächsten echten
+   Fahrt gezielt auf Ruckeln achten.
+
+Diagnose-Instrumentierung (`MX5_PERF_DEBUG=1`, No-Op im Normalbetrieb) bleibt dauerhaft im Code.
+
+<details>
+<summary>Vorheriger Stand (2026-09-15)</summary>
 
 **Status 2026-09-15 — drei Kernpunkte gelöst.** Details jeweils im Logbuch unten,
 Gesamtplan in [`mx5_can_deep_search_plan.md`](mx5_can_deep_search_plan.md).
@@ -31,6 +60,8 @@ ist linear statt nichtlinear; OBD-Fusion liest nichts nativ mit; DID 0x1310 ist 
 
 Neue Werkzeuge: `can_opendbc_crosscheck.py`, `can_field_segmentation.py` (READ,
 referenzfrei), `can_event_bit_diff.py`, `can_find_native_counterpart.py`, `uds_did_sweep.py`.
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-14)</summary>
