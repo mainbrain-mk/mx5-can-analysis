@@ -69,6 +69,19 @@ PCM_PIDS = {
     0x1310: ("OilTemp_C", 2, lambda raw: raw / 100 - 40),
 }
 
+# --- Lambda (Soll) + Batteriespannung (2026-09-16, Renncockpit-Neubau) -------------------
+# Standard-Mode-1-OBD-PIDs (SAE J1979), nicht die herstellerspezifischen Mode-0x22-UDS-DIDs
+# wie oben - anderes Anfrage/Antwort-Format (siehe build_request_mode1/decode_response_mode1).
+# Laufen bewusst auf demselben Header 0x7E0/0x7E8 und im selben konservativen Poll-Takt wie
+# die Oelabfrage (siehe poll_obd1) - aus demselben Grund: das Handy nutzt diesen Header
+# parallel. PID 0x44 liefert nur das vom Steuergeraet ANGEFORDERTE Lambda, kein Sondenmesswert
+# (siehe scripts/can_byte_search.py, scripts/uds_did_sweep.py) - im Dashboard entsprechend
+# beschriften, nicht als gemessenen Wert ausgeben.
+OBD1_PIDS = {
+    0x44: ("LambdaCommanded", 2, lambda raw: raw / 32768),
+    0x42: ("BatteryVoltage", 2, lambda raw: raw / 1000),
+}
+
 PIDS = {
     0x2A05: ("Tire1_Pressure_bar", 1, lambda raw: (raw * 1373 / 1000) / 100),
     0x2A06: ("Tire2_Pressure_bar", 1, lambda raw: (raw * 1373 / 1000) / 100),
@@ -100,14 +113,31 @@ def decode_response(did, data, n_bytes=1):
     return int.from_bytes(bytes(data[4:4 + n_bytes]), "big")
 
 
-def poll_group(bus, req_id, resp_range, pids, timeout=0.5):
-    """Eine Gruppe PIDs auf einem Steuergeraet abfragen."""
+def build_request_mode1(pid):
+    """OBD-Mode-1-Single-Frame ("Show current data"): [PCI=2, SID=0x01, PID, Padding...].
+    Anderes Format als UDS/Mode-0x22 oben: 1-Byte-PID statt 2-Byte-DID, SID 0x01 statt 0x22."""
+    return [0x02, 0x01, pid, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+
+def decode_response_mode1(pid, data, n_bytes=1):
+    """Erwartetes Mode-1-Antwortformat: [PCI, SID=0x41, PID, raw...]."""
+    if len(data) < 3 + n_bytes or data[1] != 0x41:
+        return None
+    if data[2] != pid:
+        return None
+    return int.from_bytes(bytes(data[3:3 + n_bytes]), "big")
+
+
+def poll_group(bus, req_id, resp_range, pids, timeout=0.5, request_fn=build_request, decode_fn=decode_response):
+    """Eine Gruppe PIDs auf einem Steuergeraet abfragen. request_fn/decode_fn austauschbar,
+    damit dieselbe Poll-Schleife sowohl UDS-Mode-0x22-DIDs (Default) als auch
+    OBD-Mode-1-PIDs (siehe poll_obd1) bedienen kann."""
     import can
 
     values = {}
     unexpected = []
     for did, (name, n_bytes, formula) in pids.items():
-        bus.send(can.Message(arbitration_id=req_id, data=build_request(did), is_extended_id=False))
+        bus.send(can.Message(arbitration_id=req_id, data=request_fn(did), is_extended_id=False))
         deadline = time.time() + timeout
         while time.time() < deadline:
             msg = bus.recv(timeout=deadline - time.time())
@@ -115,7 +145,7 @@ def poll_group(bus, req_id, resp_range, pids, timeout=0.5):
                 break
             if msg.arbitration_id not in resp_range:
                 continue
-            raw = decode_response(did, msg.data, n_bytes)
+            raw = decode_fn(did, msg.data, n_bytes)
             if raw is not None:
                 values[name] = formula(raw)
                 break
@@ -131,6 +161,12 @@ def poll_once(bus, timeout=0.5):
 def poll_oil(bus, timeout=0.5):
     """Nur die PCM-Gruppe (Oeltemperatur)."""
     return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, PCM_PIDS, timeout)
+
+
+def poll_obd1(bus, timeout=0.5):
+    """Lambda (Soll) + Batteriespannung, Mode-1-PIDs, gleicher Header wie poll_oil."""
+    return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, OBD1_PIDS, timeout,
+                       request_fn=build_request_mode1, decode_fn=decode_response_mode1)
 
 
 def main():
@@ -173,6 +209,12 @@ def main():
                         print(values, flush=True)
                 except Exception as exc:
                     print(f"  Oelabfrage fehlgeschlagen: {exc!r}", flush=True)
+                try:
+                    values, _ = poll_obd1(bus)  # Lambda (Soll) + Batteriespannung, gleicher
+                    if values:                  # Header/Takt wie Oel, siehe poll_obd1.
+                        print(values, flush=True)
+                except Exception as exc:
+                    print(f"  Lambda/Batterie-Abfrage fehlgeschlagen: {exc!r}", flush=True)
                 next_oil = time.time() + args.oil_interval if args.oil_interval > 0 else float("inf")
             if args.interval <= 0 and (args.no_oil or args.oil_interval <= 0):
                 break

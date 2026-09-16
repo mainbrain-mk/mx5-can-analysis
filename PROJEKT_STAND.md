@@ -5462,3 +5462,26 @@ bereits aus diesen frischen Laeufen.
 **Nicht angefasst:** dass ein gescheiterter `build_datalake.py` die
 nachfolgenden Schritte nicht stoppt. Mit dem neuen Timeout ist der konkrete
 Ausloeser weg, die Bauart bleibt aber anfaellig.
+
+## Automatischer Lauf: 3 neue Logs verarbeitet (2026-09-16)
+
+- `2026-09-16 081925`, Dauer=7min, Masse=1163.8kg (FLI ~14.5%->~14.5%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-16 083226`, Dauer=37min, Masse=1189.3kg (FLI ~90.2%->~90.2%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-16 160352`, Dauer=44min, Masse=1188.0kg (FLI ~90.2%->~82.8%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-16 081925: Resonanz auf AccelerationX bei 8.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 081925: Resonanz auf AccelerationY bei 6.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 081925: Resonanz auf AccelerationZ bei 16.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 083226: Resonanz auf AccelerationX bei 7.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 083226: Resonanz auf AccelerationY bei 7.1 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 083226: Resonanz auf AccelerationZ bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 160352: Resonanz auf AccelerationX bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-16 160352: Resonanz auf AccelerationY bei 5.7 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-16 083226 t=998-1003s: a_lat_peak/mean-Verhaeltnis 2.0 > 2.0 (peak=-0.56g, mean=-0.28g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 6 -> 5 (downshift): 0.48s (vorher 0.98s), candump-2026-09-16_083214 @ t=907.8s.
+- shift_record: Neue Bestzeit 4 -> 3 (downshift): 1.12s (vorher 1.20s), candump-2026-09-16_083214 @ t=1135.7s.
+- shift_record: Neue Bestzeit 3 -> 2 (downshift): 1.40s (vorher 1.60s), candump-2026-09-16_083214 @ t=1006.8s.
+- script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
+- script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.

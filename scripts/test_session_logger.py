@@ -176,9 +176,56 @@ def test_save_clock_roundtrip():
     print("save_clock OK")
 
 
+def test_gzip_finished_logs_success():
+    """Erfolgsfall: Rohdatei wird durch eine verifizierte .gz ersetzt."""
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "candump-test.log")
+        with open(log_path, "w") as f:
+            f.write("(1234.5) can0 123#0011223344556677\n" * 100)
+
+        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **kw: MagicMock(pid=1))
+        session.gzip_finished_logs()
+
+        assert not os.path.exists(log_path), "Rohdatei sollte nach Erfolg weg sein"
+        gz_path = log_path + ".gz"
+        assert os.path.exists(gz_path), ".gz sollte existieren"
+        assert not os.path.exists(gz_path + ".tmp"), "Temporaerdatei nicht aufgeraeumt"
+        subprocess.run(["gzip", "-t", gz_path], check=True)  # wirft, wenn kaputt
+    print("gzip_finished_logs Erfolgsfall OK")
+
+
+def test_gzip_finished_logs_keeps_raw_on_failure():
+    """Bricht die Kompression ab (hier simuliert), muss die Rohdatei erhalten
+    bleiben statt verloren zu gehen - genau die Luecke, die am 2026-09-16
+    candump-...-090826.log unkomprimierbar zurueckliess (Stromausfall
+    mitten im alten `gzip -f`, das die Rohdatei schon beim Start loeschte)."""
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "candump-test.log")
+        with open(log_path, "w") as f:
+            f.write("(1234.5) can0 123#0011223344556677\n")
+
+        def failing_run(cmd, *a, **kw):
+            raise subprocess.CalledProcessError(1, cmd)
+
+        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **kw: MagicMock(pid=1),
+                                 run=failing_run)
+        session.gzip_finished_logs()
+
+        assert os.path.exists(log_path), "Rohdatei muss bei fehlgeschlagener Kompression erhalten bleiben"
+        assert not os.path.exists(log_path + ".gz"), "keine .gz bei fehlgeschlagener Kompression"
+        assert not os.path.exists(log_path + ".gz.tmp"), "keine Tmp-Leiche zurücklassen"
+    print("gzip_finished_logs Fehlerfall OK")
+
+
 if __name__ == "__main__":
     test_start_stop_matches_known_session()
     test_clock_restore_cases()
     test_save_clock_roundtrip()
     test_probe_runs_once_and_only_with_flag()
     test_probe_failure_does_not_break_logging()
+    test_gzip_finished_logs_success()
+    test_gzip_finished_logs_keeps_raw_on_failure()

@@ -19,6 +19,8 @@
 /*.png
 /*.jpg
 /*.jpeg
+/*.webp
+/*.gif
 
 # Claude Code Tooling-Konfiguration (lokal, kein Projektinhalt)
 # Ausnahme: eigene Skills (.claude/skills/) sind Projektdoku, sollen mit rein.

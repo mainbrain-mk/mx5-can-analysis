@@ -14,6 +14,7 @@ als eine eigene Python-Schreibschleife) - dieses Skript ist nur der
 Start/Stop-Trigger.
 """
 
+import glob
 import logging
 import os
 import signal
@@ -134,7 +135,37 @@ class SessionLogger:
         self._last_clock_write = 0.0
 
     def gzip_finished_logs(self):
-        self._run(f"gzip -f {self.log_dir}/*.log", shell=True, stderr=subprocess.DEVNULL)
+        """Komprimiert liegengebliebene .log-Dateien. Sicher gegen einen
+        Stromausfall WAEHREND dieses Laufs: vorher loeschte `gzip -f` die
+        Rohdatei schon beim eigenen Start, bevor das Ergebnis feststand -
+        ein Stromausfall mitten im Komprimieren (beobachtet 2026-09-16,
+        candump-...-090826.log: 8MB glatt abgebrochen, "ended before
+        end-of-stream marker") hinterliess dann eine kaputte .gz UND keine
+        Rohdatei mehr, aus der sich neu komprimieren liesse. Jetzt: erst in
+        eine temporaere Datei komprimieren, mit `gzip -t` verifizieren, dann
+        atomar (os.replace, gleiches Dateisystem) an den Zielnamen haengen
+        und ERST DANACH die Rohdatei loeschen - bei jedem Abbruch bleibt so
+        mindestens eine der beiden Dateien intakt (die Rohdatei, falls die
+        Kompression selbst nicht durchlief, sonst die bereits verifizierte
+        .gz)."""
+        for log_path in glob.glob(os.path.join(self.log_dir, "*.log")):
+            gz_path = log_path + ".gz"
+            tmp_path = gz_path + ".tmp"
+            try:
+                with open(tmp_path, "wb") as f_out:
+                    self._run(["gzip", "-c", log_path], stdout=f_out, check=True)
+                self._run(["gzip", "-t", tmp_path], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except (subprocess.CalledProcessError, OSError) as exc:
+                print(f"[session_logger] Komprimieren fehlgeschlagen, Rohdatei bleibt "
+                      f"erhalten: {log_path} ({exc!r})", flush=True)
+                try:
+                    os.remove(tmp_path)
+                except FileNotFoundError:
+                    pass
+                continue
+            os.replace(tmp_path, gz_path)
+            os.remove(log_path)
 
     def start_logging(self):
         if self.candump_proc is not None:
