@@ -65,9 +65,17 @@ DRIVE_RPM_RED = 7500
 DRIVE_SHIFTLIGHT_MIN = 4000
 DRIVE_SHIFTLIGHT_N = 16
 DRIVE_STEER_VMAX = 60
+CLUTCH_ACTIVE_RAW = 15  # roh, vor der /1.99-Prozent-Umrechnung - gleiche
+                        # Schwelle/Konvention wie can_traction_circle.py und
+                        # shift_time_analysis.py fuer "Pedal nicht mehr oben"
 
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
+FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
+                         # liegt bei ~1-2s, echter Fuellstand aendert sich
+                         # ueber Minuten - 8s glaettet das eine, verzoegert
+                         # das andere kaum sichtbar)
+FUEL_SMOOTH_ALPHA = (1.0 / DRIVE_REFRESH_HZ) / FUEL_SMOOTH_TAU_S
 COOLANT_TEMP_CAN_ID = 1056
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274
@@ -87,9 +95,25 @@ YELLOW = (1, 0.83, 0, 1)
 ORANGE = (1, 0.55, 0.1, 1)
 GREEN = (0.18, 0.8, 0.32, 1)
 BLUE = (0.22, 0.53, 0.9, 1)
+BABY_BLUE = (0.54, 0.81, 0.94, 1)
 SILVER = (0.75, 0.76, 0.79, 1)
 GOOD = GREEN
 WARN = YELLOW
+
+
+def _rpm_zone_color_range(lo, hi):
+    """Farbe fuer eine LED, die den RPM-Bereich [lo, hi) abdeckt - nimmt die
+    dringlichste Zone, die der Bereich beruehrt, nicht nur einen Einzelwert.
+    Sonst faellt die 100rpm breite Orange-Zone (7400-7500) beim 250rpm-Raster
+    der 16 Shiftlight-LEDs komplett durch (keine LED trifft exakt hinein) -
+    Orange wurde nie angezeigt (gelb -> direkt rot), bestaetigt 2026-09-17."""
+    if hi > DRIVE_RPM_RED:
+        return RED
+    if hi > DRIVE_RPM_ORANGE:
+        return ORANGE
+    if hi > DRIVE_RPM_YELLOW:
+        return YELLOW
+    return GREEN
 
 
 def _rpm_zone_color(rpm):
@@ -311,11 +335,12 @@ class ShiftLightRow(BoxLayout):
 
     def update(self, rpm):
         span = DRIVE_RPM_MAX - DRIVE_SHIFTLIGHT_MIN
+        step = span / DRIVE_SHIFTLIGHT_N
         frac = 0.0 if rpm is None else max(0.0, min(1.0, (rpm - DRIVE_SHIFTLIGHT_MIN) / span))
         lit = round(frac * DRIVE_SHIFTLIGHT_N)
         for i, dot in enumerate(self.dots):
-            dot_rpm = DRIVE_SHIFTLIGHT_MIN + (i / DRIVE_SHIFTLIGHT_N) * span
-            color = _rpm_zone_color(dot_rpm) if dot_rpm >= DRIVE_RPM_YELLOW else GREEN
+            lo = DRIVE_SHIFTLIGHT_MIN + i * step
+            color = _rpm_zone_color_range(lo, lo + step)
             dot.set_lit(i < lit, color)
 
 
@@ -537,6 +562,7 @@ class DriveScreen(Screen):
         super().__init__(**kwargs)
         self.client = client
         self.session_max_speed = 0.0
+        self._fuel_smooth = None
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
         # Fusszeile (StatusBar), ohne die proportionalen Kacheln zu stauchen.
@@ -638,6 +664,9 @@ class DriveScreen(Screen):
         self.vmax_value.text = f"{self.session_max_speed:.0f} km/h"
 
         self.gear_value.text = _format_gear(c.get(253, "MT_Gear_Actual"))
+        clutch_raw = c.get(304, "Clutch_Pedal_Position_raw")
+        self.gear_value.color = (
+            BABY_BLUE if clutch_raw is not None and clutch_raw > CLUTCH_ACTIVE_RAW else TEXT)
 
         self.coolant_card.set_value(c.get(COOLANT_TEMP_CAN_ID, "CoolantTemp"))
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))
@@ -657,7 +686,10 @@ class DriveScreen(Screen):
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
         fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
         fuel_pct = None if fuel_raw is None else max(0.0, min(100.0, 2.486 * fuel_raw - 0.02))
-        self.fuel_card.set_value(fuel_pct)
+        if fuel_pct is not None:
+            self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
+                self._fuel_smooth + FUEL_SMOOTH_ALPHA * (fuel_pct - self._fuel_smooth))
+        self.fuel_card.set_value(self._fuel_smooth)
 
         self.status_bar.update(snap)
 
@@ -838,20 +870,25 @@ class SimController:
         # puffern) - beobachtet an candump-2026-09-16_090826.log.gz (8MB
         # glatt, "ended before end-of-stream marker"). readlines() wirft
         # dabei alles weg; zeilenweises Lesen behaelt, was bis zum Abbruch
-        # erfolgreich entpackt wurde (hier 902479/~x Zeilen) - gleiche Idee
-        # wie der candump-Waisenzeilen-Guard in can_log_parser.py, nur auf
-        # Container- statt Zeilenebene.
-        lines = []
-        try:
-            with gzip.open(gz_path, "rt", errors="replace") as f_in:
-                for line in f_in:
-                    lines.append(line)
-        except (OSError, EOFError):
-            pass
-        if lines and not cls.LINE_RE.match(lines[-1]):
-            lines = lines[:-1]
+        # erfolgreich entpackt wurde - gleiche Idee wie der candump-
+        # Waisenzeilen-Guard in can_log_parser.py, nur auf Container- statt
+        # Zeilenebene.
+        # Nur die letzte Zeile im Speicher halten statt der ganzen Liste:
+        # ein 52MB-gzip (Alltag hier) entpackt auf 500MB+ Text und hat den
+        # Pi (1.8GB RAM) per OOM-Killer den Dash-Prozess abschiessen lassen
+        # (Klick auf "Vcan-Simulation starten" -> Absturz).
+        prev_line = None
         with open(out_path, "w") as f_out:
-            f_out.writelines(lines)
+            try:
+                with gzip.open(gz_path, "rt", errors="replace") as f_in:
+                    for line in f_in:
+                        if prev_line is not None:
+                            f_out.write(prev_line)
+                        prev_line = line
+            except (OSError, EOFError):
+                pass
+            if prev_line is not None and cls.LINE_RE.match(prev_line):
+                f_out.write(prev_line)
 
 
 class StatusScreen(Screen):
