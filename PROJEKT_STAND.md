@@ -5485,3 +5485,31 @@ Auffaelligkeiten:
 - shift_record: Neue Bestzeit 3 -> 2 (downshift): 1.40s (vorher 1.60s), candump-2026-09-16_083214 @ t=1006.8s.
 - script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
+
+## Automatischer Lauf: 5 neue Logs verarbeitet (2026-09-17)
+
+- `2026-09-17 081442`, Dauer=31min, Masse=1184.8kg (FLI ~77.7%->~76.2%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-17 121947`, Dauer=37min, Masse=1183.6kg (FLI ~76.2%->~70.7%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-17 144620`, Dauer=18min, Masse=1180.9kg (FLI ~71.9%->~58.8%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-17 171117`, Dauer=16min, Masse=1179.0kg (FLI ~60.9%->~58.6%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-17 173053`, Dauer=14min, Masse=1178.4kg (FLI ~58.4%->~57.2%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-17 081442: Resonanz auf AccelerationX bei 7.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 081442: Resonanz auf AccelerationZ bei 7.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 121947: Resonanz auf AccelerationZ bei 15.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 144620: Resonanz auf AccelerationY bei 6.3 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 144620: Resonanz auf AccelerationZ bei 15.8 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 171117: Resonanz auf AccelerationX bei 24.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 171117: Resonanz auf AccelerationY bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 171117: Resonanz auf AccelerationZ bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 173053: Resonanz auf AccelerationX bei 24.8 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 173053: Resonanz auf AccelerationY bei 14.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-17 173053: Resonanz auf AccelerationZ bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-17 081442 t=1740-1747s: a_lat_peak/mean-Verhaeltnis 2.6 > 2.0 (peak=-0.13g, mean=-0.05g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-17 171117 t=574-581s: a_lat_peak/mean-Verhaeltnis 4.4 > 2.0 (peak=-0.32g, mean=-0.07g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 3 -> 4 (upshift): 0.94s (vorher 0.98s), candump-2026-09-17_084511 @ t=1050.9s.
+- script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
+- script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
+- script_error: gunzip candump-2026-09-17_125935.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-17_125935.log.gz']' returned non-zero exit status 1.
