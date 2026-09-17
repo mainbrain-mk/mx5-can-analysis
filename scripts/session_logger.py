@@ -147,13 +147,27 @@ class SessionLogger:
         und ERST DANACH die Rohdatei loeschen - bei jedem Abbruch bleibt so
         mindestens eine der beiden Dateien intakt (die Rohdatei, falls die
         Kompression selbst nicht durchlief, sonst die bereits verifizierte
-        .gz)."""
+        .gz).
+
+        Lueckenfall (beobachtet 2026-09-17, candump-...-125935.log.gz: exakt
+        dieselben 8MB wie beim allerersten Vorfall, obwohl diese Verify-vor-
+        Rename-Logik zu dem Zeitpunkt schon lief): `gzip -t` liest ueber den
+        Seiten-Cache und kann erfolgreich sein, obwohl die Daten noch gar
+        nicht auf dem Speichermedium stehen - der Pi haengt an einer
+        Powerbank, ein Stromverlust kurz nach os.replace() kann dann
+        genau die Bytes verlieren, die eben noch als "verifiziert" galten.
+        Deshalb jetzt explizit fsync() auf die tmp-Datei VOR dem Verify und
+        fsync() auf das Verzeichnis NACH dem Rename - beides Daten, die ein
+        Absturz sonst stillschweigend wieder haette rueckgaengig machen
+        koennen."""
         for log_path in glob.glob(os.path.join(self.log_dir, "*.log")):
             gz_path = log_path + ".gz"
             tmp_path = gz_path + ".tmp"
             try:
                 with open(tmp_path, "wb") as f_out:
                     self._run(["gzip", "-c", log_path], stdout=f_out, check=True)
+                    f_out.flush()
+                    os.fsync(f_out.fileno())
                 self._run(["gzip", "-t", tmp_path], check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except (subprocess.CalledProcessError, OSError) as exc:
@@ -165,6 +179,11 @@ class SessionLogger:
                     pass
                 continue
             os.replace(tmp_path, gz_path)
+            dir_fd = os.open(self.log_dir, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
             os.remove(log_path)
 
     def start_logging(self):
