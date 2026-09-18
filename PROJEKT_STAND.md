@@ -3,6 +3,10 @@
 Stand: 28.08.2026, geschrieben fuer die Fortsetzung in Claude Code
 (vorher in Cowork/Claude Desktop bearbeitet)
 
+**Sprachkonvention (2026-09-18):** wenn der Nutzer im Projekt von "wir"
+spricht, meint das ihn als Fahrer und Tester und Claude als Entwickler
+und Analyst.
+
 ## Kontext
 
 Wir entwickeln schrittweise ein Fahrleistungs-/Fahrdynamikmodell fuer einen
@@ -5514,6 +5518,69 @@ Auffaelligkeiten:
 - script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-17_125935.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-17_125935.log.gz']' returned non-zero exit status 1.
 
+## Nachtrag: die drei taeglich gemeldeten gunzip-Fehler aufgeklaert - zwei CAN-Logs verloren die Pipeline stillschweigend, jetzt gerettet (2026-09-18, selber Tag)
+
+Auf Nutzerwunsch ueberprueft, welche Logs noch nicht in die Modelle eingeflossen
+sind: die OBD-Seite (`.dlg`) war komplett aktuell (Drive-Abgleich bestaetigt,
+nichts fehlt lokal), aber die drei `script_error`-Zeilen unten liefen seit
+Tagen jeden Lauf erneut auf denselben Fehler.
+
+### Ursache: gleiche Pi-Stromverlust-Korruption wie bei candump-2026-09-15_171047, nur auf Byte-Ebene statt Zeilenebene
+Per SSH direkt auf dem Pi geprueft (`/home/pi/canlogs/`) - die Quelle selbst ist
+kaputt, kein Uebertragungsfehler:
+- `candump-2026-09-13_135440.log.gz`: **0 Byte**, sowohl auf dem Pi als auch
+  lokal. Kein Frame drin, nichts zu retten.
+- `candump-2026-09-16_090826.log.gz` und `candump-2026-09-17_125935.log.gz`:
+  beide auf dem Pi bei exakt **8.388.608 Byte (8 MiB)** abgeschnitten - ein
+  hartes Stromverlust-Muster, wie das schon fuer den 15.09.-Fall dokumentierte
+  (`can-logger.service` gzippt beim naechsten Boot, nicht beim Stop; bricht der
+  Pi waehrend des Schreibens ab, bleibt der Rest des Streams weg). Der
+  fsync-Fix von heute Morgen (`fc42822`) verhindert das fuer zukuenftige Logs,
+  aendert aber nichts an diesen drei bereits vorhandenen.
+
+`gzip -dk` bricht bei so einer Datei mit "unexpected end of file" ab und
+schreibt dabei **ueberhaupt keine Ausgabedatei** - `run_daily_pipeline.py`
+sammelte den Fehler nur in `errors` und ueberging den Log komplett, jeden Tag
+erneut (da lokal nie ein `.log` entstand, wurde beim naechsten Lauf immer
+wieder neu versucht und scheiterte wieder). `gzip -dc` (Streaming auf stdout)
+liefert dagegen alle Bytes bis zum Bruchpunkt zurueck:
+
+| Log | wiederhergestellt | Verlust |
+|---|---|---|
+| 090826 | 41.514.065 / ~41.5 MB | letzte(r) Frame(s), Rest intakt |
+| 125935 | 41.805.258 / ~41.8 MB | letzte(r) Frame(s), Rest intakt |
+
+Fuer 125935 lag lokal bereits eine manuell erzeugte
+`_PARTIAL_RECOVERED.log` (byteidentisch mit dem jetzigen Ergebnis) - vermutlich
+aus einem frueheren Ad-hoc-Versuch, der nie in die Pipeline eingebaut wurde.
+Durch die kanonisch benannte Datei ersetzt.
+
+### Fix: `gunzip_or_recover()` in `run_daily_pipeline.py`
+Neue Funktion mit Fallback auf `gzip -dc`, greift automatisch beim naechsten
+Auftreten desselben Musters (0-Byte-Ergebnis bleibt weiterhin ein echter
+Fehler, jede Teilrettung wird als Warnung im Report sichtbar statt still zu
+verschwinden). `parse_candump()` toleriert die dadurch abgeschnittene letzte
+Zeile bereits seit dem 15.09.-Fix. Selbsttest: `test_run_daily_pipeline.py`
+(3 Faelle: sauberes Archiv, truncated mit Teilrettung, leer/unrettbar).
+
+### Modelle neu gerechnet
+`build_datalake.py`, `can_corner_event_analysis.py` (beide Logs),
+`corner_peak_tracker.py`, `corner_speed_model.py`, `shift_time_analysis.py`
+erneut gelaufen:
+- 090826: 11 neue Kurvenereignisse (a_lat_peak bis 0.58g)
+- 125935: 14 neue Kurvenereignisse (a_lat_peak bis 0.72g, bis 147 km/h)
+- Kurvenmodell-Datenbasis: **220 -> 791 Kurven aus 24 CAN-Logs** (Wachstum
+  stammt ueberwiegend aus den taeglichen Laeufen seit dem 14.09., nicht allein
+  aus diesen zwei Logs). Kein neuer Grip-Rekord durch die beiden geretteten
+  Logs - bestehendes Maximum bleibt 1.09g (candump-2026-09-15_171047).
+- Schaltzeiten: keine neuen Bestzeiten durch die zwei Logs, Verteilung
+  unveraendert (3->4/4->5/5->6 weiterhin 4.7-7.6x langsamer als
+  ATTACK_SHIFT_S bei entspannter Strassenfahrt).
+
+`candump-2026-09-13_135440` bleibt als einziger echter Datenverlust dokumentiert
+(0 Byte an der Quelle) und wird beim naechsten automatischen Lauf weiterhin als
+Fehler gemeldet - das ist korrekt, es gibt nichts zu reparieren.
+
 ## Automatischer Lauf: 6 neue Logs verarbeitet (2026-09-18)
 
 - `2026-09-18 090449`, Dauer=31min, Masse=1178.0kg (FLI ~60.9%->~52.3%, automatisch berechnet (SOLO-Annahme))
@@ -5547,3 +5614,139 @@ Auffaelligkeiten:
 - script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-17_125935.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-17_125935.log.gz']' returned non-zero exit status 1.
+
+## Zugkraftunterbrechung statt Kupplungszeit: neues Schaltmodell, Achsen-Zeitversatz und ein selbst ertapptes Kupplungsschleifen (2026-09-18)
+
+Ausgangsfrage des Fahrers: misst `shift_time_analysis.py` noch die Zeit
+"Vortriebsverlust bis Vortrieb wieder da", die frueher Grundlage fuer
+`ATTACK_SHIFT_S` war? Antwort: nein - `ATTACK_SHIFT_S` selbst ist per
+Definition genau das (`coast_accel()` in `performance_simulation.py`:
+"keine Antriebskraft" waehrend der Schaltpause), aber das CAN-Schaltzeit-
+modell misst nur die Kupplungspedal-Betaetigungsdauer (`ClutchPosition_
+CAN_raw` ueber Schwelle bis wieder drunter) - ein Proxy, kein direktes Mass
+fuer den tatsaechlichen Vortriebsverlust.
+
+### Manuelle Stichprobe bestaetigt die Vermutung robust
+4 Faelle (verschiedene Gangpaare, verschiedene Logs, alle mit APP>10% vor
+dem Schalten), Radgeschwindigkeit geglaettet (0.2s-Fenster) und deren
+Nulldurchgang als echte Zugkraftluecke genommen: durchgehend nur ca. 1/3
+bis 3/5 der Kupplungszeit (Faktor 1.7x-3.5x). Nebenbefund: Gaspedal geht
+beim Schalten praktisch immer auf 0%, in 2 von 4 Faellen sogar schon VOR
+dem messbaren Kupplungstritt (vorausschauendes Lupfen); Gas wird wieder
+aufgenommen, sobald der Antrieb wieder greift - nicht erst wenn die
+Kupplung ganz oben ist (Kupplung "schleift" danach noch 0.5-0.7s nach, ohne
+Wirkung auf den Vortrieb). Zusatzcheck: in allen 249 gemessenen Hoch-
+schaltungen wurde die Kupplung nie nur teilweise getreten (Minimum 88%,
+Median 99.5% Vollausschlag) - die Technik "flacher Kupplungstritt fuer
+schnelles Schalten" kommt in den bisherigen Alltagsfahrten schlicht nicht vor.
+
+### Neues Skript: shift_traction_gap_analysis.py
+Baut auf den von `shift_time_analysis.py` erkannten Ereignissen auf (kein
+zweiter Ort fuer "was ist ein Schaltvorgang"). Methodik nach zwei Korrektur-
+runden (Detailpruefung einzelner Faelle mit dem Nutzer):
+1. **Erste Version**: alle 4 Raeder gemittelt, feste Schwelle (Beschleunigung
+   <=0.1 km/h/s). Ergebnis ueber alle 249 Hochschaltungen: Median-Verhaeltnis
+   Kupplung/Luecke von 8.1x (1->2) bis 1.4x (4->5), 7 Faelle ganz ohne
+   erkannte Luecke.
+2. **Nutzer-Review am Einzelfall** (3->4, `candump-2026-09-17_084511`
+   @ t=1050.9s) deckte zwei echte Schwaechen auf:
+   - Die feste Schwelle erfasste nur die Kernzone nahe Null, nicht die
+     "Rampe runter/rauf" drumherum, in der die Beschleunigung schon deutlich
+     unter Vorschalt-Niveau liegt - unterschaetzte die Luecke an diesem Fall
+     um Faktor ~2 (0.10s statt visuell erkennbarer ~0.25-0.30s).
+   - Die 4 Raeder dippen NICHT synchron: Vorderachse (Raeder 1+2) minimal
+     ~0.10s NACH der Hinterachse (Raeder 3+4) - plausibel fuer einen
+     Hecktriebler (angetriebene Achse spuert den Drehmomentabriss direkt,
+     die Vorderachse nur zeitversetzt ueber die Fahrzeugverzoegerung als
+     Ganzes). Radspezifischer Zusatzbefund: Rad 3 (HL) zeigte im
+     Kupplungs-Greifpunkt-Fenster eine verdoppelte Streuung gegenueber
+     seiner eigenen Ruhe-Baseline und gegenueber den anderen 3 Raedern im
+     selben Fenster (0.144->0.294, durchgehend negativ = langsamer, kein
+     klassisches Wheelspin-Muster) - vermutlich kurzzeitig reduzierter Grip
+     an dieser Ecke beim Wiedereinkuppeln. Einfluss auf die Luecken-
+     erkennung selbst aber vernachlaessigbar (mit/ohne Rad 3 identisches
+     Ergebnis, 0.10s) - die Mittelung ueber 4 Raeder daempft einzelne
+     Ausreisser stark.
+3. **Zweite Version** (aktuell aktiv): nur Hinterachse (angetriebene Raeder,
+   `WheelSpeed_CAN_3`+`4`) statt aller 4 - direkteres, weniger durch
+   Vorderachsen-Verzoegerung "verwaschenes" Signal. Schwelle relativ zur
+   Vorschalt-Beschleunigung (Median im Fenster vor dem Kupplungstritt,
+   Faktor 0.35, mit 0.1 km/h/s als Untergrenze fuer den Fall einer kleinen/
+   negativen Vorschalt-Beschleunigung).
+
+Ergebnis ueber alle 249 Hochschaltungen mit Version 2:
+
+| Gangpaar | n | Kupplung (Median) | Zugkraftluecke (Median) | Verhaeltnis |
+|---|---|---|---|---|
+| 1->2 | 64 | 1.61s | 0.45s | 3.6x |
+| 2->3 | 93 | 1.40s | 0.55s | 2.6x |
+| 3->4 | 63 | 1.30s | 0.80s | 1.6x |
+| 4->5 | 20 | 1.37s | 1.40s | 0.98x |
+| 5->6 | 9 | 1.18s | 0.60s | 2.0x |
+
+Alle 249 Faelle liefern jetzt eine Luecke (vorher 7 ohne), keine 0.00s-
+"Geister-Luecken" mehr. Details/Ranglisten: `results/shift_traction_gap_
+summary.json`, Streudiagramm `results/shift_traction_gap_analysis.png`.
+Neues Plot-Werkzeug `scripts/shift_detail_plots.py` (Speed/RPM/Kupplung je
+Ereignis, optional `--wheels`/`--show-wheels` fuer Raddrehzahlen,
+`--show-app` fuer Gaspedal, `--per-gear`/`--gear` fuer gezielte Einzelfaelle)
+fuer die visuelle Detailpruefung einzelner Faelle.
+
+### Nebenfund beim schnellsten 5->6-Fall: selbst ertapptes Kupplungsschleifen
+Beim Durchsehen der 5 schnellsten Faelle je Gangpaar fiel `candump-2026-09-12
+_211833` (5->6 @ t=1048.0s) auf: Kupplungszeit 2.40s bei nur 0.40s echter
+Zugkraftluecke - Verhaeltnis 6.0x, das hoechste der ganzen Liste. Rohe
+Kupplungsspur zeigt drei Phasen: schneller Tritt (1047.99-1048.33s, 0.34s,
+0->198), schnelles Anfangslueften (1048.33-1048.53s, 198->65), dann
+**haengt das Pedal ~1.7s lang bei raw~17-22 fest** (nur ~10% Restweg) bevor
+es endgueltig auf 0 faellt. RPM/APP/Radgeschwindigkeiten zeigen: der
+Schaltvorgang war mechanisch laengst fertig (RPM-Minimum bei ~1048.6s, APP
+schon bei ~1048.5s wieder auf ~50%) - die Kupplung wurde nur nicht
+konsequent zu Ende gelassen.
+
+Fahrer-Kontext (Nutzer-Bestaetigung): ein Vollgas-Run wurde wegen einer
+Verkehrssituation (vermutlich ausscherendes Fahrzeug) bei knapp unter
+4000 RPM abgebrochen - RPM-Daten bestaetigen exakt 3941 RPM bei t=1048.10s,
+praktisch der Moment des Kupplungstritts. Hastiger Schaltvorgang in den 6.
+Gang, Kupplung dabei nicht vollstaendig geschlossen - vom Fahrer selbst als
+echter Fahrfehler eingeordnet (Kupplung schleift laenger bei Drehzahl-
+differenz, erhoehter Verschleiss).
+
+### Neues Skript: clutch_ride_detection.py ("Kupplungsschleifen")
+Stichprobe ueber alle 313 Gangwechsel-Ereignisse (upshift+downshift) zeigt:
+das war kein Einzelfall. Methodik: pro Ereignis der Zeitpunkt, ab dem die
+Kupplung nach ihrem Maximum erstmals unter `RIDE_ZONE_RAW=30` faellt ("fast
+oben, kurz vor dem Loslassen") - die Restdauer bis zum tatsaechlichen
+Ereignisende ist die "Schleifzeit". Klare Luecke in der Verteilung: 97% der
+Faelle liegen unter 0.58s, 6 Ausreisser bei 1.16-1.78s (Schwelle bei 0.8s
+dazwischen gesetzt):
+
+| Schleifzeit | Gangpaar | Log |
+|---|---|---|
+| 1.78s | 6->5 | candump-2026-09-18_090404 @ 1031.8s |
+| 1.68s | 3->4 | candump-2026-09-16_083214 @ 1139.8s |
+| 1.64s | 5->6 | candump-2026-09-12_211833 @ 1048.0s (der oben beschriebene Fall) |
+| 1.48s | 2->3 | candump-2026-09-14_081105 @ 2193.5s |
+| 1.34s | 4->5 | candump-2026-09-17_081218 @ 249.0s |
+| 1.16s | 2->3 | candump-2026-09-18_093544 @ 309.8s |
+
+Details: `results/clutch_ride_summary.json`. Die anderen 5 Faelle sind noch
+nicht einzeln gegengeprueft (Fahrerkontext/RPM-Situation unbekannt) - erste
+Kandidaten fuer eine naehere Betrachtung, falls das Muster weiter verfolgt
+wird (z.B. Frage: haeufen sich diese Faelle bei hoher Ausgangsdrehzahl wie
+im 5->6-Fall, oder auch bei entspannter Fahrt?).
+
+### Beide neuen Skripte in die taegliche Pipeline uebernommen
+`run_daily_pipeline.py` ruft `shift_traction_gap_analysis.py` und
+`clutch_ride_detection.py` jetzt direkt nach `shift_time_analysis.py` auf
+(gleiche Bedingung `if new_can_logs`, da beide von dessen Output abhaengen) -
+laufen ab sofort automatisch bei jedem Tageslauf mit neuen CAN-Logs mit,
+kein manueller Aufruf mehr noetig. Noch nicht angebunden: eigene
+Schwellwert-Befunde in `pipeline_checks.py` (z.B. neue Kupplungsschleif-
+Faelle im Tagesreport melden) - bisher nur stille Datenerzeugung, kein
+aktiver Alarm.
+
+Selbsttests: `scripts/test_shift_traction_gap_analysis.py` (3 Faelle:
+sauberes Signal, klare Luecke, kein Signal) und `scripts/test_clutch_ride_
+detection.py` (3 Faelle: normales zuegiges Loslassen, haengende Kupplung,
+keine Daten) - beide gruen.

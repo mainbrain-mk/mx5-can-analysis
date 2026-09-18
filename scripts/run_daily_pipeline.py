@@ -148,6 +148,40 @@ def _find_matching_gpx(log_id):
     return best
 
 
+def gunzip_or_recover(gz_path, out_path, errors):
+    """Entpackt gz_path nach out_path. `gzip -dk` bricht bei einem
+    truncated .gz (haerter Stromverlust auf dem Pi waehrend des Schreibens,
+    siehe mx5_can_bus_status.md) mit "unexpected end of file" ab UND
+    schreibt dabei gar keine Ausgabedatei - der gesamte Log ging damit
+    bisher verloren, obwohl `gzip -dc` bis zum Bruchpunkt brauchbare Frames
+    liefert (candump-2026-09-16/17 verifiziert: >99% der Bytes erhalten).
+    Faellt bei einem echten Fehler auf Streaming-Dekompression zurueck;
+    parse_candump() ueberspringt die dadurch abgeschnittene letzte Zeile
+    ohnehin schon per try/except. Gibt True zurueck, wenn out_path danach
+    Daten enthaelt."""
+    try:
+        subprocess.run(["gzip", "-dk", "-f", gz_path], check=True,
+                        capture_output=True, timeout=60)
+        return True
+    except Exception:
+        pass
+    try:
+        with open(out_path, "wb") as out:
+            res = subprocess.run(["gzip", "-dc", gz_path], stdout=out,
+                                  stderr=subprocess.PIPE, timeout=60)
+    except Exception as e:
+        errors.append((f"gunzip {gz_path}", f"Exception: {e}"))
+        return False
+    if os.path.getsize(out_path) == 0:
+        os.remove(out_path)
+        errors.append((f"gunzip {gz_path}", "leer/nicht rekonstruierbar (0 Bytes): "
+                        + res.stderr.decode(errors="replace").strip()))
+        return False
+    errors.append((f"gunzip {gz_path}", "partial recovery: "
+                    + res.stderr.decode(errors="replace").strip()))
+    return True
+
+
 def sync_can_logs_from_pi(errors):
     """Neuer Schritt (vor der eigentlichen Auswertung): prueft, ob der
     Raspberry Pi erreichbar ist und abgeschlossene CAN-Logs hat, die
@@ -210,13 +244,9 @@ def sync_can_logs_from_pi(errors):
     for fname in fetched:
         local_path = os.path.join(CAN_DIR, fname)
         if fname.endswith(".gz"):
-            try:
-                subprocess.run(["gzip", "-dk", "-f", local_path], check=True,
-                                capture_output=True, timeout=60)
-            except Exception as e:
-                errors.append((f"gunzip {fname}", str(e)))
-                continue
             log_name = fname[:-3]
+            if not gunzip_or_recover(local_path, os.path.join(CAN_DIR, log_name), errors):
+                continue
         else:
             log_name = fname
         log_id = os.path.splitext(log_name)[0]
@@ -342,6 +372,10 @@ def main():
     previous_shift_best = load_json("shift_time_best.json") or {}
     if new_can_logs:
         run_script([PYTHON, "scripts/shift_time_analysis.py"], errors)
+        # beide haengen an shift_time_analysis.py's Output (results/shift_time_
+        # analysis_summary.json), deshalb direkt danach in derselben Bedingung
+        run_script([PYTHON, "scripts/shift_traction_gap_analysis.py"], errors)
+        run_script([PYTHON, "scripts/clutch_ride_detection.py"], errors)
     current_shift_best = load_json("shift_time_best.json") or {}
 
     previous_corner_peak_best = load_json("corner_peak_best.json") or {}
