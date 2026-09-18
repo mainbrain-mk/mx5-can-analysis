@@ -5513,3 +5513,37 @@ Auffaelligkeiten:
 - script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
 - script_error: gunzip candump-2026-09-17_125935.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-17_125935.log.gz']' returned non-zero exit status 1.
+
+## Automatischer Lauf: 6 neue Logs verarbeitet (2026-09-18)
+
+- `2026-09-18 090449`, Dauer=31min, Masse=1178.0kg (FLI ~60.9%->~52.3%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-18 144153`, Dauer=47min, Masse=1176.5kg (FLI ~54.3%->~50.0%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-18 155245`, Dauer=17min, Masse=1175.6kg (FLI ~50.0%->~48.8%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-18 161157`, Dauer=12min, Masse=1174.3kg (FLI ~48.2%->~43.2%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-18 164955`, Dauer=22min, Masse=1173.0kg (FLI ~45.3%->~38.3%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-18 172154`, Dauer=8min, Masse=1171.9kg (FLI ~38.7%->~38.3%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-18 090449: Resonanz auf AccelerationX bei 6.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 090449: Resonanz auf AccelerationY bei 6.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 144153: Resonanz auf AccelerationZ bei 17.1 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 155245: Resonanz auf AccelerationX bei 12.1 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 155245: Resonanz auf AccelerationY bei 8.4 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 155245: Resonanz auf AccelerationZ bei 14.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 161157: Resonanz auf AccelerationX bei 23.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 161157: Resonanz auf AccelerationZ bei 16.8 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 164955: Resonanz auf AccelerationX bei 24.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 164955: Resonanz auf AccelerationY bei 23.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 164955: Resonanz auf AccelerationZ bei 15.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 172154: Resonanz auf AccelerationX bei 24.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 172154: Resonanz auf AccelerationY bei 6.4 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-18 172154: Resonanz auf AccelerationZ bei 15.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-18 090449 t=1748-1751s: a_lat_peak/mean-Verhaeltnis 2.1 > 2.0 (peak=-0.29g, mean=-0.14g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-18 144153 t=2719-2724s: a_lat_peak/mean-Verhaeltnis 2.1 > 2.0 (peak=+0.21g, mean=+0.10g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-18 155245 t=617-627s: a_lat_peak/mean-Verhaeltnis 12.1 > 2.0 (peak=+0.60g, mean=-0.05g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-18 155245 t=221-229s: a_lat_peak/mean-Verhaeltnis 2.2 > 2.0 (peak=+0.38g, mean=+0.17g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-18 161157 t=480-486s: a_lat_peak/mean-Verhaeltnis 2.2 > 2.0 (peak=+0.39g, mean=+0.18g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip candump-2026-09-13_135440.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-13_135440.log.gz']' returned non-zero exit status 1.
+- script_error: gunzip candump-2026-09-16_090826.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-16_090826.log.gz']' returned non-zero exit status 1.
+- script_error: gunzip candump-2026-09-17_125935.log.gz: Command '['gzip', '-dk', '-f', 'data/can/candump-2026-09-17_125935.log.gz']' returned non-zero exit status 1.
