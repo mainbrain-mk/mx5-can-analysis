@@ -4,7 +4,7 @@ im selben Stil wie der Nutzer-Chart vom 08.09.2026 ("Rechtskurve 1
 17:33:24-17:33:31"): Gas / Bremse / g-Kraft (Gyro- vs. Lenkwinkelmodell,
 plus a_lon) / Lenkwinkel, mit Schattierung des jeweiligen Kurvenfensters.
 
-Kontext: siehe PROJEKT_STAND.md "Auffaellig 2" (Korrektur) und
+Kontext: siehe docs/logs/projekt-stand.md "Auffaellig 2" (Korrektur) und
 [[mx5_steering_angle]] - dies ist die Rechts- und die Linkskurve der auf
 einer Autobahn-Verbindungsrampe (OSM trunk_link) gefahrenen S-Kurve.
 

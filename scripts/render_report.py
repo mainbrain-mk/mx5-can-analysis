@@ -6,7 +6,7 @@ run_report-dict (siehe run_daily_pipeline.py fuer die genaue Form).
 Schreibt:
   data/runs/<datum>/run_report.json  (das rohe dict, unveraendert)
   data/runs/<datum>/report.md        (Markdown, deutsch)
-und haengt einen kurzen Abschnitt an PROJEKT_STAND.md an.
+und haengt einen kurzen Abschnitt an docs/logs/projekt-stand.md an.
 
 Aufruf: als Bibliothek aus run_daily_pipeline.py, siehe write_run().
 """
@@ -14,7 +14,7 @@ import json
 import os
 
 RUNS_DIR = "data/runs"
-PROJEKT_STAND_PATH = "PROJEKT_STAND.md"
+PROJEKT_STAND_PATH = "docs/logs/projekt-stand.md"
 
 
 def _fmt_mass(log_id, masses):

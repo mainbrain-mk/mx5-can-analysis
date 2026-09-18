@@ -14,7 +14,7 @@ mit R²=0,9997-0,99995 und RMSE 0,65-0,94 Grad ueber 6 Logs - gegenueber R²=0,9
 Grad dieser Lookup-Tabelle, also Faktor 11 besser. Einfach die DBC dekodieren und Frames mit
 gesetztem Invalid-Bit verwerfen.
 
-Bleibt nur als Beleg der Herleitung stehen. Details: mx5_can_deep_search_plan.md.
+Bleibt nur als Beleg der Herleitung stehen. Details: docs/plans/can-deep-search-plan.md.
 
 --- urspruengliche Beschreibung ---
 Nichtlineare Umrechnung fuer SteeringAngle_related (CAN 0x86, HS_EPAS Byte0-1) - MX-5 Projekt.
@@ -39,7 +39,7 @@ from scipy.optimize import isotonic_regression
 from can_log_parser import parse_candump, load_db
 
 LUT_PATH = "data/can/steering_angle_0x86_lut.csv"
-# Der Schwenk-Log (siehe mx5_can_bus_status.md, "Bonus find" 2026-09-12) deckt zwar den vollen
+# Der Schwenk-Log (siehe docs/logs/can-bus-status.md, "Bonus find" 2026-09-12) deckt zwar den vollen
 # Lenkwinkelbereich ab, aber sehr UNGLEICHMAESSIG - viele Samples nahe der Endanschlaege
 # (Wagen stand, Lenkrad wurde dort laenger gehalten), fast keine im mittleren Uebergangsbereich
 # (schnell durchgedreht). Ein Isotonic-Fit NUR auf diesem Log haelt in der grossen Datenluecke

@@ -2,7 +2,7 @@
 Prueft, ob der STEER_ANGL_EPS-Nullpunkt INNERHALB einer Fahrt driftet
 (MX-5 Projekt)
 
-Hintergrund (siehe PROJEKT_STAND.md, "Nachtrag: STEER_ANGL_EPS-Nullpunkt per
+Hintergrund (siehe docs/logs/projekt-stand.md, "Nachtrag: STEER_ANGL_EPS-Nullpunkt per
 OSM-Geradeausfahrt korrigiert", 02.09.2026): `steering_zero_offset.py`
 schaetzt EINEN Nullpunkt-Offset pro Log (Median von STEER_ANGL_EPS ueber
 alle per OSM bestaetigten Geradeausfahrt-Fenster). Dort blieb explizit

@@ -5,7 +5,7 @@ Bisher deckte drivetrain_model_validation.py/performance_simulation.py NUR
 Volllast ab (Modell-Drehmoment kommt aus der Volllast-Kennlinie im externen
 Dokument, gueltig nur bei APP>90% bzw. ETC_ACT>80%+fetter Gemischanreicherung).
 Fuer alles darunter (der weit ueberwiegende Teil realen Fahrens) gab es kein
-Modell - im externen Dokument (MX5_Aktueller_Kenntnisstand_2026-08-29.md,
+Modell - im externen Dokument (docs/status/performance-model.md,
 Abschnitt "Naechste Schritte", Punkt 4) explizit als offen benannt:
 "Teillastkennfeld, insbesondere ETC=60 Grad, direkt messen - benoetigt
 thermisch stabile Segmente mit APP, ETC, Lambda, MAF, Drehzahl und klarer

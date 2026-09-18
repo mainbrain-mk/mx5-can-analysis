@@ -12,7 +12,7 @@ DBC-Dateien wurden lokal minimal gepatcht (Syntaxfehler im Original-Repo):
 - eingebettetes "LICENSE"-Pseudo-Frame (0x990, >11bit, sprengt Standard-ID) entfernt
 - echte Bit-Ueberlappungen behoben (0x91 LIGHT/FOG_SW, 0x4F2 HUD_Height/HUD_Bright,
   0x40A VIN-Felder mit ungueltiger Byte-Order "@4-"), siehe CM_-Kommentare in den
-  DBC-Dateien und mx5_can_bus_status.md. Seitdem laedt die Datei auch mit
+  DBC-Dateien und docs/logs/can-bus-status.md. Seitdem laedt die Datei auch mit
   strict=True fehlerfrei; strict=False bleibt trotzdem als Sicherheitsnetz gegen
   kuenftige, noch unentdeckte DBC-Fehler bestehen (Ladefehler dort waeren sonst
   fatal statt nur eine Warnung).
@@ -38,10 +38,10 @@ def load_db(bus="hscan"):
     ID-Vergabe - IDs ueberschneiden sich zwischen den DBC-Dateien, duerfen
     also NICHT in dieselbe Datenbank gemerged werden (sonst ueberschreiben
     sich z.B. MS-CAN-Platzhalter mit 0 Signalen und echte HS-CAN-Messages).
-    Aktuell wird nur can0 = HS-CAN geloggt (siehe mx5_can_bus_status.md).
+    Aktuell wird nur can0 = HS-CAN geloggt (siehe docs/logs/can-bus-status.md).
 
     HS-CAN laedt bevorzugt die erweiterte DBC (Basis + eigene Funde/Fixes,
-    siehe mx5_can_bus_status.md) - genau wie status_gui.py auf dem Pi. Die
+    siehe docs/logs/can-bus-status.md) - genau wie status_gui.py auf dem Pi. Die
     reine Basis-Datei bleibt unangetastet als Fallback/Referenz auf den
     berumiya-Upstream-Stand stehen und wird nur geladen, wenn die erweiterte
     Datei mal fehlt."""

@@ -678,7 +678,7 @@ def main():
 
     # Geglaettete Mittellinie: Savitzky-Golay auf dem Versatz-Signal (siehe
     # Docstring "Ortho-Verfeinerung: Glaettung") - behebt das vom Nutzer
-    # bemerkte Wackeln auf den Geraden (siehe PROJEKT_STAND.md fuer die
+    # bemerkte Wackeln auf den Geraden (siehe docs/logs/projekt-stand.md fuer die
     # Diagnose: bis zu 4,7m Abweichung von einer Geraden auf einem
     # 87m-Abschnitt VOR der Glaettung).
     offset_smooth = smooth_offset_circular(det["offset_m"], ok, SMOOTH_WINDOW_M, RESAMPLE_STEP_M)

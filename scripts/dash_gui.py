@@ -204,7 +204,7 @@ class SnapshotClient:
 
 class Panel(BoxLayout):
     """Rahmen-Panel, Nachfolger von make_panel() in status_gui.py - bewusst
-    schlichte Rechtecke, keine angeschnittenen Ecken (siehe mx5_can_bus_status.md,
+    schlichte Rechtecke, keine angeschnittenen Ecken (siehe docs/logs/can-bus-status.md,
     Renncockpit-Zuverlaessigkeits-Odyssee - Chamfer-Panels waren auf dem alten
     Wayland/Tk-Stack unzuverlaessig; hier zwar ein anderer Rendering-Stack,
     aber kein Grund, dasselbe Risiko erneut einzugehen)."""

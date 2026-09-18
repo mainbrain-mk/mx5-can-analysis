@@ -1,7 +1,7 @@
 #!/bin/bash
 # Sampelt Systemlast + CPU-Zeit/RSS eines PID jede Sekunde fuer DURATION Sekunden,
 # schreibt eine CSV nach OUT. Gebaut fuer Lasttests von status_gui.py auf dem Pi
-# (siehe "Kommunikation mit dem Pi" in mx5_can_bus_status.md), funktioniert aber
+# (siehe "Kommunikation mit dem Pi" in docs/logs/can-bus-status.md), funktioniert aber
 # fuer jeden PID/jede Dauer.
 #
 # Aufruf: monitor_load.sh <PID> <DURATION_SEKUNDEN> <OUTPUT_CSV>

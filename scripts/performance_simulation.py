@@ -4,7 +4,7 @@
 Baut direkt auf dem in drivetrain_model_validation.py validierten
 Beschleunigungsmodell auf (Volllast-Drehmomentkurve, Getriebe-/
 Achsuebersetzung, CdA, Crr, eta, Masse - alle Werte und deren
-Validierungsstatus siehe MX5_Aktueller_Kenntnisstand_2026-08-29.md).
+Validierungsstatus siehe docs/status/performance-model.md).
 Neu ist hier NUR die Zeitintegration ueber eine komplette Fahrt inkl.
 Schaltlogik - keine neuen physikalischen Annahmen gegenueber dem
 bereits validierten Modell.
@@ -23,7 +23,7 @@ Drei Szenarien werden gerechnet:
   - "bias-korrigiert": Antriebskraft mit EMPIRICAL_BIAS_FACTOR skaliert,
     dem in drivetrain_model_validation.py ueber 44 echte Volllast-
     Segmente gemessenen Median-Verhaeltnis gemessen/Modell (~0.92) -
-    siehe dortigen Docstring/PROJEKT_STAND.md fuer Herkunft.
+    siehe dortigen Docstring/docs/logs/projekt-stand.md fuer Herkunft.
   - "traktionsbegrenzt": NEU (30.08.2026) - Antriebskraft an der Radaufstands-
     kraft gedeckelt (F_wheel_effektiv = min(F_wheel_modell, TRACTION_MAX_FORCE_N)),
     statt eines pauschalen Faktors. Herkunft/Begruendung siehe
@@ -39,7 +39,7 @@ Drei Szenarien werden gerechnet:
     wird die Grenze erreicht, bei Gang 6/hoher Geschwindigkeit liegt die
     Modellkraft ohnehin meist darunter, daher kaum Korrektur noetig - deckt
     sich mit dem RAW-Modell, das die Vmax-Segmente gut trifft, siehe
-    PROJEKT_STAND.md). EINSCHRAENKUNG: der gefittete Wert (implizites
+    docs/logs/projekt-stand.md). EINSCHRAENKUNG: der gefittete Wert (implizites
     mu~0.38) ist niedriger als ein reiner Reifenhaftungs-Koeffizient
     (typisch 0.8-1.1+) - vermutlich eine Mischung aus echtem Traktionslimit,
     ECU-Drehmomentmanagement/Anfahrschlupfregelung und ggf. weiteren nicht
@@ -98,7 +98,7 @@ from partial_load_model import build_kennfeld_predictor
 RESULTS_DIR = "results"
 
 # Gangindividuelle ATTACK-Zugkraftunterbrechung beim Hochschalten [s]
-# (MX5_Aktueller_Kenntnisstand_2026-08-29.md, Abschnitt 4, Default fuer
+# (docs/status/performance-model.md, Abschnitt 4, Default fuer
 # maximale Fahrleistung)
 ATTACK_SHIFT_S = {
     (1, 2): 0.15,
@@ -147,7 +147,7 @@ def accel(v_ms, gear, bias=1.0, mass_kg=MASS_KG, f_max=None, etc_deg=None):
     EMPIRICAL_BIAS_FACTOR), optional abweichender Masse (Default:
     Projekt-Referenzmasse MASS_KG - fuer Fahrten mit bekannt abweichender
     Beladung, z.B. Suedtirol-Rueckfahrt 31.07.2026, expliziten mass_kg
-    uebergeben, siehe PROJEKT_STAND.md/Memory "Fahrzeuggewicht"), und
+    uebergeben, siehe docs/logs/projekt-stand.md/Memory "Fahrzeuggewicht"), und
     optionaler Kraftobergrenze f_max (siehe TRACTION_MAX_FORCE_N) - wird
     NACH dem Bias-Faktor angewendet (fuer den "traktionsbegrenzt"-Modus
     bias=1.0 UND f_max=TRACTION_MAX_FORCE_N verwenden, nicht beides
@@ -419,7 +419,7 @@ def plot_results(results, out_path, title="0-Vmax Simulation (Volllast, alle Gae
 
 
 def print_parameters():
-    print("=== Verwendete Fahrzeugparameter (aus MX5_Aktueller_Kenntnisstand_2026-08-29.md) ===")
+    print("=== Verwendete Fahrzeugparameter (aus docs/status/performance-model.md) ===")
     print(f"Masse: {MASS_KG} kg | r_dyn: {R_DYN_M} m | Achsuebersetzung: {FINAL_DRIVE}")
     print(f"Gangverhaeltnisse: {GEAR_RATIOS}")
     print(f"eta: {ETA} | CdA: {CDA_M2} m^2 | rho: {RHO_KG_M3} kg/m^3 | Crr: {CRR}")

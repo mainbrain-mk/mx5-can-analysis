@@ -23,7 +23,7 @@ Was das Skript macht:
   3. Pro Ereignis: Spitzendruck, Dauer, Zeitpunkt, und die IMU-Antwort
      (max. |Beschleunigung| auf allen 3 Achsen, lowpass-gefiltert,
      Resonanz bereits entfernt) im selben Zeitfenster.
-  4. Achsenrotation (loest Punkt 4 aus PROJEKT_STAND.md ohne dedizierte
+  4. Achsenrotation (loest Punkt 4 aus docs/logs/projekt-stand.md ohne dedizierte
      Kalibrierfahrt): pro "echtem" Bremsereignis (Dauer 1-6s, Spitzen-
      druck >=1000 kPa, keine Standphase) wird der GEMITTELTE horizontale
      Beschleunigungsvektor (X,Z) ueber die Kernphase des Ereignisses

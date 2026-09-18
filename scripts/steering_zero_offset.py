@@ -2,7 +2,7 @@
 Nullpunkt-Korrektur fuer STEER_ANGL_EPS anhand echter Geradeausfahrt auf
 OSM-Strassen (MX-5 Projekt)
 
-Hintergrund (siehe PROJEKT_STAND.md, "STEER_ANGL_EPS-Nullpunkt-Offset in
+Hintergrund (siehe docs/logs/projekt-stand.md, "STEER_ANGL_EPS-Nullpunkt-Offset in
 beiden neuen Logs entdeckt", 02.09.2026): die Logs `2026-09-02 150720`
 (Offset ca. +148°) und `2026-09-02 102031` (Offset ca. +20°) haben einen
 Lenkwinkel-Kanal, dessen Nullpunkt NICHT bei 0° liegt (vermutlich weil
@@ -68,7 +68,7 @@ OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 ROAD_CACHE_PATH = Path("data/track/osm_roads_steering_corridor.json")
 
 # Deckt die Region aller bisherigen Logs mit STEER_ANGL_EPS grosszuegig ab
-# (beobachtete Spanne: lat 52.53-52.75, lon 13.18-13.37, siehe PROJEKT_STAND.md) -
+# (beobachtete Spanne: lat 52.53-52.75, lon 13.18-13.37, siehe docs/logs/projekt-stand.md) -
 # bei kuenftigen Logs ausserhalb dieser Box muesste die Box erweitert und
 # der Cache geloescht werden.
 CORRIDOR_BBOX = (52.45, 13.10, 52.85, 13.45)  # south, west, north, east

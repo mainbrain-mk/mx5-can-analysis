@@ -5,7 +5,7 @@ festes Skript statt Inline-Python, damit der Bash-Aufruf fuer die
 Berechtigungs-Allowlist stabil bleibt. Faengt NUR die Symptome ab (fehlende
 Steigungskorrektur) - das eigentliche Nachladen fehlender Hoehendaten-
 Kacheln ist bewusst NICHT Teil dieser Routine (netzwerk-/zeitintensiv,
-siehe PROJEKT_STAND.md "Neue Hoehendaten-Quelle gefunden", 06.09.2026)."""
+siehe docs/logs/projekt-stand.md "Neue Hoehendaten-Quelle gefunden", 06.09.2026)."""
 
 import json
 import os

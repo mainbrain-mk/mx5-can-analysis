@@ -20,7 +20,7 @@ Hoehenabfragen (z.B. Steigungskorrektur von a_long, spaetere
 Streckensimulation).
 
 BERLIN-FALLBACK: die LGB-Brandenburg-Kacheln decken Berlin selbst NICHT ab
-(eigenstaendige Quelle, siehe PROJEKT_STAND.md). Fuer Punkte ohne lokale
+(eigenstaendige Quelle, siehe docs/logs/projekt-stand.md). Fuer Punkte ohne lokale
 Kachel-Abdeckung fragt `get_elevation()` automatisch den Live-WMS-Dienst
 der Berliner Geodateninfrastruktur ab (`BERLIN_WMS_URL`, Layer `c_dgm1`,
 GetFeatureInfo, liefert "Hoehe_in_Meter_ueber_NHN") - gleiches Koordinaten-
@@ -35,7 +35,7 @@ Datenluecke), kein harter Fehler.
 WICHTIG - Bruecken: die "Boden"-Klassifizierung (Klasse 2) der ALS-Punkte
 folgt bei Bruecken/Ueberfuehrungen dem UNTERLIEGENDEN Gelaende (Tal/Fluss/
 Strasse darunter), NICHT der Fahrbahnoberkante der Bruecke - empirisch an
-mehreren echten Bruecken verifiziert (29.08.2026, siehe PROJEKT_STAND.md).
+mehreren echten Bruecken verifiziert (29.08.2026, siehe docs/logs/projekt-stand.md).
 `get_elevation()` liefert dort daher entweder eine Luecke (NaN) oder einen
 falschen, zu tiefen Wert. Deshalb: fuer Hoehenprofile entlang einer
 gefahrenen Strecke IMMER `get_elevation_along_track()` verwenden, nicht
@@ -43,7 +43,7 @@ gefahrenen Strecke IMMER `get_elevation_along_track()` verwenden, nicht
 automatisch Bruecken-Ueberquerungen und interpoliert linear (nach
 zurueckgelegter Strecke) zwischen den Werten an den Bruecken-Enden.
 Bekannte Luecke: Bruecken ohne `bridge`-Tag auf der Hauptfahrbahn in OSM
-werden NICHT erkannt (siehe PROJEKT_STAND.md, Anschlussstelle Stolpe).
+werden NICHT erkannt (siehe docs/logs/projekt-stand.md, Anschlussstelle Stolpe).
 
 DGM-XYZ-FALLBACK (NEU, 06.09.2026): fuer 3 Kacheln suedlich der bisherigen
 Kernregion (E407/N5772, E407/N5776, E426/N5743 - neue Fahrtroute Richtung
@@ -113,7 +113,7 @@ BERLIN_WMS_BBOX_N = (5800000, 5860000)
 # Ausserhalb Brandenburg/Berlin (EPSG:25833): weitere Bundeslaender fuer
 # Fahrten ausserhalb der ueblichen Berlin-Brandenburg-Schleife (z.B.
 # Suedtirol-Rueckfahrt ueber Bayern/Thueringen/Sachsen-Anhalt, 31.07.2026,
-# siehe PROJEKT_STAND.md). Alle drei liegen in UTM-Zone 32 (EPSG:25832),
+# siehe docs/logs/projekt-stand.md). Alle drei liegen in UTM-Zone 32 (EPSG:25832),
 # ANDERS als Brandenburg/Berlin (EPSG:25833) - eigener Transformer noetig.
 _LATLON_TO_UTM32 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
 
@@ -463,7 +463,7 @@ def query_berlin_wms(e: float, n: float) -> float:
     value = float(m.group(1))
     # -9999 (und aehnliche Sentinel-Werte) sind der NODATA-Code des Dienstes,
     # keine echte Hoehe (Bug gefunden 30.08.2026: wurde zuvor ungefiltert als
-    # gueltiger Wert gecacht - siehe PROJEKT_STAND.md). Grosszuegige untere
+    # gueltiger Wert gecacht - siehe docs/logs/projekt-stand.md). Grosszuegige untere
     # Schranke, da Berlin/Brandenburg keine Hoehen unter -20m hat.
     if value <= -1000:
         return float("nan")
@@ -831,7 +831,7 @@ class ElevationModel:
         hinaus - probiert der Reihe nach Brandenburg-Kacheln, Berlin-WMS,
         Bayern-DGM1-Kacheln, Thueringen-DGM2-Kacheln, Sachsen-Anhalt-WCS.
         Fuer Fahrten ausserhalb der ueblichen Berlin-Brandenburg-Schleife
-        (z.B. Suedtirol-Rueckfahrt 31.07.2026, siehe PROJEKT_STAND.md).
+        (z.B. Suedtirol-Rueckfahrt 31.07.2026, siehe docs/logs/projekt-stand.md).
         Gibt (Hoehe, Quelle) zurueck - Quelle ist None, wenn keine der
         Quellen einen Wert liefern konnte (NICHT raten/interpolieren ueber
         Bundeslandgrenzen hinweg - lieber ehrlich NaN)."""

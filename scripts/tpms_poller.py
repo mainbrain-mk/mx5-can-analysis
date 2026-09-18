@@ -5,7 +5,7 @@ Anders als der Rest des Loggers ist das hier AKTIV: es sendet selbst
 Anfragen auf den Bus (Mode 0x22 ReadDataByIdentifier), statt nur passiv
 mitzulesen wie candump/session_logger.py/can_log_parser.py. Grund: das
 Kombiinstrument broadcastet Reifendruck/-temperatur nicht periodisch auf
-HS-CAN (siehe mx5_can_bus_status.md, systematische Byte-Suche fand nichts) -
+HS-CAN (siehe docs/logs/can-bus-status.md, systematische Byte-Suche fand nichts) -
 es muss einzeln per Diagnose-PID abgefragt werden.
 
 Request-Header 0x720, PIDs vom Nutzer bereits per Handy-OBD-Adapter live

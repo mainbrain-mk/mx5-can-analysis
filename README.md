@@ -17,14 +17,13 @@ car's own logged data, not from any manufacturer documentation.
   docstring explains its purpose, method, and known limitations.
 - `data/can/*.dbc` — CAN signal definitions used to decode the raw
   `candump` logs (see Licensing below).
-- `PROJEKT_STAND.md` — a running, dated project log/journal: every
-  finding, bug, and decision in roughly chronological order. The closest
-  thing this project has to a lab notebook; also the best source for the
-  reasoning behind any given script.
-- `mx5_can_bus_status.md` — CAN-bus reverse-engineering notes (signal
-  discovery, DBC fixes, hardware/logging setup on a Raspberry Pi).
-- `MX5_Aktueller_Kenntnisstand_2026-08-29.md` — snapshot of the baseline
-  drivetrain/performance model as of that date.
+- `docs/` — project documentation and log/journal, split into a short
+  **`docs/status/`** (current state per topic, kept up to date) and the full
+  **`docs/logs/`** (running, dated journal — every finding, bug, and decision
+  in roughly chronological order; the closest thing this project has to a
+  lab notebook, and the best source for the reasoning behind any given
+  script). Start at [`docs/README.md`](docs/README.md) for a topic map of
+  what lives where.
 
 Project docs and commit messages are largely in German (the author's
 working language); code identifiers and comments follow normal
@@ -60,5 +59,5 @@ imports need.
 - `data/can/*.dbc` are derived from the community DBC
   [`berumiya/CAN_DBC_6thGenMazda`](https://github.com/berumiya/CAN_DBC_6thGenMazda)
   (CC BY 4.0), with project-specific fixes and additions layered on top
-  (see `mx5_can_bus_status.md` for the changelog) — still CC BY 4.0,
-  attribution to the original author retained.
+  (see [`docs/logs/can-bus-status.md`](docs/logs/can-bus-status.md) for the
+  changelog) — still CC BY 4.0, attribution to the original author retained.

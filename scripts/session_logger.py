@@ -56,7 +56,7 @@ PROBE_WAIT_RPM_S = 600   # hoechstens 10 Minuten auf den Motorstart warten
 # overlayroot=tmpfs-Overlay und ist nach jedem Reboot weg. Im Auto gibt es kein Netz, also
 # auch kein NTP -> nach einem Reboot ohne Netz laeuft die Uhr auf dem Datum des Images
 # weiter, OHNE dass im Log ein Sprung sichtbar waere (genau der Fehler, der 2026-09-13 und
-# 2026-09-14 je ein Log falsch datiert hat, siehe mx5_can_bus_status.md).
+# 2026-09-14 je ein Log falsch datiert hat, siehe docs/logs/can-bus-status.md).
 #
 # Gegenmassnahme ohne Eingriff ins schreibgeschuetzte Root-Dateisystem: Zeitstempel auf dem
 # USB-Stick mitschreiben. Beim Start wird die Uhr NUR dann gestellt, wenn sie nachweislich
@@ -192,7 +192,7 @@ class SessionLogger:
         self.candump_proc = self._popen(["candump", "-l", self.can_channel], cwd=self.log_dir)
         self.write_clock_marker()
         print(f"[session_logger] Fahrt erkannt, candump gestartet (pid {self.candump_proc.pid})", flush=True)
-        # TPMS wird nicht periodisch gebroadcastet (siehe mx5_can_bus_status.md) - aktiver
+        # TPMS wird nicht periodisch gebroadcastet (siehe docs/logs/can-bus-status.md) - aktiver
         # UDS-Poller sendet eigene Requests, deren Antworten wie jeder andere Frame vom
         # gerade gestarteten candump mitgeschrieben werden. Kein eigenes Log noetig.
         # Reifendruck aendert sich sehr langsam - Intervall bewusst gross (siehe
@@ -301,7 +301,7 @@ def main():
     # Reine Vorsichtsmassnahme - der Fall ist bisher NICHT beobachtet worden. Insbesondere
     # erklaert er NICHT das unkomprimierte Log vom 2026-09-15: dort war die Ursache ein
     # harter Stromverlust am Fahrtende (uptime -s = 17:49:26, drei Minuten nach dem letzten
-    # Frame), siehe mx5_can_bus_status.md.
+    # Frame), siehe docs/logs/can-bus-status.md.
     # Muster ohne Selbsttreffer (pgrep/pkill -f matcht sonst die eigene Kommandozeile mit).
     subprocess.run(["pkill", "-f", "[c]andump -l"], capture_output=True)
     session.gzip_finished_logs()  # von vorherigen Fahrten liegengebliebene Logs nachtraeglich komprimieren

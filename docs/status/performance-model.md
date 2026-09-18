@@ -1,8 +1,16 @@
-# Mazda MX-5 ND RF G184: aktueller Kenntnisstand
+# Fahrleistungsmodell & IMU: aktueller Kenntnisstand
 
-**Dokumentstand:** 29.08.2026  
+**Status:** lebendes Dokument, wird bei relevanten Änderungen in-place aktualisiert
+(nicht mehr als Datums-Snapshot geführt, siehe `docs/README.md`).  
 **Zweck:** Portierbare technische Zusammenfassung des im Agenten dokumentierten Modell- und IMU-Kenntnisstands.  
 **Abgrenzung:** Das aktive Fahrleistungsmodell ist mit Stand 21.08.2026 dokumentiert. Die IMU-Diagnosemethode und die Schwingungsanalyse wurden bis 27.08.2026 fortgeschrieben. Diagnosebefunde ändern Fahrzeugparameter nicht automatisch.
+
+> **Hinweis (Reorg 18.09.2026):** Der Inhalt unten ist inhaltlich noch auf dem Stand
+> 29.08.2026 (letzter voller Abgleich). Im Logbuch [`docs/logs/projekt-stand.md`](../logs/projekt-stand.md)
+> gibt es seither weitere performance-modell-relevante Einträge (u.a. Teillastmodell,
+> Reifen/Gewicht, 0-Vmax-Simulation, Gang-6-/Vmax-Validierung, Streckenmodell). Diese
+> sind noch nicht in die Zusammenfassung unten eingearbeitet — das ist als
+> Folgearbeit vorgemerkt, nicht stillschweigend übernommen.
 
 ## 1. Kurzfazit
 

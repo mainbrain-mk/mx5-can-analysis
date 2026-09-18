@@ -1,7 +1,7 @@
 """
 Kurvenereignis-Analyse: isolierte, klar bestaetigte Kurven (MX-5 Projekt)
 
-Zweck: siehe PROJEKT_STAND.md / grip_estimation.py-Docstring - eine
+Zweck: siehe docs/logs/projekt-stand.md / grip_estimation.py-Docstring - eine
 kontinuierliche Querbeschleunigung ueber die ganze Fahrt ist mit der
 aktuellen Halterung nicht zuverlaessig moeglich. Weder die X/Z-Rotation
 (korreliert gar nicht mit echter Kurvenfahrt) noch das rohe Gyroskop
@@ -31,7 +31,7 @@ Methodik:
      validiert:
        omega_deg_s = GYRO_SIGN_SCALE * RotationRate<Achse>_lowpass
      (positiv = Rechtskurve, ueber alle 7 Logs gegen GPS-Kursaenderung
-     geprueft: Korrelation -0.54 bis -0.90, siehe PROJEKT_STAND.md).
+     geprueft: Korrelation -0.54 bis -0.90, siehe docs/logs/projekt-stand.md).
 
   NACHTRAG (06.09.2026): "RotationRateY" oben beschreibt die Halterung bis
   inkl. 2026-09-05 (Y=vertikal, fest verbaut). Die Halterung ist jetzt

@@ -8,7 +8,7 @@ Datenbasis: ALLE `results/can_corner_event_summary_candump-*.json` (von
 CAN-Log im taeglichen Pipeline-Lauf) - urspruenglich nur die 43
 nutzerbestaetigten Kurven aus dem Y-Splitter-Log candump-2026-09-12_211833,
 seit 2026-09-14 auf alle vorhandenen CAN-Logs mit echten Kurven erweitert
-(6 Fahrten, 220 Kurven insgesamt - siehe PROJEKT_STAND.md "Kurvenmodell").
+(6 Fahrten, 220 Kurven insgesamt - siehe docs/logs/projekt-stand.md "Kurvenmodell").
 Die urspruengliche manuelle Nutzer-Review (S-Kurven-Trennung, Geradeaus-
 Ausschluss) betraf nur den 211833-Log und steckt bereits in
 `can_corner_event_analysis.py`s `EXCLUDED_EVENTS`/Vorzeichen-Logik - gilt
@@ -27,7 +27,7 @@ nachweislich sicher gehalten, koennte aber am echten Limit mehr. Das
 Ergebnis dient hier als Sanity-Check/Untergrenze fuer das bestehende
 mu=1.0-1.3-Bracket, NICHT als Ersatz dafuer - eine echte Grenzwertmessung
 braucht eine Grenzbereichsfahrt (Track-Tag mit CAN-Logging), die es bisher
-nicht gibt (siehe mx5_can_bus_status.md, Testplan-Punkt "Kurven beidseitig").
+nicht gibt (siehe docs/logs/can-bus-status.md, Testplan-Punkt "Kurven beidseitig").
 
 Methodik:
   1. Pro Kurve: v_peak [m/s] (Geschwindigkeit am a_lat-Spitzenwert-Sample,

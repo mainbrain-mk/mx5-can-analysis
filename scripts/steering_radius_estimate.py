@@ -16,7 +16,7 @@ Bicycle-Modell ohne Schwimmwinkel-/Untersteuerungsterm). Das ist
 plausibel (Radius ist bei reinem Kinematik-Modell eine geometrische
 Groesse), aber die bereits dokumentierte "Untersteuerungs-Signatur"
 (zwei Geschwindigkeitscluster ~40/~65 km/h passen nicht perfekt auf
-dieselbe Gerade, siehe PROJEKT_STAND.md) deutet an, dass reale Autos bei
+dieselbe Gerade, siehe docs/logs/projekt-stand.md) deutet an, dass reale Autos bei
 gleichem Lenkwinkel mit steigender Geschwindigkeit einen GROESSEREN
 Radius fahren (Reifenschlupf) - dieses einfache Modell kann das nicht
 abbilden.

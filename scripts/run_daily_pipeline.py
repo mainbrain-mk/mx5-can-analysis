@@ -113,7 +113,7 @@ def rclone_sync_new_logs(errors):
 
 def pi_reachable():
     """Kurzer SSH-Erreichbarkeitscheck fuer den CAN-Logger-Pi ("car",
-    passwortlos per Key, siehe mx5_can_bus_status.md). False bei jedem
+    passwortlos per Key, siehe docs/logs/can-bus-status.md). False bei jedem
     Fehler (Pi aus/nicht im Netz) - kein Grund, den Lauf abzubrechen."""
     try:
         res = subprocess.run(
@@ -151,7 +151,7 @@ def _find_matching_gpx(log_id):
 def gunzip_or_recover(gz_path, out_path, errors):
     """Entpackt gz_path nach out_path. `gzip -dk` bricht bei einem
     truncated .gz (haerter Stromverlust auf dem Pi waehrend des Schreibens,
-    siehe mx5_can_bus_status.md) mit "unexpected end of file" ab UND
+    siehe docs/logs/can-bus-status.md) mit "unexpected end of file" ab UND
     schreibt dabei gar keine Ausgabedatei - der gesamte Log ging damit
     bisher verloren, obwohl `gzip -dc` bis zum Bruchpunkt brauchbare Frames
     liefert (candump-2026-09-16/17 verifiziert: >99% der Bytes erhalten).
@@ -278,7 +278,7 @@ def find_new_logs():
 def compute_mass(log_id):
     """Schritt 2: Masse aus dem FLI-Kanal der .dlg-Datei berechnen
     (Median erste/letzte 10 Werte, SOLO-Annahme - siehe
-    PROJEKT_STAND.md "Fahrzeuggewicht"). None, falls kein FLI-Kanal."""
+    docs/logs/projekt-stand.md "Fahrzeuggewicht"). None, falls kein FLI-Kanal."""
     path = os.path.join(RAW_DIR, f"{log_id}.dlg")
     con = sqlite3.connect(path)
     try:

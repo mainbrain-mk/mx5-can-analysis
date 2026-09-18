@@ -5,7 +5,7 @@ Zweck: fuer jeden Log die Quer- und Laengsbeschleunigung im
 Fahrzeug-Koordinatensystem berechnen und daraus eine grobe Grip-Nutzung
 ("wie nah am Reifenlimit") ableiten.
 
-Voraussetzungen (siehe PROJEKT_STAND.md, Punkt 4 UND Nachtrag 06.09.2026):
+Voraussetzungen (siehe docs/logs/projekt-stand.md, Punkt 4 UND Nachtrag 06.09.2026):
   - Vertikalachse wird PRO LOG per `imu_orientation.detect_vertical_axis()`
     erkannt (bis inkl. 2026-09-05 war das immer Y bei fest verbauter
     Halterung; seit 06.09.2026 ist die Halterung variabel, z.B. Z bei
@@ -24,7 +24,7 @@ METHODIK-WECHSEL (29.08.2026) - WICHTIG:
   dieser Rotation korreliert bei KEINEM der 7 Logs mit echter
   Kurvenfahrt (getestet gegen zwei unabhaengige Referenzen: GPS-Kurs-
   aenderung und Gyroskop RotationRateY, Korrelationen praktisch bei 0,
-  z.T. sogar leicht negativ - siehe PROJEKT_STAND.md). Arbeitshypothese:
+  z.T. sogar leicht negativ - siehe docs/logs/projekt-stand.md). Arbeitshypothese:
   die Halterung (Kugelkopf mit Rendelschraube) reagiert unter Seitenlast
   (Kurve) anders als unter Laengslast (Bremsen) - das aus Bremsereignissen
   gewonnene theta beschreibt also nur die Laengsachse zuverlaessig, NICHT
@@ -48,7 +48,7 @@ METHODIK-WECHSEL (29.08.2026) - WICHTIG:
     die Skalierung (Faktor 1.0 statt z.B. 0.74) beruht auf der Annahme,
     dass der Gyro-Sensor selbst korrekt in deg/s skaliert ist und die
     GPS-Kursaenderung (wegen der noetigen 4s-Glaettung bei 1Hz-GPS,
-    siehe PROJEKT_STAND.md) die wahre Rate eher UNTERSCHAETZT statt der
+    siehe docs/logs/projekt-stand.md) die wahre Rate eher UNTERSCHAETZT statt der
     Gyro sie UEBERSCHAETZT - nicht 100% zweifelsfrei, aber die deutlich
     plausiblere Annahme. Siehe WICHTIGE EINSCHRAENKUNGEN.
   - RotationRateY wird wie die Beschleunigungsachsen mit
@@ -66,7 +66,7 @@ Restliche Methodik (unveraendert):
      (Resonanz + Ausreisser bereits entfernt, siehe
      vibration_analysis.py) - NICHT das rohe Signal.
   2. Die ersten STARTUP_SKIP_S Sekunden verwerfen (bekanntes
-     Sensor-Fusion-Einschwingartefakt, siehe PROJEKT_STAND.md Punkt 3).
+     Sensor-Fusion-Einschwingartefakt, siehe docs/logs/projekt-stand.md Punkt 3).
   3. a_long = X*cos(theta) + Z*sin(theta) (positiv = beschleunigen),
      a_lat = v*omega (positiv = Rechtskurve, siehe oben - Vorzeichen
      jetzt ueber GPS validiert).
@@ -216,7 +216,7 @@ def clip_exclusion_mask(t, vib_summary_path, axes, pad_s=0.2):
     (siehe vibration_analysis.py) - das sind harte Halterungs-/Sensor-
     Artefakte (Rohwerte weit ausserhalb ±12 m/s^2), keine echte
     Fahrdynamik. Stichprobe ergab: der hoechste Kombi-g-Wert eines Logs
-    fiel exakt mit so einem Ereignis zusammen (siehe PROJEKT_STAND.md).
+    fiel exakt mit so einem Ereignis zusammen (siehe docs/logs/projekt-stand.md).
     Ohne diesen Ausschluss waeren "max_g"-Werte irrefuehrend."""
     mask = np.zeros(len(t), dtype=bool)
     try:
