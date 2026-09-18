@@ -8,7 +8,7 @@ Findings zurueck: {"severity": "info"|"warn", "category": str,
 "message": str, "data": dict}.
 
 Referenzwerte (theta-Bereich, Vollast-Verhaeltnis, k/R²-Schwelle) sind aus
-PROJEKT_STAND.md/SKILL.md uebernommen bzw. - wo dort nur "deutliche
+docs/logs/projekt-stand.md/SKILL.md uebernommen bzw. - wo dort nur "deutliche
 Abweichung" ohne Zahl stand (k/R²-Sprung) - als konkrete Schwelle NEU
 festgelegt (siehe check_steering_model_shift-Docstring). Bei Bedarf hier
 anpassen, nicht im Orchestrator.

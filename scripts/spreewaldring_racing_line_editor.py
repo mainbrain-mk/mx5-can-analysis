@@ -10,7 +10,7 @@ Fixpunkt/Scheitelpunkt), danach automatisch neu optimieren lassen (Abbruch
 sobald eine Iteration die Rundenzeit verschlechtert, nur das Optimum wird
 behalten) und das Ergebnis (Rundenzeit, Geschwindigkeit, Bremszonen) live
 sehen - alles bei festem mu=1.0 (Nutzervorgabe, siehe Memory "mx5-tires"/
-PROJEKT_STAND.md).
+docs/logs/projekt-stand.md).
 
 WICHTIGE ARCHITEKTURENTSCHEIDUNG (mit Nutzer abgestimmt): das braucht KEINEN
 Python-Backend-Server. Die Physik (kombinierter Reifenkraftkreis-Loeser aus
@@ -26,7 +26,7 @@ Schliesspunkt-Sonderfall bereinigt, 11 statt 12) und das zugeschnittene
 Orthofoto (LGB Brandenburg, bereits als JPEG eingebettet) werden NICHT neu
 berechnet/heruntergeladen, sondern direkt aus der bestehenden
 `spreewaldring_racing_line_animation.html` (frueherer Schritt, siehe
-PROJEKT_STAND.md) uebernommen - beide sind dort bereits verifiziert. Alle
+docs/logs/projekt-stand.md) uebernommen - beide sind dort bereits verifiziert. Alle
 uebrigen Daten (Korridor, Fixpunkt-Startlinie, Physik-Konstanten) kommen
 frisch/autoritativ aus den eigentlichen Quellskripten/-JSONs, um Drift durch
 doppelt gepflegte Werte zu vermeiden.
@@ -715,7 +715,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
     <div class="panel">
       <h2>Physik (experimentell)</h2>
-      <label class="hard-toggle" style="display:flex; align-items:center; gap:0.5rem;" title="Ersetzt Vollgas-sobald-moeglich durch eine lenkraten-basierte Gasvorgabe, kalibriert an EINER echten Kurve (R^2=0.76). WICHTIG: nicht verlaesslich fuer Streckenkurven validiert - Plausibilitaetspruefung und eine breitere Log-Aggregation zeigten schlechte Generalisierung (siehe PROJEKT_STAND.md). Nur zum Anschauen/Vergleichen gedacht.">
+      <label class="hard-toggle" style="display:flex; align-items:center; gap:0.5rem;" title="Ersetzt Vollgas-sobald-moeglich durch eine lenkraten-basierte Gasvorgabe, kalibriert an EINER echten Kurve (R^2=0.76). WICHTIG: nicht verlaesslich fuer Streckenkurven validiert - Plausibilitaetspruefung und eine breitere Log-Aggregation zeigten schlechte Generalisierung (siehe docs/logs/projekt-stand.md). Nur zum Anschauen/Vergleichen gedacht.">
         <input type="checkbox" id="naturalThrottleCb">
         <span>Natuerliches Gasmodell (unkalibriert fuer Streckenkurven!)</span>
       </label>
@@ -800,7 +800,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Kurze Vollgas-Inseln zwischen zwei Bremszonen sind fuer ein Punktmassen-
   // Modell ohne Umschaltkosten zeit-optimal (bang-bang), aber in der
   // Realitaet destabilisierend - siehe smoothWastedAccelBrake() und
-  // PROJEKT_STAND.md (Nutzerbeobachtung 08.09.2026). Port von
+  // docs/logs/projekt-stand.md (Nutzerbeobachtung 08.09.2026). Port von
   // MIN_ACCEL_HOLD_M/smooth_wasted_accel_brake() aus
   // spreewaldring_racing_line_optimal.py.
   const MIN_ACCEL_HOLD_M = 40.0;
@@ -820,7 +820,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // generalisiert NICHT zuverlaessig. Dieser Modus ist bewusst als
   // Vergleichs-/Anschauungswerkzeug gebaut (Toggle "Natuerliches Gasmodell"),
   // NICHT als Ersatz fuer das produktive, zeitoptimale Modell - siehe
-  // PROJEKT_STAND.md.
+  // docs/logs/projekt-stand.md.
   const K1_STEER = 0.023382, K2_STEER = -0.00003895;  // results/steering_lateral_model_summary.json
   const APP_STEER_A = 38.4, APP_STEER_B = 2.4;         // Kurve-1-Regression, partial_throttle_calibration.py
   // Domain-Gatter (Nutzerbeobachtung 08.09.2026, Punkte 1-35): die Formel
@@ -843,7 +843,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Lenkrate-Formel schon vorausschauend frueher, statt erst im letzten
   // Moment abzubrechen. Reine Vorwaerts-Heuristik mit der AKTUELLEN
   // Geschwindigkeit (keine echte Vorab-Simulation der naechsten Punkte) -
-  // bewusst einfach gehalten, siehe PROJEKT_STAND.md.
+  // bewusst einfach gehalten, siehe docs/logs/projekt-stand.md.
   const NATURAL_THROTTLE_MIN_G = 0.9;
   const NATURAL_THROTTLE_LOOKAHEAD_N = 10;
   const NATURAL_THROTTLE_LOOKAHEAD_MAX_G = 1.0;
@@ -947,7 +947,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     // Bidirektionale Gangwahl (Hoch- ODER Runter), dieselbe Hysterese wie
     // deriveGearTrace() (die ANZEIGE) - fehlte hier bisher komplett, siehe
-    // Nutzerfund PROJEKT_STAND.md (Anzeige zeigte plausible Rueckschaltungen,
+    // Nutzerfund docs/logs/projekt-stand.md (Anzeige zeigte plausible Rueckschaltungen,
     // die reale, hier berechnete Beschleunigung blieb aber im zu hohen Gang
     // haengen). WICHTIG: der Vergleich nutzt die ROHE Motorbeschleunigung
     // (nicht durch aLongAvail gedeckelt!) - sonst sehen mitten in einer Kurve
@@ -1211,7 +1211,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         // Array an GENAU diesem Punkt seinen .fill(1)-Anfangswert, weil die
         // spaetere Zuweisung unten hier uebersprungen wird (Bugfund
         // 09.09.2026: erzeugte einen Phantom-100%-Ausreisser mitten in einer
-        // sonst korrekt auf 0% stehenden Bremszone, siehe PROJEKT_STAND.md).
+        // sonst korrekt auf 0% stehenden Bremszone, siehe docs/logs/projekt-stand.md).
         appFracNaturalO[iTarget] = 0;
         const dur = P.ATTACK_SHIFT_S[`${gear}-${gear+1}`];
         return naturalStep(v, gear, dur, gear+1, ds, iTarget);
@@ -1359,7 +1359,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       // Bremsverzoegerung zusaetzlich auf BRAKE_CAP_G begrenzt (reale,
       // ABS-limitierte Bremsung aus BFP_PRE_MZ-Daten statt der rein
       // theoretischen Reifenkraftkreis-Grenze - Nutzerentscheidung
-      // 08.09.2026, siehe braking_model.py/PROJEKT_STAND.md). Gilt nur fuer
+      // 08.09.2026, siehe braking_model.py/docs/logs/projekt-stand.md). Gilt nur fuer
       // die Laengsverzoegerung beim Bremsen, nicht fuer die Kurven-
       // Querbeschleunigung.
       const vBwd = vFwd.slice();
@@ -1529,7 +1529,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Randbedingung genutzt (siehe pinnedOptimize), nicht nur zur Anzeige.
   // Fensterbreite = CURVATURE_WINDOW_M, dieselbe Konvention wie curvatureRadius():
   // eine Ableitung ueber Nachbarpunkte (~6m) ist ein reines Diskretisierungsartefakt,
-  // keine reale Lenkbewegung (siehe PROJEKT_STAND.md, geprueft 2026-09-07).
+  // keine reale Lenkbewegung (siehe docs/logs/projekt-stand.md, geprueft 2026-09-07).
   function computeSteerRateDegS(pts, radius, vFinal, dsArr){
     const n = pts.length;
     const stepM = median(Array.from(dsArr));
@@ -1595,7 +1595,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // nur Punkte pruefen, deren Radius ueberhaupt in Kurvenreichweite liegt
     // (Nutzervorgabe 08.09.2026: Radius < ~300-500m; 400m gewaehlt, mit
     // Sicherheitsabstand ueber der groessten bekannten echten Kurve von
-    // 322m, siehe PROJEKT_STAND.md Radius-Aufblaehung-Fund).
+    // 322m, siehe docs/logs/projekt-stand.md Radius-Aufblaehung-Fund).
     const MAX_NOTCH_RADIUS_M = 400;
     const steerAbs = radius.map(r => steerFromRadius(r));
     const flagged = [];
@@ -1735,7 +1735,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       // Smootherstep (Perlin) statt Raised-Cosine: Kruemmung (2. Ableitung) am
       // Fensterrand ebenfalls auf 0, nicht nur die Steigung - sonst entsteht am
       // Rand des Pinsels ein realer Kruemmungssprung (spuerbarer "Kink" in der
-      // Physik, siehe PROJEKT_STAND.md, gefunden 2026-09-07).
+      // Physik, siehe docs/logs/projekt-stand.md, gefunden 2026-09-07).
       const u = 1-t;
       const w = u*u*u*(u*(u*6-15)+10);
       let val = nLatBase[i] + delta*w;
@@ -2259,7 +2259,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // Kurvenlimit rollend (beides 0%) - AUSSER an den von
     // smoothWastedAccelBrake()/smoothShortBrakeSpikes() geglaetteten Stellen
     // (kurze Vollgas-Inseln zwischen zwei Bremszonen bzw. kurze isolierte
-    // Bremsspitzen, siehe dort/PROJEKT_STAND.md), dort zeigt das jeweilige
+    // Bremsspitzen, siehe dort/docs/logs/projekt-stand.md), dort zeigt das jeweilige
     // Pedal die tatsaechlich berechnete Teillast-/Teilbrems-Stellung.
     const prevI = (i-1+N)%N;
     const isCoasting = !standingStart && !!lastSim.coasting[i];

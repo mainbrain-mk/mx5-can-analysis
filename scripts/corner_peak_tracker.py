@@ -11,7 +11,7 @@ WICHTIGE EINSCHRAENKUNG: liest ALLE `results/can_corner_event_summary_*.json`
 die 43 nutzerbestaetigten Kurven aus `corner_speed_model.py` - dieses Skript
 laeuft automatisch/deterministisch fuer jeden neuen CAN-Log OHNE manuelle
 Durchsicht (anders als `corner_speed_model.py`s kuratierte Kalibrierbasis,
-siehe dortiger Docstring/PROJEKT_STAND.md "Kurvenmodell"). Ein neuer
+siehe dortiger Docstring/docs/logs/projekt-stand.md "Kurvenmodell"). Ein neuer
 Spitzenwert hier ist deshalb ein KANDIDAT fuer eine echte Grenzbereichs-
 Kurve, kein verifizierter Messwert - genau wie der bestehende
 `check_corner_events`-Befund (a_lat_peak/mean-Verhaeltnis) in

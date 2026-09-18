@@ -24,7 +24,7 @@ SICHERHEIT - bewusst eng gehalten:
     0x11 ECUReset, 0x28 CommunicationControl, 0x85 ControlDTCSetting) sind nicht
     implementiert und duerfen hier auch nicht ergaenzt werden.
   * Default-Pause zwischen Anfragen begrenzt die Buslast; der Bus traegt im Normalbetrieb
-    schon ~16-17 Requests/s vom Handy (siehe mx5_can_bus_status.md).
+    schon ~16-17 Requests/s vom Handy (siehe docs/logs/can-bus-status.md).
   * Fahrzeug im STAND, Motor an. Nicht waehrend der Fahrt laufen lassen.
 
 Nutzt nur die Standardbibliothek (socket.AF_CAN) - python-can ist auf dem Pi im

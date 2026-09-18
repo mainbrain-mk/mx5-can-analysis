@@ -11,7 +11,7 @@ lokal auf meiner CPU, ohne dass ich jede Ausgabe verarbeiten muss."
 WICHTIG: reiner Port der ZEITOPTIMAL-Physik (nicht des experimentellen
 natuerlichen Gasmodells) - das ist der objektive, formel-freie Benchmark
 (nur "Vollgas sobald physikalisch moeglich"), gegen den auch der Nutzer sich
-misst (101.065s mit seinen 25 Bearbeitungen, siehe PROJEKT_STAND.md
+misst (101.065s mit seinen 25 Bearbeitungen, siehe docs/logs/projekt-stand.md
 Nachtrag 09.09.2026).
 
 Ablauf dieses Skripts:
@@ -341,7 +341,7 @@ def smooth_short_brake_spikes(v_bwd, v_fwd, v_corner_o, ds_o, brake_cap_g):
                     # break/Bedingung endete (dann gilt far_k==best_far_k-1).
                     # Portierungsfehler gefunden+behoben 09.09.2026: mit
                     # bestFarK+1 blieb der Ankerpunkt selbst faelschlich
-                    # unveraendert (siehe PROJEKT_STAND.md).
+                    # unveraendert (siehe docs/logs/projekt-stand.md).
                     mm = far_k + 1
                     while order2[mm] != next_idx:
                         s_local += ds_o[order2[mm]]

@@ -1,5 +1,5 @@
 """Hochaufgeloestes Hoehenprofil der Kuppe aus der bidirektionalen Vollgas-
-Fahrt (2026-09-12, siehe mx5_can_bus_status.md / mx5_bidirectional_wot_
+Fahrt (2026-09-12, siehe docs/logs/can-bus-status.md / mx5_bidirectional_wot_
 validation.md), fuer eine praezisere Vmax-Validierung als die bisherige
 Ein-Wert-Gefaellekorrektur pro Segment (top_speed_validation.segment_grade()).
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Laedt die 62 fehlenden, bei der LGB Brandenburg verfuegbaren Kacheln
-# (Kernregion-Luecke, siehe PROJEKT_STAND.md) nach höhendaten/.
+# (Kernregion-Luecke, siehe docs/logs/projekt-stand.md) nach höhendaten/.
 # Parallelitaet 8, mit Retry-Runde fuer unvollstaendige/beschaedigte Downloads.
 cd /home/manuel/claude/höhendaten || exit 1
 

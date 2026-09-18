@@ -153,7 +153,7 @@ def main():
     # Rausbeschleunigen (Oeffnen) trotz aehnlich hoher Querkraft sofort
     # hoch ist - das war schon beim Verbinden der Fixpunkte die Kernidee:
     # "wir bleiben innen, bis uns die Kraefte zwingen, die Lenkung zu
-    # oeffnen" (PROJEKT_STAND.md, "Nachtrag: mehrere nahe Fixpunkte").
+    # oeffnen" (docs/logs/projekt-stand.md, "Nachtrag: mehrere nahe Fixpunkte").
     # Die eigentliche Freigabe fuer Gas ist demnach nicht der Momentanwert
     # von a_lat, sondern die LENKRATE (d Lenkwinkel/dt) - solange der
     # Fahrer noch zudreht oder haelt (Rate ~0 oder weiter zudrehend), bleibt

@@ -3,14 +3,14 @@ Bremsmodell (MX-5 Projekt) - Punkt 5 der urspruenglichen Roadmap
 
 Zweck: den validierten Bremsdruck-Kanal (BFP_PRE_MZ, siehe
 brake_event_analysis.py) und die bremsbasiert kalibrierte
-Laengsbeschleunigung a_long (siehe PROJEKT_STAND.md Punkt 4) zu einem
+Laengsbeschleunigung a_long (siehe docs/logs/projekt-stand.md Punkt 4) zu einem
 echten Bremsmodell zusammenfuehren: Zusammenhang Bremsdruck <->
 Verzoegerung, maximale erreichte Verzoegerung, und fuer echte
 Vollbremsungen (bis zum Stillstand) eine Bremsweg-/Bremszeit-Tabelle.
 
 Im Unterschied zu grip_estimation.py wird hier NICHT das Quer-Problem
 beruehrt - a_long ist unabhaengig davon weiterhin gut validiert (viele
-Bremsereignisse, hohe Konzentration R, siehe PROJEKT_STAND.md).
+Bremsereignisse, hohe Konzentration R, siehe docs/logs/projekt-stand.md).
 
 Methodik:
   1. Alle Bremsereignisse aus `brake_event_summary.json` uebernehmen
@@ -104,7 +104,7 @@ DB_PATH = "data/datalake.duckdb"
 
 # .dlg-Log -> gepaarter CAN-log_id im Datalake (siehe CAN_GPS_PAIRS in
 # build_datalake.py fuers gleiche Muster). Nur die Y-Splitter-Fahrt
-# (2026-09-12) hat bisher gleichzeitig OBD+CAN - siehe mx5_can_bus_status.md.
+# (2026-09-12) hat bisher gleichzeitig OBD+CAN - siehe docs/logs/can-bus-status.md.
 # Fuer diese Logs zusaetzlich CAN-basierte Kennzahlen (VehicleSpeed ~50Hz statt
 # OBD ~2-4Hz, BrakePressure_CAN [heute erst kalibriert, R²=0.986], Rad-
 # geschwindigkeiten einzeln) berechnen und den Ereignissen beimischen - ergaenzt
@@ -118,7 +118,7 @@ FS_UNIFORM = 50.0
 EVENT_MIN_DURATION_S = 1.0      # kuerzere Ereignisse: OBD-Quantisierungsrauschen
                                   # kann bei sehr kurzer Dauer eine absurd hohe
                                   # "Verzoegerung" vortaeuschen (1 km/h-Aufloesung
-                                  # geteilt durch <0.2s), siehe PROJEKT_STAND.md
+                                  # geteilt durch <0.2s), siehe docs/logs/projekt-stand.md
 EVENT_MAX_DURATION_S = 12.0
 MIN_SPEED_DROP_KMH = 3.0
 FULL_STOP_KMH = 3.0

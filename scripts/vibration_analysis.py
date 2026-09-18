@@ -59,7 +59,7 @@ from scipy.interpolate import interp1d
 # ----------------------------------------------------------------------
 # Konfiguration
 # ----------------------------------------------------------------------
-# Verzeichnisstruktur (siehe PROJEKT_STAND.md): Rohdaten in data/raw/,
+# Verzeichnisstruktur (siehe docs/logs/projekt-stand.md): Rohdaten in data/raw/,
 # abgeleitete Pro-Log-Dateien in data/derived/. Skript wird vom
 # Projekt-Wurzelverzeichnis aus aufgerufen (python scripts/vibration_analysis.py ...).
 RAW_DIR = "data/raw"

@@ -8,7 +8,7 @@ das Handy-Gyroskop (Halterungswackeln) allein nicht vertrauenswuerdig ist
 noetig: `LateralAcc_CAN`/`YawRate_CAN`/`Steering_Wheel_Absolute_Angle`
 kommen direkt vom fahrzeugeigenen RCM/EPS und wurden bereits quantitativ
 gegen das validierte OBD-Lenkwinkelmodell bestaetigt (r=0.91-0.95, siehe
-can_lateral_validation.py, mx5_can_bus_status.md). Deshalb reicht hier eine
+can_lateral_validation.py, docs/logs/can-bus-status.md). Deshalb reicht hier eine
 einfache Schwellwert-Erkennung auf dem durchgehenden Signal, OHNE die
 1Hz-GPS-Fensterei, die bei corner_event_analysis.py zu fragmentierten
 Ereignissen (Luecken >2.5s trennen faelschlich eine zusammenhaengende Kurve)

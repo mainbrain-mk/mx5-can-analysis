@@ -3,7 +3,7 @@ Kontinuierliche Quergrip-Schaetzung aus dem Lenkwinkel-Kanal
 (STEER_ANGL_EPS/STEER_SPD_EPS, MX-5 Projekt)
 
 Zweck: seit 01.09.2026 liegt in neuen Logs ein echter Lenkradwinkel-Kanal
-vom Fahrzeug vor (siehe PROJEKT_STAND.md "Vier neue Logs vom 01.09.2026").
+vom Fahrzeug vor (siehe docs/logs/projekt-stand.md "Vier neue Logs vom 01.09.2026").
 Bisher war eine KONTINUIERLICHE Querbeschleunigungsschaetzung nicht
 moeglich (siehe grip_estimation.py/corner_event_analysis.py-Docstrings):
 weder die IMU X/Z-Rotation noch das rohe Gyroskop (RotationRateY) sind
@@ -33,7 +33,7 @@ eingeschraenkt auf Logs mit STEER_ANGL_EPS-Kanal. Lineare Regression
 OHNE Achsenabschnitt (Lenkwinkel=0 -> Giergeschwindigkeit=0 ist
 physikalisch zwingend) von `heading_rate_mean_deg_s` gegen
 `-steer_mean_deg * v_mean_ms` (Minus, weil in diesem Fahrzeug negativer
-Lenkwinkel = Rechtskurve, siehe Kreuzvalidierung in PROJEKT_STAND.md).
+Lenkwinkel = Rechtskurve, siehe Kreuzvalidierung in docs/logs/projekt-stand.md).
 
 REFINEMENT 2026-09-07: k ist KEINE Konstante, sondern
 `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|` (k2 < 0). Ausgeloest durch die
@@ -102,7 +102,7 @@ EXCLUDED_CALIBRATION_EVENTS = {
 def load_zero_offsets(path=ZERO_OFFSET_PATH):
     """Pro-Log-Nullpunkt-Offset aus `steering_zero_offset.py`
     (OSM-Geradeausfahrt-Methode, siehe dortiger Docstring und
-    PROJEKT_STAND.md "STEER_ANGL_EPS-Nullpunkt-Offset"). Nur Logs mit
+    docs/logs/projekt-stand.md "STEER_ANGL_EPS-Nullpunkt-Offset"). Nur Logs mit
     `trusted=True` (genug Samples) werden korrigiert - fehlt die Datei
     oder ein Log darin, wird Offset=0 angenommen (unveraendertes
     Verhalten)."""
@@ -172,7 +172,7 @@ def fit_k(points):
     """Gain als Funktion des Lenkwinkels, OHNE Achsenabschnitt in x:
     y = (k1 + k2*|Lenkwinkel|) * x. k1 ist der Gain nahe Geradeausfahrt,
     k2 (< 0 erwartet) die Saettigung: bestaetigt am 07.09.2026 (siehe
-    PROJEKT_STAND.md / [[mx5_steering_angle]]), dass eine einzelne
+    docs/logs/projekt-stand.md / [[mx5_steering_angle]]), dass eine einzelne
     Konstante systematisch zu niedrige Gierrate bei kleinen Lenkwinkeln/
     hohem Tempo UND zu hohe bei grossen Lenkwinkeln/Parkmanoevern
     vorhersagt (Modell/GPS-Verhaeltnis wandert von ~0.93 bei >150°

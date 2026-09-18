@@ -73,7 +73,7 @@ from elevation_model import (
 # Hochgeschwindigkeitssegmenten in Bayern/Sachsen-Anhalt vereinzelt absurde
 # Gefaelle-Werte (bis +13%), die sich als Bruecken-/Ueberfuehrungs-Artefakte
 # herausstellten (DGM zeigt dort das Gelaende UNTER der Bruecke) - siehe
-# PROJEKT_STAND.md.
+# docs/logs/projekt-stand.md.
 TRIP_BRIDGE_BBOX = (47.5, 11.0, 52.9, 13.2)
 _trip_bridges_cache = None
 
@@ -87,7 +87,7 @@ def _trip_bridges():
 RESULTS_DIR = "results"
 TOP_SPEED_MIN_DURATION_S = 3.0
 TOP_SPEED_MIN_KMH = 170.0       # Segment muss dieses Tempo mind. einmal erreichen
-GPS_MAX_HORZ_ACC_M = 20.0       # aus MX5_Aktueller_Kenntnisstand_2026-08-29.md, Abschnitt 9
+GPS_MAX_HORZ_ACC_M = 20.0       # aus docs/status/performance-model.md, Abschnitt 9
 ETC_ONLY_MIN = 85.0             # strengerer WOT-Schwellwert fuer den ETC-only-Fallback, siehe unten
 MAX_PLAUSIBLE_GRADE = 0.06       # 6% - Autobahn-Gefaelle darueber ist praktisch ausgeschlossen,
                                  # siehe segment_grade() Docstring (Bruecken-Artefakt-Schutz)
@@ -127,7 +127,7 @@ def find_vmax_graded(gear, bias, grade_frac, mass_kg=MASS_KG, v_lo=1.0, v_hi=130
 
 # Bekannte Abweichungen von der Projekt-Referenzmasse (MASS_KG) fuer
 # einzelne Logs (siehe Memory "mx5-weight-check-on-new-logs" +
-# PROJEKT_STAND.md). Suedtirol-Rueckfahrt 31.07.2026: Leergewicht 1073kg +
+# docs/logs/projekt-stand.md). Suedtirol-Rueckfahrt 31.07.2026: Leergewicht 1073kg +
 # Fahrer 86kg (nutzerbestaetigt) + Beifahrer 70kg + Gepaeck 50kg + Tank
 # ~20kg (ANNAHME, halb voll im Mittel ueber die Fahrt, NICHT bestaetigt) =
 # 1299kg. Alle 7 Logs dieser Fahrt (29.07.-31.07.2026) betroffen.
@@ -313,7 +313,7 @@ def segment_grade(con, log_id, t_start, t_end, elev_model):
     Berlin-Brandenburg-Schleife, siehe Suedtirol-Rueckfahrt 31.07.2026),
     Fallback auf get_elevation_germany_wide() (Bayern/Thueringen/Sachsen-
     Anhalt) - OHNE Bruecken-Behandlung dort (nicht implementiert fuer diese
-    Bundeslaender, siehe PROJEKT_STAND.md - Einzelfehler an Bruecken/
+    Bundeslaender, siehe docs/logs/projekt-stand.md - Einzelfehler an Bruecken/
     Ueberfuehrungen dort moeglich, nicht ausgeschlossen)."""
     lat = load_channel(con, log_id, "Breite")
     lon = load_channel(con, log_id, "Länge")
@@ -362,7 +362,7 @@ def segment_grade(con, log_id, t_start, t_end, elev_model):
     # Bruecken-Ausschluss NUR fuer die neuen Bundeslaender (Brandenburg/Berlin
     # sind bereits ueber get_elevation_along_track bruecken-sicher). Deckt nur
     # Bruecken ab, die in OSM tatsaechlich mit bridge=yes getaggt sind -
-    # bekanntlich unvollstaendig (siehe PROJEKT_STAND.md, Anschlussstelle
+    # bekanntlich unvollstaendig (siehe docs/logs/projekt-stand.md, Anschlussstelle
     # Stolpe) - deshalb zusaetzlich der physikalische Plausibilitaetsfilter
     # unten, der davon UNABHAENGIG ist.
     if non_bb_mask.any():
@@ -408,7 +408,7 @@ def segment_grade(con, log_id, t_start, t_end, elev_model):
         # Steigungsschaetzung per Zweipunkt-Differenz - insbesondere in
         # bergigem Gelaende (Bayern/Thueringen) reicht ein einzelner
         # verrauschter Endpunkt sonst fuer unplausible Kunstwerte (siehe
-        # PROJEKT_STAND.md)
+        # docs/logs/projekt-stand.md)
         return None, float(dist[-1]), len(sub_lat), sources
     # lineare Regression Hoehe vs. zurueckgelegte Strecke ueber ALLE
     # gueltigen Punkte (robuster als reine Zweipunkt-Differenz, siehe oben)
@@ -516,7 +516,7 @@ def print_segment(seg):
 def plot_comparison(segments, out_path):
     # Bayern-DGM1 ausgeschlossen: Gefaellekorrektur dort trotz Bruecken-
     # Filterung nachweislich unzuverlaessig (verschlechtert die Passung),
-    # siehe PROJEKT_STAND.md
+    # siehe docs/logs/projekt-stand.md
     with_grade = [s for s in segments if s["a_model_slope_adjusted_bias_ms2"] is not None
                   and "Bayern-DGM1" not in s.get("elevation_sources", [])]
     if not with_grade:
@@ -536,7 +536,7 @@ def plot_comparison(segments, out_path):
     ax.set_xlabel("Modell-Beschleunigung [m/s²] (Gang 6, bias-korrigiert)")
     ax.set_ylabel("Gemessene Beschleunigung (OBD, Regression) [m/s²]")
     ax.set_title("Gang-6-/Vmax-Segmente: Modell vs. Messung, mit/ohne Gefaellekorrektur\n"
-                  "(Bayern-DGM1 ausgeschlossen - unzuverlaessige Gefaelledaten, siehe PROJEKT_STAND.md)")
+                  "(Bayern-DGM1 ausgeschlossen - unzuverlaessige Gefaelledaten, siehe docs/logs/projekt-stand.md)")
     ax.legend()
     ax.grid(alpha=0.3)
     plt.tight_layout()
@@ -598,7 +598,7 @@ def main():
             rmse_flat_t = float(np.sqrt(np.mean((am_t - af_t) ** 2)))
             rmse_slope_t = float(np.sqrt(np.mean((am_t - as_t) ** 2)))
             print(f"  OHNE die {n_bayern} Bayern-DGM1-Segmente (Gefaellekorrektur dort nachweislich "
-                  f"unzuverlaessig, siehe PROJEKT_STAND.md) - {len(trusted)} verbleibende Segmente:")
+                  f"unzuverlaessig, siehe docs/logs/projekt-stand.md) - {len(trusted)} verbleibende Segmente:")
             print(f"    RMSE ohne Gefaellekorrektur: {rmse_flat_t:.3f} m/s²")
             print(f"    RMSE MIT Gefaellekorrektur:  {rmse_slope_t:.3f} m/s²")
             improvement_t = (1 - rmse_slope_t / rmse_flat_t) * 100 if rmse_flat_t > 0 else 0.0

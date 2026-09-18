@@ -3,7 +3,7 @@ Validierung des Antriebsstrang-/Fahrleistungsmodells gegen echte
 Beschleunigungsdaten (MX-5 Projekt)
 
 Zweck: der Nutzer hat ein separat entwickeltes Fahrleistungsmodell
-("MX5_Aktueller_Kenntnisstand_2026-08-29.md") zur Verfuegung gestellt -
+("docs/status/performance-model.md") zur Verfuegung gestellt -
 Getriebe-/Achsuebersetzungen, Volllast-Drehmomentkurve, Masse, CdA,
 Rollwiderstand, Wirkungsgrad. CdA und Wirkungsgrad sind dort explizit
 als "gekoppelt plausibilisiert, nicht unabhaengig identifiziert"
@@ -77,11 +77,11 @@ DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
 MASS_OVERRIDE_PATH = "data/log_mass_overrides.json"
 
-# --- Fahrzeugparameter aus MX5_Aktueller_Kenntnisstand_2026-08-29.md ---
+# --- Fahrzeugparameter aus docs/status/performance-model.md ---
 MASS_KG = 1180.705
 
 # Log-spezifische Massen-Overrides (Leergewicht 1073kg + Fahrer + Tankstand
-# weichen vom MASS_KG-Referenzwert ab, siehe PROJEKT_STAND.md
+# weichen vom MASS_KG-Referenzwert ab, siehe docs/logs/projekt-stand.md
 # "Fahrzeuggewicht"). Fahrer 86kg (nutzerbestaetigt). Tankstand aus
 # geloggtem FLI-Kanal (Mittel Start/Ende-Wert je Fahrt, Tankvolumen 45l
 # nutzerbestaetigt, Dichte Benzin ~0.745 kg/l angenommen).

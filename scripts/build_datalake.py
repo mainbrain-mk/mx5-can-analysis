@@ -115,14 +115,14 @@ RESULTS_DIR = "results"
 LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 # Bekannte CAN-Log <-> GPS-Track-Paare (begleitender Track derselben Fahrt, siehe
-# mx5_can_bus_status.md). Neues Paar hier ergaenzen, sobald eine weitere Fahrt mit
+# docs/logs/can-bus-status.md). Neues Paar hier ergaenzen, sobald eine weitere Fahrt mit
 # CAN-Log + begleitendem GPS-Track vorliegt.
 CAN_GPS_PAIRS = [
     ("candump-2026-09-11_202803.log", "20260911-202812.gpx"),
     ("candump-2026-09-12_150619.log", "20260912-150636.gpx"),
     ("candump-2026-09-12_155117.log", "20260912-155117.gpx"),  # Rueckweg, keine GPX vorhanden - CAN-only
     # Y-Splitter-Kalibrierfahrt (OBD-Fusion + CAN gleichzeitig, siehe
-    # mx5_can_bus_status.md); GPS kommt hier vom Handy ueber OBD-Fusion
+    # docs/logs/can-bus-status.md); GPS kommt hier vom Handy ueber OBD-Fusion
     # (eigener .dlg-log_id "2026-09-12 211851"), kein separater GPX-Track.
     ("candump-2026-09-12_211833.log", "20260912-211833.gpx"),  # keine GPX vorhanden - CAN-only
 ]
@@ -178,7 +178,7 @@ CAN_SIGNAL_MAP = {
     "WheelSpeed_4": ("WheelSpeed_CAN_4", "km/h"),
     "KeyState": ("KeyState_CAN", ""),
     # C001_ODO (0x40A): exakt gegen den Tacho verifiziert (siehe
-    # mx5_can_bus_status.md), daher direkt auf den bestehenden OBD-Kanal
+    # docs/logs/can-bus-status.md), daher direkt auf den bestehenden OBD-Kanal
     # gemappt statt eigenen "_CAN"-Namen zu bekommen (wie EngineRPM/VehicleSpeed/
     # APP/CoolantTemp/IAT oben) - im Gegensatz zu Clutch/BrakePressure gibt es
     # hier keine bekannte Kalibrierungs-/Rollover-Unsicherheit.
@@ -189,7 +189,7 @@ CAN_SIGNAL_MAP = {
     # zum draufmappen vorhanden, daher eigener "_CAN"-Name wie Brake/Steering/Accel.
     "MAP_Manifold_absolute_pressure_sensor": ("MAP_CAN", "kPa"),
     # BARO_Barometric_pressure (0x166): kein "_maybe", plausibler und
-    # tagesaktuell konsistenter Bereich (siehe mx5_can_bus_status.md).
+    # tagesaktuell konsistenter Bereich (siehe docs/logs/can-bus-status.md).
     "BARO_Barometric_pressure": ("BarometricPressure_CAN", "kPa"),
     # DSC_Status (0x415): KORREKTUR (2026-09-13, Nutzer) - zeigt nur, ob das
     # System eingeschaltet/aktiv ist, NICHT einen laufenden Regeleingriff.
@@ -208,7 +208,7 @@ CAN_SIGNAL_MAP = {
     "MT_Gear_Status": ("MT_Gear_Status", ""),
     # Fuel_Tank (0x09E): Skala per Y-Splitter-Log (2026-09-12 211851, OBD+CAN
     # gleichzeitig) gegen FLI referenzgemessen (r=0.995 nach Glaettung):
-    # FLI% ~ 2.486 * raw - 0.02, siehe mx5_can_bus_status.md. Bisher nur eine
+    # FLI% ~ 2.486 * raw - 0.02, siehe docs/logs/can-bus-status.md. Bisher nur eine
     # Kalibrierfahrt - Rohwert bleibt hier unkonvertiert (wie Clutch_Pedal_
     # Position_raw), Umrechnung erst anwenden wenn ueber mehrere Fahrten
     # bestaetigt.
@@ -257,7 +257,7 @@ KNOWN_CSV_DUPLICATES_OF_DLG = {
 # Bekannte Duplikate unter den CAN-Logs: candump-2026-09-11_201950.log ist,
 # trotz des irrefuehrenden Dateinamens, dieselbe Fahrt wie das bereits
 # kuratierte candump-2026-09-12_150619.log - Ursache ist der in
-# mx5_can_bus_status.md dokumentierte Clock-Jump (Dateiname kommt von der
+# docs/logs/can-bus-status.md dokumentierte Clock-Jump (Dateiname kommt von der
 # noch nicht NTP-synchronisierten Boot-Uhr, der reale Fahrtabschnitt springt
 # mitten in der Datei auf 2026-09-12 15:06-15:12 - exakt das Zeitfenster von
 # candump-2026-09-12_150619.log). Verifiziert per Wertevergleich (2026-09-14):
@@ -486,11 +486,11 @@ def log_start_epoch(can_log_path):
     ebenfalls UTC-basierten GPX-Zeitstempeln vergleichbar, kein manueller
     Offset noetig. None, falls die Datei keine einzige candump-Zeile enthaelt
     (z.B. eine Session, die sofort nach Start wieder endete - kommt seit dem
-    automatischen Pi-Sync in run_daily_pipeline.py vor, siehe mx5_can_bus_status.md).
+    automatischen Pi-Sync in run_daily_pipeline.py vor, siehe docs/logs/can-bus-status.md).
 
     ABER: der Pi hat keine RTC. Faehrt er ohne NTP los, sind Dateiname UND
     Frame-Zeitstempel gleichermassen falsch (bisher 3x passiert, siehe
-    mx5_can_bus_status.md). Die Korrektur besteht im Projekt darin, die Datei
+    docs/logs/can-bus-status.md). Die Korrektur besteht im Projekt darin, die Datei
     auf die per Kreuzkorrelation ermittelte wahre Startzeit umzubenennen - der
     Dateiname ist damit die verlaesslichere Quelle als die Frames. Weichen
     beide um mehr als eine Minute voneinander ab, gewinnt deshalb der Name.
@@ -552,7 +552,7 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     """CAN-Log in den Datalake einlesen. Nutzt die von can_log_parser.py bereits
     erzeugte *_decoded.csv (Long-Format t/can_id/message/signal/value) statt
     erneut >1 Mio Rohframes zu dekodieren - die CSV wird ohnehin schon fuers
-    CAN-Reverse-Engineering gepflegt (siehe mx5_can_bus_status.md)."""
+    CAN-Reverse-Engineering gepflegt (siehe docs/logs/can-bus-status.md)."""
     log_id = os.path.splitext(os.path.basename(can_log_path))[0]
     t0_local = datetime.fromtimestamp(t0_epoch, tz=LOCAL_TZ).replace(tzinfo=None)
 
@@ -562,7 +562,7 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     # existiert ZWEIMAL in der DBC - BO_514 HS_PCM (echte, feinaufgeloeste
     # Fahrzeuggeschwindigkeit, 0.01 km/h/count, seit jeher der genutzte Kanal)
     # UND BO_606 HS_IC (auf ganze km/h gerundete TACHO-ANZEIGE, systematisch
-    # ~4% hoeher - vgl. mx5_can_bus_status.md "0x25E ... Anzeige-
+    # ~4% hoeher - vgl. docs/logs/can-bus-status.md "0x25E ... Anzeige-
     # Geschwindigkeit"). Ohne Trennung landen beide unter demselben
     # Signalnamen im Datalake und werden beim Interpolieren wild
     # durcheinandergemischt (auffaellig geworden als 227/236-Sprung-Artefakt

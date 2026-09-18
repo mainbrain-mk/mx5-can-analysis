@@ -2,7 +2,7 @@
 OBD-Antworten direkt aus dem CAN-Log dekodieren (MX-5 Projekt).
 
 Zweck: wann immer das Y-Splitter-Kabel genutzt wurde, sind die Handy-OBD-Requests/-Antworten
-(0x7E0/0x7E8) selbst im candump-Log enthalten - siehe mx5_can_bus_status.md. Das liefert
+(0x7E0/0x7E8) selbst im candump-Log enthalten - siehe docs/logs/can-bus-status.md. Das liefert
 Ground-Truth-Werte auf der GLEICHEN Pi-Uhr wie alle anderen CAN-Kanaele, ohne die bisherige
 fehleranfaellige Zeit-Synchronisation zwischen CAN-Log und `.dlg`-Export ueber einen
 geschaetzten Lag.
@@ -20,7 +20,7 @@ buendelt mehrere Mode-1-PIDs in EINE Anfrage (z.B. `06 01 0D 10 44 0E 62` = Spee
 CommandEquivalenceRatio, TimingAdvance, ActualEnginePercentTorque), und die Antwort darauf
 passt nicht in einen Single Frame. Weil wir sie verworfen haben, galten genau diese Kanaele
 im Projekt faelschlich als "von der App clientseitig berechnet, keine eigene Anfrage"
-(mx5_can_bus_status.md, 2026-09-14) - tatsaechlich sind es echte, gemessene Werte.
+(docs/logs/can-bus-status.md, 2026-09-14) - tatsaechlich sind es echte, gemessene Werte.
 """
 import re
 import sys
@@ -179,7 +179,7 @@ def summarize(decoded: pd.DataFrame) -> pd.DataFrame:
 
 def _demo():
     """Selbsttest: die 6 bekannten hochfrequenten Mode-22-DIDs muessen im Y-Splitter-Log
-    mit plausibler, fast identischer Haeufigkeit auftauchen (siehe mx5_can_bus_status.md)."""
+    mit plausibler, fast identischer Haeufigkeit auftauchen (siehe docs/logs/can-bus-status.md)."""
     log_path = "data/can/candump-2026-09-12_211833.log"
     raw = parse_candump(log_path)
     decoded = decode_obd_traffic(raw)

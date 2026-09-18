@@ -76,7 +76,7 @@ LIVE_SIGNALS = [
     ("Gang (Actual)", 253, "MT_Gear_Actual"),
     ("Gang-Pos (roh)", 357, "MT_Gear_Position"),
     # Loest die N/1st-Mehrdeutigkeit von "Gang-Pos (roh)" auf: Neutral vs. InGear
-    # (siehe mx5_can_bus_status.md, CM_ SG_ 357 MT_Gear_Select in der DBC).
+    # (siehe docs/logs/can-bus-status.md, CM_ SG_ 357 MT_Gear_Select in der DBC).
     ("Gang-Wahl (N/InGear)", 357, "MT_Gear_Select"),
     ("Blinker", 154, "Turn"),
     ("Warnblinker", 145, "HAZ_SW"),
@@ -84,10 +84,10 @@ LIVE_SIGNALS = [
     ("Nebel hinten", 1086, "R_FOG_LAMP"),
     ("Wischer vorne", 145, "FrontWiper"),
     # Kein Wischer hinten am MX-5 (Roadster) - stattdessen Gesamtkilometerstand
-    # (0x40A, gemultiplext ueber Central_Config_Index=49153, siehe mx5_can_bus_status.md).
+    # (0x40A, gemultiplext ueber Central_Config_Index=49153, siehe docs/logs/can-bus-status.md).
     ("Kilometerstand", 1034, "C001_ODO"),
     ("Waschanlage", 145, "Washer"),
-    # DoorLeft/DoorRight im DBC vertauscht (siehe mx5_can_bus_status.md, Bit37=DoorRight=
+    # DoorLeft/DoorRight im DBC vertauscht (siehe docs/logs/can-bus-status.md, Bit37=DoorRight=
     # physisch links, Bit36=DoorLeft=physisch rechts) - hier gespiegelt, damit das Label
     # zur echten Fahrzeugseite passt.
     ("Tür links", 1086, "DoorRight"),
@@ -126,7 +126,7 @@ PEDAL_GAUGES = [
 
 # TPMS-Ecken: Reifendruck/-temperatur an der Bildschirmposition der Radposition
 # (oben=vorne, unten=hinten). Tire3=Hinten-Links/Tire4=Hinten-Rechts sind per
-# Y-Splitter-Log BESTAETIGT (siehe mx5_can_bus_status.md), Tire1/Tire2=Vorderachse
+# Y-Splitter-Log BESTAETIGT (siehe docs/logs/can-bus-status.md), Tire1/Tire2=Vorderachse
 # sind nur VERMUTET (uebliches VL-VR-HL-HR-Nummerierungsschema) - daher "*" im Label.
 TPMS_CAN_ID = 0x728
 TPMS_STALE_S = 200  # Poller fragt nur alle 120s ab (siehe session_logger.py) - grosszuegiger als LIVE_STALE_S
@@ -158,7 +158,7 @@ OIL_RESPONSE_ID = 0x7E8  # bestaetigt, siehe tpms_poller.py Kommentar zu PCM_REQ
 OIL_DID = 0x1310
 OIL_STALE_S = 25  # 10s-Poll-Intervall, grosszuegiger als LIVE_STALE_S wie beim TPMS-Vorbild
 
-# Renncockpit-Ansicht (siehe mx5_can_bus_status.md, "ND Renncockpit"-Vorschlag):
+# Renncockpit-Ansicht (siehe docs/logs/can-bus-status.md, "ND Renncockpit"-Vorschlag):
 # schaltet automatisch um, sobald der Motor wirklich laeuft - Leerlauf liegt bei
 # ~700-800/min, 300 haelt sicheren Abstand zu Rauschen bei RPM~0.
 DRIVE_RPM_THRESHOLD = 300
@@ -177,7 +177,7 @@ DRIVE_STEER_VMAX = 60
 
 FUEL_TANK_CAN_ID = 158           # 0x9E, HS_IC
 COOLANT_TEMP_CAN_ID = 1056       # 0x420, HS_PCM
-RCM_LATERAL_CAN_ID = 117         # 0x75, HS_RCM (validiert, siehe mx5_can_bus_status.md)
+RCM_LATERAL_CAN_ID = 117         # 0x75, HS_RCM (validiert, siehe docs/logs/can-bus-status.md)
 RCM_LONGITUDINAL_CAN_ID = 118    # 0x76, HS_RCM
 ABS_CAN_ID = 529                 # 0x211, HS_ABS - ABS_Active Bit 42, siehe DBC-Kommentar
 
@@ -490,7 +490,7 @@ class PedalGaugesPanel:
         # Leben (siehe DriveDashPanel-Kommentar unten) - ohne diese Bremse
         # liefe die Arbeit hier auch dann unbedingt mit, wenn das Renncockpit
         # aktiv ist und diese Widgets gar nicht zu sehen sind. Bestaetigter
-        # Beitrag zu den gemessenen Refresh-Stockern, siehe mx5_can_bus_status.md.
+        # Beitrag zu den gemessenen Refresh-Stockern, siehe docs/logs/can-bus-status.md.
         if self.frame.winfo_ismapped():
             for g in self.gauges:
                 spec = g.spec
@@ -615,7 +615,7 @@ def _format_gear(gear):
     gear = int(round(gear))
     if gear == 0:
         return "N"
-    if gear == 7:  # noch nicht zuverlaessig bestaetigt, siehe mx5_can_bus_status.md
+    if gear == 7:  # noch nicht zuverlaessig bestaetigt, siehe docs/logs/can-bus-status.md
         return "R"
     return str(gear)
 
@@ -654,7 +654,7 @@ def make_panel(parent, width, height, bg, border="#262a33"):
     war offenbar der fragile Teil. Einfache, nicht ueberlappende Frames
     (wie im Rest dieser Datei seit Monaten) zeigten dagegen nie dieses
     Problem - fuer ein Live-Instrument beim Fahren zaehlt Zuverlaessigkeit
-    mehr als eine angeschnittene Ecke, siehe mx5_can_bus_status.md."""
+    mehr als eine angeschnittene Ecke, siehe docs/logs/can-bus-status.md."""
     f = tk.Frame(parent, width=width, height=height, bg=bg,
                  highlightthickness=1, highlightbackground=border)
     f.pack_propagate(False)
@@ -733,7 +733,7 @@ class RpmArcGauge:
 
 class GMeterGauge:
     """G-Kreis aus Lateral_Acc_Raw/Longitudinal_Acc_Raw (HS_RCM, validiert
-    gegen das OBD-Lenkwinkelmodell, siehe mx5_can_bus_status.md). GMAX=1.2g
+    gegen das OBD-Lenkwinkelmodell, siehe docs/logs/can-bus-status.md). GMAX=1.2g
     laesst etwas Luft ueber dem bisher hoechsten CAN-bestaetigten Wert
     (1.09g, Log candump-2026-09-15_171047)."""
 
@@ -794,7 +794,7 @@ class ShiftLightBar:
             return  # spart 10 Widget-Reconfigures pro Refresh, wenn sich nichts aendert
         # Nur die LEDs anfassen, die sich wirklich aendern (meist 0-1 Stueck),
         # statt bei jedem Refresh alle 10 neu zu konfigurieren - auf dem Pi
-        # unter CAN-Vollast messbar (siehe mx5_can_bus_status.md).
+        # unter CAN-Vollast messbar (siehe docs/logs/can-bus-status.md).
         lo, hi = sorted((lit, self._lit))
         for i in range(lo, hi):
             self.leds[i].config(bg=self.COLORS[i] if i < lit else self.OFF)
@@ -1136,7 +1136,7 @@ class DriveDashPanel:
                                                      max_age=OIL_STALE_S))
         self._set_readout(self.coolant_cell, self._get(COOLANT_TEMP_CAN_ID, "CoolantTemp"))
         fuel_raw = self._get(FUEL_TANK_CAN_ID, "Fuel_Tank")
-        # Kalibrierung FLI% ~= 2.486*raw - 0.02, siehe mx5_can_bus_status.md
+        # Kalibrierung FLI% ~= 2.486*raw - 0.02, siehe docs/logs/can-bus-status.md
         # (raw = bereits DBC-dekodierter Fuel_Tank-Wert, noch kein Prozentwert).
         fuel_pct = None if fuel_raw is None else max(0.0, min(100.0, 2.486 * fuel_raw - 0.02))
         self._set_readout(self.fuel_cell, fuel_pct)
@@ -1190,7 +1190,7 @@ class StatusGui:
         # "status_idle"/"testmode") - update_state() fasst pack()/pack_forget()
         # sonst JEDE Sekunde unbedingt an, auch wenn sich nichts geaendert hat.
         # Das ist fuer den tief verschachtelten Renncockpit-Baum ein messbarer
-        # Tk-Geometrie-Overhead (siehe mx5_can_bus_status.md, Performance-Messung
+        # Tk-Geometrie-Overhead (siehe docs/logs/can-bus-status.md, Performance-Messung
         # 2026-09-16: Refresh-Intervalle bis 1,8s statt der gewollten 300ms).
         self._visible_screen = None
         self.update_state()

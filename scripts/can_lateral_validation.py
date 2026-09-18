@@ -3,17 +3,17 @@ Kreuzvalidierung: CAN-Querdynamik-Kanaele (Steering_Wheel_Absolute_Angle,
 Lateral_Acc_Raw, YawRate_Raw - alle RCM/EPS ueber HS-CAN) gegen das bereits
 validierte OBD-Lenkwinkel-Modell (steering_lateral_model.py, R²=0.950,
 155 Kalibrierpunkte). Erster Baustein fuer die geplante Querdynamik-/
-Kurvenmodell-Erweiterung (siehe mx5_can_bus_status.md, "Naechste Schritte").
+Kurvenmodell-Erweiterung (siehe docs/logs/can-bus-status.md, "Naechste Schritte").
 
 Nutzt den bisher EINZIGEN Log mit gleichzeitiger CAN- UND OBD-Fusion-
 Aufzeichnung (Y-Splitter-Kalibrierfahrt, selber OBD-Port, siehe
-mx5_can_bus_status.md):
+docs/logs/can-bus-status.md):
     CAN: candump-2026-09-12_211833  (20 min)
     OBD: 2026-09-12 211851.dlg      (selbe Fahrt)
 Weil beide Logger gleichzeitig am selben Fahrzeug haengen, ist das eine
 Punkt-fuer-Punkt-Kreuzvalidierung ohne den Umweg ueber GPS/Streckenabgleich
 (wie es die schwache r=0.30-GPS-Pruefung fuer YawRate_Raw in
-mx5_can_bus_status.md bisher war).
+docs/logs/can-bus-status.md bisher war).
 
 WICHTIGER FUND beim Zeitabgleich: die "timestamp_local"-Spalte, die
 build_datalake.py's ingest_dlg() aus den .dlg-Rohzeiten (TICKS_OFFSET)

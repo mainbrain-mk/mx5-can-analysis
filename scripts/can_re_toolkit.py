@@ -17,7 +17,7 @@ fehlen:
    konstanten Bias), sondern explizit den eingefuehrten systematischen Bias misst und nur
    bei kleinem Bias automatisch anwendet.
 
-Siehe Plan/mx5_can_bus_status.md fuer den Kontext (Sanity-Check gegen unsere bereits
+Siehe Plan/docs/logs/can-bus-status.md fuer den Kontext (Sanity-Check gegen unsere bereits
 kalibrierten Formeln: FLI%, CPP_PER_MZ%, Torque%, BrakePressure, YawRate_Corr).
 """
 import numpy as np

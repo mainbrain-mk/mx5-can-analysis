@@ -9,7 +9,7 @@ die zweite Dimension: linker/rechter Fahrbahnrand als Polygon, fuer die
 Hauptschleife UND fuer drei bisher nicht modellierte Nebenflaechen
 (Boxengasse, zwei Pylon-abgesperrte Verbindungsstuecke).
 
-KONZEPT-KLAERUNG MIT DEM NUTZER (siehe PROJEKT_STAND.md fuer die volle
+KONZEPT-KLAERUNG MIT DEM NUTZER (siehe docs/logs/projekt-stand.md fuer die volle
 Diskussion, hier nur das Ergebnis):
 
 1. **Liniendetektion statt Asphaltfarben-Region.** Der Nutzer wies darauf

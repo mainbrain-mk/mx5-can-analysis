@@ -9,7 +9,7 @@ Gang). Das ist ein physikalisch besonders wertvolles Ereignis: OHNE
 Motor-/Getriebeeingriff (kein Drehmoment, kein eta-Verlust) wirkt NUR
 Luftwiderstand + Rollwiderstand auf die Verzoegerung - im Gegensatz zu
 allen bisherigen Volllast-/Teillast-Checks entkoppelt das den in
-MX5_Aktueller_Kenntnisstand_2026-08-29.md als "gekoppelt, nicht
+docs/status/performance-model.md als "gekoppelt, nicht
 unabhaengig identifiziert" markierten Parameter eta vollstaendig von
 CdA/Crr. Ein echter Ausrollversuch ist genau die von diesem Dokument
 selbst als noetig benannte Messung, um CdA/Crr unabhaengig zu pruefen.

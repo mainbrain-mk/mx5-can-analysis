@@ -25,7 +25,7 @@ from scipy.interpolate import interp1d
 TICKS_OFFSET = 621355968000000000  # .NET-Ticks -> Unix-Referenz
 FS_UNIFORM = 50.0
 STARTUP_SKIP_S = 1.5  # bekanntes Sensor-Fusion-Einschwingartefakt am Log-Anfang
-                       # (siehe PROJEKT_STAND.md) - sonst taeuscht der
+                       # (siehe docs/logs/projekt-stand.md) - sonst taeuscht der
                        # Einschwinger eine grosse Beschleunigung vor
 
 

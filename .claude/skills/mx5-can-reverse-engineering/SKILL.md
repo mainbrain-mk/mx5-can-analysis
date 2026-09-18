@@ -8,7 +8,7 @@ description: >
   "welche ID trägt Y", "kalibriere <Signal> gegen OBD", "suche nach dem
   ABS/DSC-Eingriffsindikator", oder wenn ein neues, unbelegtes Byte im DBC auffällt.
   Nicht für bereits bekannte/dekodierte Signale (siehe stattdessen
-  mx5_can_bus_status.md für den aktuellen Stand).
+  docs/status/can-bus.md für den aktuellen Stand).
 ---
 
 # MX-5 CAN Reverse Engineering
@@ -63,7 +63,7 @@ Eintrag 2026-09-14.
    `MX5ND_6thGenMazda_HSCAN_extended.dbc`) — kein automatischer DBC-Merge (wir
    pflegen eine einzige, dokumentierte Datei, kein Per-Signal-DBC-Verzeichnis).
 7. **Cross-Log-Validierung.** Mindestens 2-4 unabhängige Logs bevor ein Fund als
-   "bestätigt" gilt (Projektkonvention, siehe `mx5_can_bus_status.md`) — ein
+   "bestätigt" gilt (Projektkonvention, siehe `docs/logs/can-bus-status.md`) — ein
    einzelner Log kann durch Zufallskorrelation täuschen.
 
 ## Prinzipien (aus der Referenz-Methodik übernommen)
