@@ -2255,3 +2255,32 @@ echtem Fahren bestätigt wird.
 `status_gui.py`-Prozess läuft gegen echtes `can0` (meldet erwartungsgemäß "WARTE AUF CAN-BUS",
 da nachts kein Adapter dran hängt), Governor auf `performance`, Priorität angehoben. Bereit für
 die Fahrt.
+
+## `build_datalake.py` von Full-Rebuild auf inkrementell umgestellt (2026-09-20)
+
+Bei inzwischen 139 Logs (>100 Mio Messwerte, 15 GB Rohdaten) dauerte der bisherige
+volle Neubau (`DROP TABLE` + `CREATE TABLE ... AS SELECT` bei jedem Lauf) zuletzt
+**13 Minuten** statt der 380s vom 15.09. — mit demselben Timeout-Risiko wie damals
+(siehe `run_daily_pipeline.py`-Kommentar zum 600s-Vorfall).
+
+Umgestellt auf Reconciliation: jeder Lauf bestimmt weiterhin per billigem
+Dateisystem-Scan die Ziel-Menge an `log_id`s, vergleicht sie aber gegen einen in
+`logs.content_fingerprint`/`logs.schema_version` gespeicherten Fingerabdruck (mtime+size
+der Quelldatei(en), plus eine manuell hochzuzaehlende `SCHEMA_VERSION`-Konstante fuer
+Mapping-Logik-Aenderungen) und laedt nur noch neue/geaenderte Logs tatsaechlich neu ein.
+
+**Der entscheidende Punkt fuer dieses Dokument:** jeder Lauf entfernt zuerst IMMER alle
+`log_id`s aus der DB, die nicht mehr in der aktuellen Ziel-Menge sind. Das ist der
+strukturelle Fix fuer genau den oben dokumentierten Bug ("Folgefund: Umbenennen allein
+hat den Datalake nie mitkorrigiert") — ein wegen der fehlenden Pi-RTC nachtraeglich
+umbenanntes CAN-Log verschwindet unter seinem alten Dateinamen aus dem Scan und wird
+jetzt automatisch aus der DB entfernt, statt bis zum naechsten (zufaelligen) vollen
+Rebuild mit falschem Zeitstempel stehen zu bleiben. Das Pi-Uhr-Problem selbst (keine
+RTC, Umbenennung per Kreuzkorrelation bleibt noetig) ist davon unberuehrt — nur die
+Nebenwirkung im Datalake ist jetzt strukturell abgesichert statt zufaellig.
+
+Verifiziert: `--full`-Lauf mit neuem Schema liefert exakt dieselben 139 Logs /
+119.907.023 Messwerte wie die letzte alte Full-Rebuild-Version (Stichprobenvergleich
+Summe/Anzahl pro log_id+channel, Abweichungen nur im Bereich 1e-10 durch andere
+Summierungsreihenfolge in DuckDB). Ein direkt folgender Lauf ohne Quelländerungen:
+2s statt 13min. `--full` bleibt als manueller Fluchtweg nach Mapping-Aenderungen.
