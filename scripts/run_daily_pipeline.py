@@ -376,6 +376,10 @@ def main():
         # analysis_summary.json), deshalb direkt danach in derselben Bedingung
         run_script([PYTHON, "scripts/shift_traction_gap_analysis.py"], errors)
         run_script([PYTHON, "scripts/clutch_ride_detection.py"], errors)
+        # zieht sich selbst ALLE Logs mit LongitudinalAcc_CAN aus dem (gerade
+        # aktualisierten) Datalake, nicht nur new_can_logs - Plot/Summary
+        # sind damit immer auf dem vollen, aktuellen CAN-Datenstand
+        run_script([PYTHON, "scripts/can_traction_circle.py"], errors)
     current_shift_best = load_json("shift_time_best.json") or {}
 
     previous_corner_peak_best = load_json("corner_peak_best.json") or {}
