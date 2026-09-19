@@ -82,17 +82,40 @@ dokumentiert):
 
 Schema in `data/datalake.duckdb`:
   - Tabelle `logs`: log_id, source_file, source_format, start_time_local,
-    duration_s, n_measurements
+    duration_s, n_measurements, content_fingerprint, schema_version
   - Tabelle `measurements`: log_id, channel, channel_original, unit,
     t_elapsed_s, timestamp_local, value
 
-Das Skript baut die Datenbank bei jedem Lauf komplett neu auf (DROP +
-CREATE), das ist bei der aktuellen Datenmenge (< 30 Logs) unproblematisch
-und vermeidet Dubletten-Bugs durch inkrementelles Einfuegen. Rohdateien
-werden nie veraendert.
+INKREMENTELLER BAU (seit 2026-09-20, vorher DROP+CREATE bei jedem Lauf):
+bei < 30 Logs war ein voller Neubau unproblematisch, bei inzwischen > 130
+Logs (>100 Mio Messwerte, 15 GB Rohdaten) dauert er >6 Minuten und ist
+bereits einmal in den Timeout der naechtlichen Pipeline gelaufen (siehe
+run_daily_pipeline.py). Jeder Lauf bestimmt stattdessen die Ziel-Menge an
+log_ids (billiger Dateisystem-Scan, wie vorher), vergleicht sie gegen die
+in `logs.content_fingerprint`/`logs.schema_version` gespeicherten Werte und
+laedt nur neue/geaenderte Logs (mtime+size-Fingerabdruck geaendert, oder
+SCHEMA_VERSION wurde hochgezaehlt) tatsaechlich neu ein.
 
-Aufruf: python build_datalake.py
+WICHTIG - das Entfernen-Aequivalent ist kein Optimierungsdetail, sondern
+der eigentliche Grund, warum das frueher nicht inkrementell ging: der
+Pi hat keine RTC, CAN-Logs werden deshalb gelegentlich nachtraeglich per
+Kreuzkorrelation umbenannt (siehe docs/logs/can-bus-status.md, Abschnitt
+"Folgefund: Umbenennen allein hat den Datalake nie mitkorrigiert" - ein
+bereits real aufgetretener Bug, bei dem ein umbenanntes Log bis zum
+naechsten vollen Rebuild mit falschem Zeitstempel in der DB stand). Jeder
+Lauf entfernt deshalb IMMER zuerst alle log_ids aus der DB, die nicht mehr
+in der aktuellen Ziel-Menge sind (Datei umbenannt/geloescht, oder
+nachtraeglich als Duplikat erkannt) - unabhaengig davon, ob sonst etwas
+Neues da ist. Das ist der strukturelle Ersatz fuer den alten "einfach
+alles wegwerfen und neu bauen"-Schutz.
+
+`--full` erzwingt einen kompletten Re-Ingest aller Logs (z.B. direkt nach
+einer Aenderung an NAME_ALIASES/CAN_SIGNAL_MAP/Einheiten-Umrechnung, statt
+SCHEMA_VERSION hochzuzaehlen). Rohdateien werden nie veraendert.
+
+Aufruf: python build_datalake.py [--full]
 """
+import argparse
 import glob
 import json
 import os
@@ -113,6 +136,17 @@ CAN_DIR = "data/can"
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
 LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
+
+# Hochzaehlen bei jeder Aenderung an NAME_ALIASES/CAN_SIGNAL_MAP/Einheiten-
+# Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
+# Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
+# der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
+SCHEMA_VERSION = "1"
+
+MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
+                        "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
+LOG_COLUMNS = ["log_id", "source_file", "source_format", "start_time_local",
+               "duration_s", "n_measurements", "content_fingerprint", "schema_version"]
 
 # Bekannte CAN-Log <-> GPS-Track-Paare (begleitender Track derselben Fahrt, siehe
 # docs/logs/can-bus-status.md). Neues Paar hier ergaenzen, sobald eine weitere Fahrt mit
@@ -374,6 +408,17 @@ def convert_value(value, source_unit, canonical_unit):
     if factor is None:
         return value  # keine bekannte Umrechnung noetig/verfuegbar
     return value * factor
+
+
+def _fingerprint(paths):
+    """mtime+size ueber alle Dateien, die zu einem Log gehoeren (bei CAN-Logs
+    auch die _decoded.csv, da can_log_parser.py sie bei DBC-Fixes neu
+    erzeugt). Aendert sich einer davon, gilt das Log als geaendert."""
+    parts = []
+    for p in paths:
+        st = os.stat(p)
+        parts.append(f"{os.path.basename(p)}:{st.st_mtime_ns}:{st.st_size}")
+    return "|".join(parts)
 
 
 def ingest_dlg(path):
@@ -654,49 +699,32 @@ def ingest_gps(gpx_path, log_id, t0_epoch):
                 "unit", "t_elapsed_s", "timestamp_local", "value"]]
 
 
-def main():
-    dlg_files = sorted(glob.glob(f"{RAW_DLG_DIR}/*.dlg"))
-    csv_files = sorted(glob.glob(f"{RAW_CSV_DIR}/*.csv"))
-    csv_files = [f for f in csv_files if os.path.basename(f) not in KNOWN_CSV_DUPLICATES_OF_DLG]
+def _build_can_target(can_name, gpx_name):
+    """Bestimmt (log_id, Fingerabdruck-Pfade, ingest-Funktion) fuer ein
+    CAN(+GPS)-Paar, oder None wenn das Log gar nicht als Ziel infrage kommt
+    (Dateien fehlen / leere Session). Die eigentliche Dekodierung passiert
+    erst beim Aufruf der ingest-Funktion (nur fuer tatsaechlich neue/
+    geaenderte Logs), das Membership-Kriterium selbst ist billig (Dateien
+    vorhanden? erste candump-Zeile lesbar?)."""
+    can_path = os.path.join(CAN_DIR, can_name)
+    decoded_csv_path = os.path.splitext(can_path)[0] + "_decoded.csv"
+    gpx_path = os.path.join(CAN_DIR, gpx_name) if gpx_name else None
+    if not (os.path.exists(can_path) and os.path.exists(decoded_csv_path)):
+        print(f"CAN-Log oder *_decoded.csv fehlt, uebersprungen: {can_name}")
+        return None
+    log_id = os.path.splitext(can_name)[0]
+    t0_epoch = log_start_epoch(can_path)
+    if t0_epoch is None:
+        print(f"CAN-Log ohne eine einzige candump-Zeile (leere Session), uebersprungen: {can_name}")
+        return None
+    has_gpx = bool(gpx_path and os.path.exists(gpx_path))
+    paths = [can_path, decoded_csv_path] + ([gpx_path] if has_gpx else [])
 
-    all_frames = []
-    log_meta = []
-
-    for path in dlg_files:
-        print(f"lade (dlg): {os.path.basename(path)}")
-        df = ingest_dlg(path)
-        all_frames.append(df)
-        log_meta.append(_log_summary(df))
-
-    for path in csv_files:
-        print(f"lade (csv): {os.path.basename(path)}")
-        df = ingest_csv(path)
-        all_frames.append(df)
-        log_meta.append(_log_summary(df))
-
-    skipped = set(os.path.basename(f) for f in glob.glob(f"{RAW_CSV_DIR}/*.csv")) & KNOWN_CSV_DUPLICATES_OF_DLG
-    for s in sorted(skipped):
-        print(f"uebersprungen (Duplikat einer .dlg-Datei): {s}")
-
-    for s in sorted(KNOWN_CAN_LOG_DUPLICATES):
-        print(f"uebersprungen (Duplikat eines anderen CAN-Logs): {s}")
-
-    for can_name, gpx_name in _all_can_gps_pairs():
-        can_path = os.path.join(CAN_DIR, can_name)
-        decoded_csv_path = os.path.splitext(can_path)[0] + "_decoded.csv"
-        gpx_path = os.path.join(CAN_DIR, gpx_name) if gpx_name else None
-        if not (os.path.exists(can_path) and os.path.exists(decoded_csv_path)):
-            print(f"CAN-Log oder *_decoded.csv fehlt, uebersprungen: {can_name}")
-            continue
-        log_id = os.path.splitext(can_name)[0]
-        t0_epoch = log_start_epoch(can_path)
-        if t0_epoch is None:
-            print(f"CAN-Log ohne eine einzige candump-Zeile (leere Session), uebersprungen: {can_name}")
-            continue
+    def ingest():
         print(f"lade (can): {can_name}")
         combined = ingest_can(can_path, decoded_csv_path, t0_epoch)
         source_file, source_format = can_name, "can"
-        if gpx_path and os.path.exists(gpx_path):
+        if has_gpx:
             print(f"lade (gps): {gpx_name}")
             gps_df = ingest_gps(gpx_path, log_id, t0_epoch)
             combined = pd.concat([combined, gps_df], ignore_index=True)
@@ -706,51 +734,175 @@ def main():
         if combined.empty:
             # kein Signal aus CAN_SIGNAL_MAP im Log enthalten (z.B. eine sehr
             # kurze Session mit nur wenigen, uninteressanten Frames) und kein
-            # GPS-Track - nichts zum Einlesen (_log_summary() braucht min. 1
-            # Zeile fuer log_id/timestamp).
+            # GPS-Track - nichts zum Einlesen. ponytail: so ein Log hat nie
+            # einen logs-Eintrag (kein Fingerabdruck zum Vergleichen) und wird
+            # dadurch bei jedem Lauf erneut dekodiert und verworfen - bei den
+            # seltenen/kleinen Faellen, in denen das vorkommt, vernachlaessigbar.
             print(f"CAN-Log traegt keine bekannten Signale bei, uebersprungen: {can_name}")
-            continue
+            return None
         combined["log_id"] = log_id
         combined["source_file"] = source_file
         combined["source_format"] = source_format
-        all_frames.append(combined)
-        log_meta.append(_log_summary(combined))
+        return combined
 
-    measurements = pd.concat(all_frames, ignore_index=True)
-    logs = pd.DataFrame(log_meta)
+    return log_id, paths, ingest
+
+
+def build_targets():
+    """Bestimmt, welche log_ids im Datalake stehen SOLLEN (Ziel-Menge) -
+    reiner Dateisystem-Scan + Ausschlusslisten, kein Parsen von Inhalten.
+    Ergebnis: {log_id: {"paths": [...], "ingest": callable}}. `ingest()`
+    liefert bei Aufruf das fertige DataFrame (oder None, wenn sich beim
+    tatsaechlichen Einlesen herausstellt, dass nichts drin ist)."""
+    targets = {}
+
+    for path in sorted(glob.glob(f"{RAW_DLG_DIR}/*.dlg")):
+        log_id = os.path.splitext(os.path.basename(path))[0]
+
+        def ingest(path=path):
+            print(f"lade (dlg): {os.path.basename(path)}")
+            return ingest_dlg(path)
+
+        targets[log_id] = {"paths": [path], "ingest": ingest}
+
+    csv_files = sorted(glob.glob(f"{RAW_CSV_DIR}/*.csv"))
+    for path in csv_files:
+        if os.path.basename(path) in KNOWN_CSV_DUPLICATES_OF_DLG:
+            continue
+        log_id = os.path.splitext(os.path.basename(path))[0]
+
+        def ingest(path=path):
+            print(f"lade (csv): {os.path.basename(path)}")
+            return ingest_csv(path)
+
+        targets[log_id] = {"paths": [path], "ingest": ingest}
+
+    skipped = set(os.path.basename(f) for f in csv_files) & KNOWN_CSV_DUPLICATES_OF_DLG
+    for s in sorted(skipped):
+        print(f"uebersprungen (Duplikat einer .dlg-Datei): {s}")
+    for s in sorted(KNOWN_CAN_LOG_DUPLICATES):
+        print(f"uebersprungen (Duplikat eines anderen CAN-Logs): {s}")
+
+    for can_name, gpx_name in _all_can_gps_pairs():
+        result = _build_can_target(can_name, gpx_name)
+        if result is not None:
+            log_id, paths, ingest = result
+            targets[log_id] = {"paths": paths, "ingest": ingest}
+
+    return targets
+
+
+def _ensure_schema(con):
+    """Legt logs/measurements neu (leer) an, falls sie fehlen ODER noch
+    nicht das content_fingerprint/schema_version-Schema haben - einmalige
+    Migration von der alten Full-Rebuild-Version: verhaelt sich beim
+    naechsten run_build() wie ein kompletter Neubau (leere logs-Tabelle ->
+    jede Ziel-log_id gilt als neu), danach inkrementell. Rohdateien bleiben
+    die Quelle der Wahrheit, hier geht nichts verloren."""
+    tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+    has_new_schema = False
+    if "logs" in tables:
+        cols = {r[1] for r in con.execute("PRAGMA table_info('logs')").fetchall()}
+        has_new_schema = {"content_fingerprint", "schema_version"} <= cols
+    if not has_new_schema:
+        con.execute("DROP TABLE IF EXISTS measurements")
+        con.execute("DROP TABLE IF EXISTS logs")
+        con.execute("""CREATE TABLE measurements (
+            log_id VARCHAR, source_file VARCHAR, source_format VARCHAR,
+            channel VARCHAR, channel_original VARCHAR, unit VARCHAR,
+            t_elapsed_s DOUBLE, timestamp_local TIMESTAMP, value DOUBLE)""")
+        con.execute("""CREATE TABLE logs (
+            log_id VARCHAR, source_file VARCHAR, source_format VARCHAR,
+            start_time_local TIMESTAMP, duration_s DOUBLE, n_measurements BIGINT,
+            content_fingerprint VARCHAR, schema_version VARCHAR)""")
+
+
+def run_build(force_full=False):
+    targets = build_targets()
+    fingerprints = {log_id: _fingerprint(t["paths"]) for log_id, t in targets.items()}
 
     con = duckdb.connect(DB_PATH)
-    con.execute("DROP TABLE IF EXISTS measurements")
-    con.execute("DROP TABLE IF EXISTS logs")
-    con.execute("CREATE TABLE measurements AS SELECT * FROM measurements")
-    con.execute("CREATE TABLE logs AS SELECT * FROM logs")
+    _ensure_schema(con)
+    existing = {row[0]: (row[1], row[2]) for row in
+                con.execute("SELECT log_id, content_fingerprint, schema_version FROM logs").fetchall()}
+
+    to_remove = [log_id for log_id in existing if log_id not in targets]
+    if force_full:
+        to_ingest = sorted(targets)
+    else:
+        to_ingest = sorted(
+            log_id for log_id in targets
+            if existing.get(log_id) != (fingerprints[log_id], SCHEMA_VERSION))
+    print(f"\nZiel-Logs: {len(targets)}  |  neu/geaendert: {len(to_ingest)}  |  "
+          f"unveraendert: {len(targets) - len(to_ingest)}  |  zu entfernen: {len(to_remove)}")
+
+    # IMMER zuerst entfernen, auch wenn to_ingest leer ist - das ist der
+    # Schutz gegen umbenannte/geloeschte/nachtraeglich als Duplikat erkannte
+    # Logs (siehe Docstring). Deckt auch to_ingest ab (Re-Ingest = erst
+    # loeschen, dann neu einfuegen, sonst Dubletten).
+    stale = sorted(set(to_remove) | set(to_ingest))
+    if stale:
+        placeholders = ",".join(["?"] * len(stale))
+        con.execute(f"DELETE FROM measurements WHERE log_id IN ({placeholders})", stale)
+        con.execute(f"DELETE FROM logs WHERE log_id IN ({placeholders})", stale)
+
+    for log_id in to_ingest:
+        df = targets[log_id]["ingest"]()
+        if df is None or df.empty:
+            continue
+        con.register("_batch_measurements", df[MEASUREMENT_COLUMNS])
+        con.execute("INSERT INTO measurements SELECT * FROM _batch_measurements")
+        con.unregister("_batch_measurements")
+
+        summary = _log_summary(df)
+        summary["content_fingerprint"] = fingerprints[log_id]
+        summary["schema_version"] = SCHEMA_VERSION
+        con.register("_batch_log", pd.DataFrame([summary])[LOG_COLUMNS])
+        con.execute("INSERT INTO logs SELECT * FROM _batch_log")
+        con.unregister("_batch_log")
+
+    n_logs, n_measurements = con.execute(
+        "SELECT (SELECT COUNT(*) FROM logs), (SELECT COUNT(*) FROM measurements)").fetchone()
+    n_unmapped = con.execute(
+        "SELECT COUNT(*) FROM measurements WHERE channel LIKE 'UNMAPPED:%'").fetchone()[0]
+    unmapped_overall = [r[0] for r in con.execute(
+        "SELECT DISTINCT channel_original FROM measurements "
+        "WHERE channel LIKE 'UNMAPPED:%' ORDER BY 1").fetchall()]
+    unmapped_by_log = {row[0]: sorted(row[1]) for row in con.execute(
+        "SELECT log_id, list(DISTINCT channel_original) FROM measurements "
+        "WHERE channel LIKE 'UNMAPPED:%' GROUP BY log_id").fetchall()}
+    channels_per_log = con.execute(
+        "SELECT log_id, COUNT(DISTINCT channel) FROM measurements "
+        "GROUP BY log_id ORDER BY log_id").fetchall()
     con.close()
 
-    n_unmapped_channels = measurements["channel"].str.startswith("UNMAPPED:").sum()
-    print(f"\n=== Datalake aufgebaut: {DB_PATH} ===")
-    print(f"Logs: {len(logs)}  |  Messwerte gesamt: {len(measurements):,}")
-    print(f"Davon nicht zugeordnete (UNMAPPED) Messwerte: {n_unmapped_channels:,}")
-    unmapped_mask = measurements["channel"].str.startswith("UNMAPPED:")
-    unmapped_overall = sorted(measurements.loc[unmapped_mask, "channel_original"].unique())
-    if n_unmapped_channels:
+    print(f"\n=== Datalake aktualisiert: {DB_PATH} ===")
+    print(f"Logs: {n_logs}  |  Messwerte gesamt: {n_measurements:,}")
+    print(f"Davon nicht zugeordnete (UNMAPPED) Messwerte: {n_unmapped:,}")
+    if n_unmapped:
         print("Unbekannte Original-Spalten:", unmapped_overall)
     print("\nKanaele pro Log (Anzahl unterschiedlicher channel-Werte):")
-    print(measurements.groupby("log_id")["channel"].nunique().sort_index().to_string())
+    for log_id, n in channels_per_log:
+        print(f"{log_id}  {n}")
 
-    unmapped_by_log = {
-        log_id: sorted(grp["channel_original"].unique().tolist())
-        for log_id, grp in measurements.loc[unmapped_mask].groupby("log_id")
-    }
     os.makedirs(RESULTS_DIR, exist_ok=True)
     with open(os.path.join(RESULTS_DIR, "datalake_build_summary.json"), "w", encoding="utf-8") as f:
         json.dump({
-            "n_logs": len(logs),
-            "n_measurements": int(len(measurements)),
-            "n_unmapped_channels": int(n_unmapped_channels),
+            "n_logs": n_logs,
+            "n_measurements": int(n_measurements),
+            "n_unmapped_channels": int(n_unmapped),
             "unmapped_channels_overall": unmapped_overall,
             "unmapped_channels_by_log": unmapped_by_log,
         }, f, indent=2, ensure_ascii=False)
     print(f"\nDetails: {RESULTS_DIR}/datalake_build_summary.json")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full", action="store_true",
+                         help="alle Ziel-Logs neu einlesen, unabhaengig von Fingerabdruck/Schema-Version")
+    args = parser.parse_args()
+    run_build(force_full=args.full)
 
 
 def _log_summary(df):
