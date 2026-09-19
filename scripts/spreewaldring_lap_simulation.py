@@ -56,11 +56,23 @@ EINSCHRAENKUNGEN (wichtig, nicht kleingedruckt):
     groesseren effektiven Radius, oft 30-50% mehr als die Mittellinie) -
     die Rundenzeit ist dadurch SYSTEMATISCH PESSIMISTISCH (zu langsam),
     vermutlich der groesste einzelne Fehlerfaktor in dieser Simulation.
-  - **Kein Reifenkraftkreis:** Laengs- (Brems-/Beschleunigungs-) und
-    Quergrenzen werden UNABHAENGIG behandelt, nicht als kombinierter
-    Kraftkreis (in der Realitaet reduziert Bremsen in der Kurve die
-    verfuegbare Querkraft und umgekehrt) - macht Kurvenein-/ausgaenge
-    optimistischer als real moeglich.
+  - **Reifenkraftkreis optional (simulate_lap(..., friction_circle=True)):**
+    standardmaessig (False) werden Laengs- (Brems-/Beschleunigungs-) und
+    Quergrenzen weiter UNABHAENGIG behandelt. Mit friction_circle=True wird
+    die verfuegbare Laengsbeschleunigung an jedem Punkt per Ellipsen-Kopplung
+    an die schon genutzte Querbeschleunigung a_lat=v^2/R reduziert - siehe
+    `_lon_limit()`. `main()` rechnet dazu vier Literatur-mu-Szenarien
+    (isotroper Kreis, Sonderfall a_lat_max==a_lon_max) PLUS ein fuenftes
+    "gemessen"-Szenario mit `a_accel_max_g`/`a_brake_max_g` aus dem
+    tatsaechlich gefahrenen Kraftkreis (`can_traction_circle_summary.json`,
+    von `can_traction_circle.py`) statt der Literatur-Bandbreite - echte
+    Ellipse, keine Annahme mehr gleicher Grenzen laengs/quer/bremsen.
+    ACHTUNG: diese gemessene Huelle ist laut eigenem Docstring eine
+    UNTERGRENZE aus Alltagsfahrten (bislang max 1.09g quer/0.97g bremsen/
+    0.81g beschleunigen bei 26 Logs), keine Grenzwertmessung am Reifenlimit
+    - das "gemessen"-Szenario ist deshalb vermutlich zu konservativ/langsam,
+    nicht die "echte" Rundenzeit. Bleibt ausserdem eine Vereinfachung: kein
+    Gewichtstransfer/keine Achslast-Aufteilung.
   - **Kein Gewichtstransfer, keine Aero:** MX-5 hat keine nennenswerte
     Aero-Abtrieb, aber Gewichtstransfer (mehr Grip vorne beim Bremsen,
     hinten beim Beschleunigen) wird nicht modelliert.
@@ -114,35 +126,65 @@ def accel_envelope(v_ms):
     return max(accel(v_ms, gear, f_max=TRACTION_MAX_FORCE_N)[0] for gear in GEAR_RATIOS)
 
 
-def simulate_lap(s, radius, mu_lat, n_passes=N_PASSES):
+def _lon_limit(v, radius_pt, a_lat_max, a_lon_max, accel_cap, friction_circle):
+    """Verfuegbare Laengsbeschleunigung an einem Streckenpunkt. Ohne Kraftkreis:
+    unveraendert accel_cap (Traktionsgrenze bzw. Bremsgrenze). Mit Kraftkreis:
+    Ellipsen-Kopplung an die schon genutzte Querbeschleunigung a_lat=v^2/R -
+    a_lat_max und a_lon_max koennen unterschiedlich sein (echte Ellipse, z.B.
+    gemessene Kraftkreis-Asymmetrie Bremsen/Beschleunigen/Quer), Sonderfall
+    a_lat_max==a_lon_max ist der isotrope Kreis (ein mu fuer alles). Bleibt
+    eine Vereinfachung: kein Gewichtstransfer/keine Achslast-Aufteilung."""
+    if not friction_circle:
+        return accel_cap
+    a_lat = min(v * v / radius_pt, a_lat_max)  # min() gegen Diskretisierungs-Ueberschuss am Kurvenlimit
+    a_lon_circle = a_lon_max * np.sqrt(max(0.0, 1.0 - (a_lat / a_lat_max) ** 2))
+    return min(accel_cap, a_lon_circle)
+
+
+def simulate_lap(s, radius, mu_lat, n_passes=N_PASSES, friction_circle=False,
+                  a_accel_max_g=None, a_brake_max_g=None):
+    """mu_lat bestimmt die Kurvengeschwindigkeit UND (per Default) laengs
+    Beschleunigen/Bremsen (isotroper Kreis). a_accel_max_g/a_brake_max_g
+    ueberschreiben nur die Laengsgrenzen (echte Ellipse) - z.B. mit den
+    gemessenen Kraftkreis-Maxima aus can_traction_circle_summary.json."""
     n = len(s)
     ds = np.full(n, np.median(np.diff(s)))  # gleichmaessiges Netz (RESAMPLE_STEP_M), siehe spreewaldring_track.py
 
-    v_corner = np.sqrt(np.maximum(mu_lat * G * radius, V_MIN_MS ** 2))
+    a_lat_max = mu_lat * G
+    a_accel_max = (a_accel_max_g if a_accel_max_g is not None else mu_lat) * G
+    a_brake_max = (a_brake_max_g if a_brake_max_g is not None else mu_lat) * G
+
+    v_corner = np.sqrt(np.maximum(a_lat_max * radius, V_MIN_MS ** 2))
 
     # am langsamsten Punkt starten (minimiert noetige Iterationen, siehe Docstring)
     i0 = int(np.argmin(v_corner))
     order = np.roll(np.arange(n), -i0)
     v_corner_o = v_corner[order]
     ds_o = ds[order]
+    radius_o = radius[order]
 
     v = v_corner_o.copy()
     for _ in range(n_passes):
         # Vorwaerts (Beschleunigung)
         v_fwd = v.copy()
         for i in range(1, n):
-            v_max_accel = np.sqrt(v_fwd[i - 1] ** 2 + 2 * accel_envelope(v_fwd[i - 1]) * ds_o[i - 1])
+            a = _lon_limit(v_fwd[i - 1], radius_o[i - 1], a_lat_max, a_accel_max,
+                            accel_envelope(v_fwd[i - 1]), friction_circle)
+            v_max_accel = np.sqrt(v_fwd[i - 1] ** 2 + 2 * a * ds_o[i - 1])
             v_fwd[i] = min(v_corner_o[i], v_max_accel)
         # Schlusspunkt -> Startpunkt schliessen (Rundkurs)
-        v_max_accel = np.sqrt(v_fwd[-1] ** 2 + 2 * accel_envelope(v_fwd[-1]) * ds_o[-1])
+        a = _lon_limit(v_fwd[-1], radius_o[-1], a_lat_max, a_accel_max,
+                        accel_envelope(v_fwd[-1]), friction_circle)
+        v_max_accel = np.sqrt(v_fwd[-1] ** 2 + 2 * a * ds_o[-1])
         v_fwd[0] = min(v_corner_o[0], v_max_accel, v_fwd[0])
 
         # Rueckwaerts (Bremsen)
         v_bwd = v_fwd.copy()
-        a_brake = mu_lat * G
         for i in range(n - 2, -1, -1):
+            a_brake = _lon_limit(v_bwd[i + 1], radius_o[i + 1], a_lat_max, a_brake_max, a_brake_max, friction_circle)
             v_max_brake = np.sqrt(v_bwd[i + 1] ** 2 + 2 * a_brake * ds_o[i])
             v_bwd[i] = min(v_bwd[i], v_max_brake)
+        a_brake = _lon_limit(v_bwd[0], radius_o[0], a_lat_max, a_brake_max, a_brake_max, friction_circle)
         v_max_brake = np.sqrt(v_bwd[0] ** 2 + 2 * a_brake * ds_o[-1])
         v_bwd[-1] = min(v_bwd[-1], v_max_brake)
 
@@ -215,10 +257,28 @@ def main():
     print(f"Strecke: {total_len:.1f} m, {len(s)} Punkte (orthofoto-verfeinert, geglaettet)")
     print(f"Reifen-mu-Bandbreite: {TIRE_MU_RANGE} (siehe Memory 'mx5-tires', Nankang NS-R2)")
 
+    scenarios = [("konservativ (mu=1.0)", TIRE_MU_RANGE[0], False, None, None),
+                 ("optimistisch (mu=1.3)", TIRE_MU_RANGE[1], False, None, None),
+                 ("konservativ (mu=1.0, Kraftkreis)", TIRE_MU_RANGE[0], True, None, None),
+                 ("optimistisch (mu=1.3, Kraftkreis)", TIRE_MU_RANGE[1], True, None, None)]
+
+    tc_path = os.path.join(RESULTS_DIR, "can_traction_circle_summary.json")
+    if os.path.exists(tc_path):
+        with open(tc_path, encoding="utf-8") as f:
+            tc = json.load(f)
+        print(f"Gemessener Kraftkreis ({tc['n_samples']} Samples, {tc['n_logs']} CAN-Logs): "
+              f"max_lat={tc['max_lat_g']:.2f}g, max_accel={tc['max_accel_g']:.2f}g, max_brake={tc['max_brake_g']:.2f}g "
+              "- ACHTUNG: Alltagsfahrten, keine Grenzwertmessung (siehe can_traction_circle.py-Docstring), "
+              "Szenario darunter ist deshalb vermutlich zu konservativ/langsam")
+        scenarios.append(("gemessen (Kraftkreis, Alltagsfahrten-Untergrenze)", tc["max_lat_g"], True,
+                           tc["max_accel_g"], tc["max_brake_g"]))
+    else:
+        print(f"Kein gemessener Kraftkreis gefunden ({tc_path}) - scripts/can_traction_circle.py zuerst laufen lassen")
+
     results = {}
-    for label, mu in [("konservativ (mu=1.0)", TIRE_MU_RANGE[0]),
-                       ("optimistisch (mu=1.3)", TIRE_MU_RANGE[1])]:
-        v, lap_time = simulate_lap(s, radius, mu)
+    for label, mu, fc, a_accel_g, a_brake_g in scenarios:
+        v, lap_time = simulate_lap(s, radius, mu, friction_circle=fc,
+                                    a_accel_max_g=a_accel_g, a_brake_max_g=a_brake_g)
         v_max = v.max() * 3.6
         v_mean = total_len / lap_time * 3.6
         print(f"\n--- Szenario: {label} ---")
@@ -230,7 +290,8 @@ def main():
         for i, c in enumerate(corners):
             print(f"{i+1:3d} {c['s_apex_m']:7.0f}m {c['radius_m']:5.1f}m {c['v_min_kmh']:7.1f} km/h")
 
-        results[label] = {"mu": mu, "lap_time_s": lap_time, "v_max_kmh": v_max,
+        results[label] = {"mu": mu, "friction_circle": fc, "a_accel_max_g": a_accel_g, "a_brake_max_g": a_brake_g,
+                           "lap_time_s": lap_time, "v_max_kmh": v_max,
                            "v_mean_kmh": v_mean, "corners": corners, "v_kmh": (v * 3.6).tolist()}
 
     v_by_scenario = {label: np.array(r["v_kmh"]) / 3.6 for label, r in results.items()}

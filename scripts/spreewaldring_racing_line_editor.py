@@ -218,6 +218,26 @@ def main():
     def to_local(pts):
         return (pts - origin).tolist()
 
+    # Gemessener Kraftkreis (siehe spreewaldring_lap_simulation.py-Nachtrag,
+    # Nutzerauftrag "mu aus den tatsaechlichen Daten"): optionaler Umschalter
+    # im Editor, ersetzt den isotropen mu=1.0-Kreis durch die echte (anisotrope)
+    # Ellipse aus can_traction_circle.py. Bleibt null, wenn das Skript noch
+    # nicht gelaufen ist - der Umschalter im UI wird dann deaktiviert.
+    tc_path = os.path.join(RESULTS_DIR, "can_traction_circle_summary.json")
+    measured_circle = None
+    if os.path.exists(tc_path):
+        with open(tc_path, encoding="utf-8") as f:
+            tc = json.load(f)
+        measured_circle = {
+            "mu_lat_g": tc["max_lat_g"], "mu_accel_g": tc["max_accel_g"], "mu_brake_g": tc["max_brake_g"],
+            "n_logs": tc["n_logs"], "n_samples": tc["n_samples"],
+        }
+        print(f"Gemessener Kraftkreis gefunden: {tc['n_logs']} CAN-Logs, "
+              f"max_lat={tc['max_lat_g']:.2f}g/max_accel={tc['max_accel_g']:.2f}g/max_brake={tc['max_brake_g']:.2f}g "
+              "- als optionaler Umschalter im Editor verfuegbar.")
+    else:
+        print(f"Kein gemessener Kraftkreis gefunden ({tc_path}) - Umschalter im Editor bleibt deaktiviert.")
+
     data = {
         "origin_utm33": reused["origin_utm33"],
         "centerline": to_local(center),
@@ -241,6 +261,7 @@ def main():
             "RESAMPLE_STEP_M": RESAMPLE_STEP_M, "V_MIN_MS": V_MIN_MS,
             "REDLINE_RPM": REDLINE_RPM,
             "ATTACK_SHIFT_S": {f"{g1}-{g2}": t for (g1, g2), t in ATTACK_SHIFT_S.items()},
+            "MEASURED_CIRCLE": measured_circle,
         },
         "optimizer": {
             "base_alpha": BASE_ALPHA, "inner_steps": INNER_STEPS, "n_outer_max": N_OUTER_MAX,
@@ -719,6 +740,10 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         <input type="checkbox" id="naturalThrottleCb">
         <span>Natuerliches Gasmodell (unkalibriert fuer Streckenkurven!)</span>
       </label>
+      <label class="hard-toggle" id="measuredCircleRow" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+        <input type="checkbox" id="measuredCircleCb">
+        <span id="measuredCircleLabel">Gemessener Kraftkreis (aus CAN-Daten)</span>
+      </label>
     </div>
 
     <div class="panel">
@@ -848,6 +873,11 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   const NATURAL_THROTTLE_LOOKAHEAD_N = 10;
   const NATURAL_THROTTLE_LOOKAHEAD_MAX_G = 1.0;
   let naturalThrottleMode = false;
+  // Gemessener Kraftkreis (Nutzerauftrag: "mu aus den tatsaechlichen Daten"
+  // statt Literatur-Bandbreite) - siehe MEASURED_CIRCLE in data.physics und
+  // latMaxMs2()/lonAvailMs2() unten. Nur einschaltbar, wenn MEASURED_CIRCLE
+  // nicht null ist (can_traction_circle.py schon gelaufen).
+  let measuredCircleMode = false;
   let debugForceAppFrac = null; // Array von {index, value} - siehe __editorDebug.setDebugForceAppFrac
   let lastPreSmoothV = null; // Debug: v VOR smoothWastedAccelBrake/smoothShortBrakeSpikes, siehe getPreSmoothV()
   let lastMidSmoothV = null; // Debug: v NACH smoothWastedAccelBrake, VOR smoothShortBrakeSpikes
@@ -903,6 +933,24 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
   function sqrtNonneg(x){ return x>0 ? Math.sqrt(x) : 0; }
 
+  // ---------- Reifenkraftkreis: isotrop (Literatur-mu) ODER gemessen (Kraftkreis-
+  // CAN-Daten, siehe MEASURED_CIRCLE) - Port aus spreewaldring_lap_simulation.py
+  // (_lon_limit(), Nutzerauftrag "mu aus den tatsaechlichen Daten"). Im
+  // gemessenen Modus ist es eine echte Ellipse (a_lat_max != a_accel_max !=
+  // a_brake_max), im Literatur-Modus weiterhin der bisherige isotrope Kreis
+  // (mathematisch identisch zur alten sqrt((mu*g)^2-aLat^2)-Formel).
+  function latMaxMs2(){
+    return (measuredCircleMode && P.MEASURED_CIRCLE ? P.MEASURED_CIRCLE.mu_lat_g : P.MU) * P.G;
+  }
+  function lonAvailMs2(aLat, kind){
+    const aLatMax = latMaxMs2();
+    const aLonMaxG = measuredCircleMode && P.MEASURED_CIRCLE
+      ? (kind === 'brake' ? P.MEASURED_CIRCLE.mu_brake_g : P.MEASURED_CIRCLE.mu_accel_g)
+      : (aLatMax / P.G);
+    const ratio = Math.min(aLat / aLatMax, 1);
+    return aLonMaxG * P.G * Math.sqrt(Math.max(0, 1 - ratio * ratio));
+  }
+
   // ---------- Schaltzeiten (Port aus spreewaldring_racing_line_optimal.py,
   // Nachtrag "echte Schaltzeiten statt perfekter Gangwahl") ----------
   function coastAccel(v){
@@ -936,8 +984,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       const dsUsed = v*t + 0.5*aCoast*t*t;
       return forwardStepShifted(vEnd, shiftTarget, 0, shiftTarget, Math.max(ds-dsUsed, 0), radius, mu);
     }
-    const aLat = Math.min(v*v/Math.max(radius,1e-6), mu*P.G);
-    const aLongAvail = sqrtNonneg((mu*P.G)**2 - aLat**2);
+    const aLat = Math.min(v*v/Math.max(radius,1e-6), latMaxMs2());
+    const aLongAvail = lonAvailMs2(aLat, 'accel');
     const rpm = rpmFromSpeed(v, gear);
     if (rpm >= P.REDLINE_RPM && gear < 6){
       // Harter Hochschalt-Zwang bei Redline, keine Hysterese (physikalische
@@ -1143,7 +1191,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const stepM = median(Array.from(ds));
     const radius = curvatureRadius(points, P.CURVATURE_WINDOW_M, stepM);
     const vCorner = new Float64Array(n);
-    for (let i=0;i<n;i++) vCorner[i] = Math.sqrt(Math.max(mu*P.G*radius[i], P.V_MIN_MS**2));
+    for (let i=0;i<n;i++) vCorner[i] = Math.sqrt(Math.max(latMaxMs2()*radius[i], P.V_MIN_MS**2));
 
     let i0=0, vmin=Infinity;
     for (let i=0;i<n;i++) if (vCorner[i]<vmin){ vmin=vCorner[i]; i0=i; }
@@ -1202,8 +1250,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         return naturalStep(vEnd, shiftTarget, 0, shiftTarget, Math.max(ds-dsUsed, 0), iTarget);
       }
       const radius = radiusO[iTarget];
-      const aLat = Math.min(v*v/Math.max(radius,1e-6), mu*P.G);
-      const aLongAvail = sqrtNonneg((mu*P.G)**2 - aLat**2);
+      const aLatMax = latMaxMs2();
+      const aLat = Math.min(v*v/Math.max(radius,1e-6), aLatMax);
+      const aLongAvail = lonAvailMs2(aLat, 'accel');
       const rpm = rpmFromSpeed(v, gear);
       if (rpm >= P.REDLINE_RPM && gear < 6){
         // appFracNaturalO[iTarget] explizit setzen (Kupplung offen waehrend
@@ -1240,7 +1289,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
           return naturalStep(v, gear, bestDur, bestGear, ds, iTarget);
         }
       }
-      let cornering = (aLat / (mu*P.G)) > NATURAL_THROTTLE_MIN_G;
+      let cornering = (aLat / aLatMax) > NATURAL_THROTTLE_MIN_G;
       if (!cornering){
         // Vorausschauend (Nutzervorschlag 08.09.2026): auch unterhalb der
         // Schwelle schon moderieren, wenn die naechsten Punkte zu eng
@@ -1262,7 +1311,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
           const j = (iTarget+k) % n;
           const jPrev = (iTarget+k-1) % n;
           vCoast = sqrtNonneg(vCoast*vCoast + 2*coastAccelInGear(vCoast)*dsO[jPrev]);
-          const aLatAheadG = (vCoast*vCoast/Math.max(radiusO[j],1e-6)) / (mu*P.G);
+          const aLatAheadG = (vCoast*vCoast/Math.max(radiusO[j],1e-6)) / aLatMax;
           if (aLatAheadG > NATURAL_THROTTLE_LOOKAHEAD_MAX_G){ cornering = true; break; }
         }
       }
@@ -1298,7 +1347,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
             const j = (iTarget+k) % n;
             const jPrev = (iTarget+k-1) % n;
             vTest = sqrtNonneg(vTest*vTest + 2*coastAccelInGear(vTest)*dsO[jPrev]);
-            const aLatAheadG = (vTest*vTest/Math.max(radiusO[j],1e-6)) / (mu*P.G);
+            const aLatAheadG = (vTest*vTest/Math.max(radiusO[j],1e-6)) / aLatMax;
             if (aLatAheadG > NATURAL_THROTTLE_LOOKAHEAD_MAX_G) return false;
           }
           return true;
@@ -1364,13 +1413,13 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       // Querbeschleunigung.
       const vBwd = vFwd.slice();
       for (let i=n-2;i>=0;i--){
-        const aLat = Math.min(vBwd[i+1]**2/Math.max(radiusO[i],1e-6), mu*P.G);
-        const aBrake = Math.min(sqrtNonneg((mu*P.G)**2 - aLat**2), P.BRAKE_CAP_G*P.G);
+        const aLat = Math.min(vBwd[i+1]**2/Math.max(radiusO[i],1e-6), latMaxMs2());
+        const aBrake = Math.min(lonAvailMs2(aLat, 'brake'), P.BRAKE_CAP_G*P.G);
         vBwd[i] = Math.min(vBwd[i], Math.sqrt(vBwd[i+1]**2 + 2*aBrake*dsO[i]));
       }
       {
-        const aLatLast = Math.min(vBwd[0]**2/Math.max(radiusO[n-1],1e-6), mu*P.G);
-        const aBrakeLast = Math.min(sqrtNonneg((mu*P.G)**2 - aLatLast**2), P.BRAKE_CAP_G*P.G);
+        const aLatLast = Math.min(vBwd[0]**2/Math.max(radiusO[n-1],1e-6), latMaxMs2());
+        const aBrakeLast = Math.min(lonAvailMs2(aLatLast, 'brake'), P.BRAKE_CAP_G*P.G);
         vBwd[n-1] = Math.min(vBwd[n-1], Math.sqrt(vBwd[0]**2+2*aBrakeLast*dsO[n-1]));
       }
       v = vBwd;
@@ -1707,7 +1756,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       const alphaArr = new Float64Array(N);
       for (let i=0;i<N;i++){
         const aLatReq = sim.vFinal[i]**2 / Math.max(sim.radius[i],1e-6);
-        const gripExcess = Math.min(Math.max(aLatReq/(mu*P.G),0),1);
+        const gripExcess = Math.min(Math.max(aLatReq/latMaxMs2(),0),1);
         const steerExcess = Math.max(0, Math.abs(steerRate[i])/STEER_RATE_MAX_DEG_S - 1);
         alphaArr[i] = Math.min(0.9, OPT.base_alpha*(0.1+0.9*gripExcess) + 0.6*steerExcess);
       }
@@ -2468,6 +2517,32 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     setStatus(naturalThrottleMode ? 'natuerliches Gasmodell aktiv ...' : 'zeitoptimales Gasmodell ...');
     setTimeout(()=>{ render(); setStatus(''); }, 10);
   });
+
+  // Gemessener Kraftkreis: Checkbox nur nutzbar, wenn can_traction_circle.py
+  // schon gelaufen ist (P.MEASURED_CIRCLE != null, siehe Editor-Skript).
+  {
+    const cb = document.getElementById('measuredCircleCb');
+    const label = document.getElementById('measuredCircleLabel');
+    const row = document.getElementById('measuredCircleRow');
+    const mc = P.MEASURED_CIRCLE;
+    if (mc){
+      row.title = `Ersetzt den isotropen ${P.MU.toFixed(1)}g-Kreis durch die echte, aus `
+        + `${mc.n_logs} CAN-Logs (${mc.n_samples} Samples) gemessene Ellipse: `
+        + `quer ${mc.mu_lat_g.toFixed(2)}g / beschleunigen ${mc.mu_accel_g.toFixed(2)}g / bremsen ${mc.mu_brake_g.toFixed(2)}g. `
+        + `ACHTUNG: das sind Alltagsfahrten, keine Grenzbereichsfahrt - die Huelle ist eine `
+        + `Untergrenze, kein gemessenes Reifenlimit (siehe can_traction_circle.py-Docstring).`;
+    } else {
+      cb.disabled = true;
+      label.textContent += ' (noch keine Daten - can_traction_circle.py laufen lassen)';
+      row.title = 'scripts/can_traction_circle.py wurde noch nicht ausgefuehrt, results/can_traction_circle_summary.json fehlt.';
+    }
+    cb.addEventListener('change', (e)=>{
+      measuredCircleMode = e.target.checked;
+      baselineLapTime = simulateLap(pointsFromNLat(nLatBaseline), P.MU).lapTime;
+      setStatus(measuredCircleMode ? 'gemessener Kraftkreis aktiv ...' : 'Literatur-mu aktiv ...');
+      setTimeout(()=>{ render(); setStatus(''); }, 10);
+    });
+  }
 
   // ---------- Interaktion ----------
   let brushRadiusM = OPT.brush_radius_m_default;
