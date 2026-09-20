@@ -2,7 +2,36 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-20)
+## Kurzüberblick: aktueller Stand (2026-09-20, Nachmittag)
+
+**Status 2026-09-20 Nachmittag — ECU-Soft-Limiter-Zone an 2 weiteren Logs bestätigt (5
+Eingriffe insgesamt), Klopfen UND Radschlupf/DSC als Auslöser ausgeschlossen, Live-Erkennung
+im Renncockpit deployt (Shiftlights blitzen blau).** Details im Logbuch unten ("ECU-Soft-
+Limiter…").
+
+1. **5 von 7 Volllast-Zügen in den letzten beiden Logs vom 19.09. (163857 nachmittags,
+   233619 abends) sind echte ECU-Eingriffe** (Drosselklappe/`ETC_ACT` schließt trotz
+   `APP`=100%): 7273/7281/7439/7429/7307 U/min, in Gang 2 und 3. Die anderen 2 Züge
+   (7215/7297 U/min) sind saubere, fahrerinitiierte Schaltvorgänge ohne ECU-Eingriff — `APP`
+   fällt dort selbst, bevor die Drehzahl ihren Peak erreicht.
+2. **`KnockRetard_CAN` springt bei keinem der 5 Eingriffe an** — Werte bleiben im üblichen
+   Nahe-Null-Band (bzw. Datenlücke bei 2 der 5 Events), während echte Ausreißer im selben Log
+   (bis −3,5) zu völlig anderen Zeitpunkten auftreten. Klopfen scheidet damit erneut als
+   Auslöser aus (deckt sich mit dem Befund an Log `150438`).
+3. **Radschlupf/Traktionskontrolle ebenfalls ausgeschlossen:** max. Spread zwischen den 4
+   `WheelSpeed_CAN`-Kanälen bei allen 5 Events ≤2,3 km/h — klar unter dem dokumentierten
+   Rauschboden von 4,5 km/h (selbst bei unbeschleunigter Geradeausfahrt). `ABS_Active_CAN`
+   und `DSC_Status_CAN` durchgehend 0. **Der tatsächliche Auslöser des Soft-Limiters bleibt
+   offen** — weder Klopfen noch Traktionsverlust erklären ihn.
+4. **Live-Erkennung im Dash implementiert:** `dash_gui.py` prüft jetzt RPM>7000 & `APP`≥99%
+   & `ETC_ACT`<90 (alle drei bereits live vorhanden, kein zusätzliches Polling nötig — siehe
+   `status/pi-runtime-state.md` zur `tpms_poller.py`-Kette, die `ETC_ACT` liefert) und lässt
+   die Shiftlight-Reihe bei Treffer mit 8 Hz komplett blau blinken statt der normalen
+   RPM-Zonenfarbe. Deployt und auf dem Pi neu gestartet, `dash_gui.py`+`test_dash_gui.py`
+   md5-identisch zum Repo (siehe `status/pi-runtime-state.md`).
+
+<details>
+<summary>Vorheriger Stand (2026-09-20, Vormittag)</summary>
 
 **Status 2026-09-20 — KnockRetard-PID gefunden (DID 0x03EC, Mode 0x22, herstellerspezifisch),
 jetzt live gepollt und rückwirkend aus jedem CAN-Log dekodierbar.** Details im Logbuch unten
@@ -28,6 +57,8 @@ jetzt live gepollt und rückwirkend aus jedem CAN-Log dekodierbar.** Details im 
    Speed-Modell prüfen — bestätigt die 7150-7300-U/min-Limiterzone aus Punkt weiter unten
    ("ECU-Soft-Limiter") als reales Fahrerschaltverhalten knapp an der Grenze, kein
    Widerspruch. Siehe Logbuch "Viertes No-RTC-Vorkommnis…".
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-19)</summary>
@@ -335,13 +366,21 @@ OBD/CAN-Referenz gesucht werden muss):
   Bestätigung am 2026-09-20 dazugekommen (81% bitgenau, r=0,997 — siehe Logbuch "Viertes
   No-RTC-Vorkommnis…"). **Weiterhin offen:** Vorzeichen/physikalische Bedeutung ungeklärt
   (Werte überwiegend ≤0, für einen "Retard" unerwartet).
-- **ECU-Soft-Limiter im 3. Gang (2026-09-19/20):** schließt die Drosselklappe bereits bei
-  modellierten ~7100-7300 U/min (Logs `2026-09-19 150438`/`163857`), vor dem nominellen
-  7500er-Redline. **2026-09-20 mit echtem RPM gegengecheckt** (`candump-2026-09-19_233436`,
-  siehe Logbuch "Viertes No-RTC-Vorkommnis…"): dritter Zug zeigt in derselben Zone (7269 U/min)
-  einen sauberen, fahrerinitiierten Schaltvorgang OHNE Limiter-Eingriff — Modell-RPM aus
-  Speed war dort ~9% zu hoch (schätzte ~7930 statt real 7269), kein Widerspruch zum Fund,
-  aber ein Beleg dass das Speed-Modell bei diesem Tempo spürbar danebenliegen kann.
+- **ECU-Soft-Limiter im 2./3. Gang (2026-09-19/20):** schließt die Drosselklappe trotz
+  `APP`=100% schon deutlich vor dem nominellen 7500er-Redline. **2026-09-20 Nachmittag an
+  5 Eingriffen über beide letzten Logs vom 19.09. bestätigt** (7273/7281/7439/7429/7307
+  U/min, Gang 2+3 — siehe Logbuch "ECU-Soft-Limiter…"), plus 2 klar unterschiedene
+  fahrerinitiierte Schaltvorgänge ohne Eingriff (7215/7297 U/min) als Negativkontrolle.
+  **Klopfen ausgeschlossen** (`KnockRetard_CAN` bleibt bei allen 5 Events im Nahe-Null-Band).
+  **Radschlupf/DSC-Traktionseingriff ebenfalls ausgeschlossen** (Radgeschwindigkeits-Spread
+  ≤2,3 km/h, unter dem 4,5-km/h-Rauschboden; `ABS_Active_CAN`/`DSC_Status_CAN` durchgehend 0).
+  **Der tatsächliche Auslöser bleibt offen** — auffällig ist die Gangabhängigkeit der
+  Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
+  festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:
+  RPM>7000 & `APP`≥99% & `ETC_ACT`<90 → Shiftlights blinken blau, 8 Hz), deployt auf dem Pi.
+  Frühere Einzelbefunde (Log `150438`/`163857`, dritter Zug bei 7269 U/min ohne Eingriff)
+  weiterhin gültig, siehe Logbuch "ECU begrenzt im 3. Gang…" und "Viertes
+  No-RTC-Vorkommnis…".
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
