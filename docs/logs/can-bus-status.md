@@ -2401,3 +2401,105 @@ DID tatsächlich meldet) jetzt sowohl live auf dem Pi (schnelle Poll-Gruppe) als
 rückwirkend aus jedem CAN-Log erfassen. Offen bleibt die physikalische Interpretation des
 Vorzeichens sowie erneute Bestätigung an einem zweiten, unabhängigen Log (bisher nur an
 einem einzigen Y-Splitter-Log verifiziert).
+
+## Viertes No-RTC-Vorkommnis: candump-2026-09-19_165600 war in Wahrheit der Abend-Y-Splitter-Log (2026-09-20)
+
+Nutzer fragte nach den WOT-Zügen in den letzten beiden Logs vom 19.09. abends. Bei der
+Gelegenheit fiel auf, dass laut Nutzer eigentlich zu BEIDEN dlg-Sessions (`163857` nachmittags,
+`233619` abends) ein CAN-Log existieren sollte — vorhanden war aber nur eins (`163755`,
+nachmittags). Erste Diagnose (Journal-Check, `uptime -s`) hatte fälschlich nahegelegt, der
+CAN-Adapter sei abends schlicht nicht angeschlossen gewesen. **Nutzer widersprach: er hat den
+Pi um 16:56 selbst vom Strom getrennt** — die Root-Cause ist damit klar: `overlayroot` setzt
+bei jedem Boot den kompletten Root-Zustand zurück (inkl. Journal), meine "kein Reboot
+zwischen 17:12 und 00:27"-Schlussfolgerung war deshalb wertlos, nicht weil sie falsch
+argumentiert war, sondern weil die Prämisse (Journal-Kontinuität beweist Boot-Kontinuität)
+auf diesem Pi nicht gilt.
+
+**Test wie gefordert:** `candump-2026-09-19_165600.log` (bis dahin als 16:56–17:12 Uhr
+gelabelt) gegen `KNOCKR` aus dem dlg `2026-09-19 233619` per Kreuzkorrelation geprüft
+(`obd_from_can.py`, DID 0x03EC, gleiche Methode wie beim gestrigen PID-Fund, diesmal aber
+ohne Zeit-Annahme — Offset per Sliding-Window-Suche über VehicleSpeed UND per bitgenauem
+KnockRetard-Formel-Treffer bestimmt statt angenommen). **Eindeutiges Ergebnis:** bei Offset
++23916s (6h38min36s) treffen 1653/2034 KnockRetard-Werte (81%) bitgenau, r=0,997 — sogar
+besser als beim ursprünglichen Fund gestern. Die echte Startzeit dieses Logs ist **23:34:36
+Uhr**, nicht 16:56 — es ist der fehlende Y-Splitter-Log für den Abendtest.
+
+**Vierter dokumentierter Fall des No-RTC-Bugs** (nach den beiden vom 09-14 und dem vom
+09-15/171047, siehe `mx5_can_bus_logging`-Memory) — und ein neuer Unterfall: bisher wurde der
+Bug immer über eine Diskrepanz zwischen Dateiname und internem Frame-Zeitstempel erkannt
+(`log_start_epoch()` fängt genau das ab). Hier stimmten Dateiname UND Frame-Zeitstempel
+überein — beide sind unter derselben falschen, nie synchronisierten Uhr entstanden. Diese
+Klasse von Fehler ist strukturell NUR über einen externen Abgleich (hier: der dlg mit
+GPS/Handy-Uhr) auffindbar, nicht automatisch.
+
+**Korrektur durchgeführt:**
+- `data/can/candump-2026-09-19_165600.log[.gz]` → `candump-2026-09-19_233436.log[.gz]`
+  umbenannt (lokal und auf dem Pi), stale `_decoded.csv` gelöscht und unter neuem Namen
+  frisch generiert (Inhalt unverändert, nur Dateiname).
+- `data/can_gps_pairs.json`: Eintrag auf den neuen Dateinamen nachgezogen (sonst hätte
+  `build_datalake.py` das Log als "Log oder decoded.csv fehlt" übersprungen).
+- Datalake neu gebaut (normaler inkrementeller Lauf reicht — `log_start_epoch()` erkennt die
+  jetzt >60s-Abweichung zwischen [korrigiertem] Dateinamen und Frame-Zeitstempeln automatisch
+  und gewinnt zugunsten des Dateinamens, exakt wie im Docstring beschrieben). Alter
+  `log_id` `candump-2026-09-19_165600` automatisch entfernt, neuer `candump-2026-09-19_233436`
+  mit korrektem `start_time_local=2026-09-19 23:34:36` und `KnockRetard_CAN` (2034 Werte)
+  bestätigt.
+
+**Bonus: der dritte WOT-Zug lässt sich jetzt mit echten CAN-Daten statt Speed-Modell prüfen**
+(t=265–276s im korrigierten Log). Peak-RPM **7269 U/min bei t=273,95s** (nicht ~7930 wie das
+Speed-Modell gestern schätzte — ~9% Modellfehler, vermutlich Phone-GPS-Speed-Ungenauigkeit
+bei dem Tempo). Echtes `APP` (Gaspedal) fällt exakt bei t=273,81s von 100%→0% — der Fahrer hat
+selbst das Gas rausgenommen, BEVOR die Drehzahl ihren Peak erreichte. `Gear_CAN`/
+`MT_Gear_Status` springen 3→0(Neutral)→4, `LambdaCommanded_CAN` springt kurz auf den
+Schubabschaltungs-Sentinel (1,999969), `FuelCut_CAN` wird kurz aktiv — die vollständige,
+saubere Schaltvorgangs-Signatur, keine vorgelagerte Drehmoment-/Drosselklappen-Unterbrechung
+wie in den beiden anderen Zügen. **Interpretation:** dieser Zug zeigt einen normalen
+Fahrerschaltvorgang bei 7269 U/min, kein ECU-Eingriff — der Fahrer hat hier selbst knapp
+unterhalb der Zone geschaltet, in der `150438`/`163857` den echten Limiter-Cut zeigten
+(~7150–7300 U/min). Kein Widerspruch zum gestrigen Fund, sondern zusätzliche Bestätigung
+derselben Zone aus einer dritten, unabhängigen Quelle — diesmal mit echtem statt
+modelliertem RPM.
+
+## Pipeline warnt jetzt beim Download vor ungesyncter Pi-Uhr (2026-09-20)
+
+Nutzer fragte nach einem Erkennungsweg fürs No-RTC-Problem, mit dem Ziel, es "beim Download
+sichtbar" zu machen. Beim Nachschauen stellte sich heraus: **die Erkennung existiert schon**,
+seit dem 15.09. (`session_logger.py`, `restore_clock()`/`write_clock_marker()`) — bei jedem
+neuen candump-Start prüft der Pi `timedatectl show -p NTPSynchronized`, versucht bei fehlendem
+NTP eine Bestenfalls-Korrektur über den zuletzt gespeicherten Zeitstempel (`last_known_time`)
+und schreibt daneben `clockstate-<Datum>-<Zeit>.txt` mit dem Ergebnis. Für den gestrigen Fall
+(`candump-2026-09-19_165600`→`_233436`) existiert genau so ein Marker, mit exakt der
+richtigen Warnung ("ACHTUNG: der Anker stammt vom Ende der letzten Fahrt..."). **Es fehlte
+nur die letzte Meile:** die Pipeline hat diese Marker nie heruntergeladen oder ausgewertet.
+
+Zwischenzeitlich am Pi selbst nachvollzogen, WARUM Boot-basierte "kein Reboot"-Schlüsse
+generell heikel sind: `who -b` zeigt für den aktuellen Boot "2026-09-13", `journalctl
+--list-boots` sogar "2026-04-27" als First-Entry — beide schreiben ihren Zeitstempel einmalig
+beim Ereignis und aktualisieren ihn nie retroaktiv, selbst nachdem NTP die Uhr längst korrigiert
+hat. Nur `uptime -s` (aus monotoner Boot-Zeit + aktueller korrigierter Wanduhr live berechnet)
+ist verlässlich. Kein neuer Fund, aber eine gute Illustration dafür, warum ein Marker, der
+GENAU beim fraglichen Ereignis geschrieben wird (wie `clockstate-*.txt`), jeder nachträglichen
+Rekonstruktion überlegen ist.
+
+**Umgesetzt in `scripts/run_daily_pipeline.py`** (Nutzer-Entscheidung: einmaliger Check beim
+Log-Start reicht, nur eine Warnung nötig, Hook bleibt im `session_logger.py`):
+- `sync_can_logs_from_pi()` holt jetzt zusätzlich alle neuen `clockstate-*.txt` vom Pi (gleicher
+  `find`/`scp`-Mechanismus wie für die CAN-Logs selbst, kein neuer Transportweg).
+- Neue Funktion `_clockstate_warning(log_name)`: liest den zum Log gehörigen Marker (Name aus
+  Zeitstempel im Dateinamen abgeleitet), gibt `None` zurück wenn `ntp` oder kein Marker
+  vorhanden (ältere Logs vor 15.09.), sonst eine Warnung mit dem vollen Original-Hinweistext.
+- Warnung landet im bestehenden `errors`-Kanal (`(log_name, warning)`) → erscheint automatisch
+  als `script_error`-Finding im Report/`projekt-stand.md`, kein neuer Meldeweg nötig.
+- Tests ergänzt (`test_run_daily_pipeline.py`, u.a. mit dem echten `165600`-Marker als
+  Beispiel), lokal grün.
+
+**Rückwirkend gegen alle 22 bisher existierenden Marker laufen lassen (Bootstrap, einmalig
+per Hand synct):** Überraschung — **19 von 22 Logs (09-16 bis 09-19) sind als "korrigiert"
+markiert**, nicht nur die eine bekannt falsche (`233436`). Das ist kein Fehlalarm im Sinne
+von "Bug", sondern das erwartete Verhalten der bestehenden Logik: `restore_clock()` läuft
+NUR EINMAL pro `session_logger.py`-Prozessstart (= pro Boot), nicht pro neuem Log. Holt sich
+das Netz später im selben Boot doch noch (z.B. auf dem Schreibtisch), kann die tatsächliche
+Uhr für spätere Logs desselben Boots trotzdem stimmen (wie bei `163755`, per KnockRetard
+bitgenau OHNE Offset bestätigt) — der Marker bleibt aber "korrigiert", weil er nie erneut
+geprüft wird. Der Marker ist also bewusst konservativ (lieber zu oft warnen als einen echten
+Fall verpassen) — passt zum Nutzerwunsch "nur warnen, nicht blockieren".

@@ -16,9 +16,18 @@ jetzt live gepollt und rückwirkend aus jedem CAN-Log dekodierbar.** Details im 
 3. `scripts/can_log_parser.py`/`build_datalake.py` dekodieren die DID jetzt generisch aus
    JEDEM CAN-Log (neuer Kanal `KnockRetard_CAN`) — `SCHEMA_VERSION` hochgezählt, voller
    Re-Ingest aller Logs angestoßen.
-4. **Vorzeichen/physikalische Bedeutung weiterhin ungeklärt** (Werte überwiegend ≤0, für
-   einen "Retard" unerwartet) und erst an einem einzigen Log verifiziert — zweite
-   unabhängige Bestätigung noch offen.
+4. ~~Vorzeichen/physikalische Bedeutung weiterhin ungeklärt~~ – **zweite unabhängige
+   Bestätigung erhalten** (siehe Punkt 5): 81% bitgenau statt 73%, r=0,997. Vorzeichen selbst
+   (Werte überwiegend ≤0) bleibt weiterhin ungeklärt.
+5. **Vierter No-RTC-Fall gefunden+behoben:** `candump-2026-09-19_165600` war tatsächlich der
+   fehlende Y-Splitter-Log für den Abendtest (`2026-09-19 233619`) — Dateiname UND
+   Frame-Zeitstempel gleichermassen falsch (kein Widerspruch, den `log_start_epoch()` fangen
+   könnte), nur per externem Abgleich gegen das dlg auffindbar. Umbenannt auf
+   `candump-2026-09-19_233436` (wahre Startzeit 23:34:36), Datalake neu gebaut. **Bonus:**
+   der dritte WOT-Zug an diesem Tag lässt sich jetzt mit echtem RPM/APP/Gear statt
+   Speed-Modell prüfen — bestätigt die 7150-7300-U/min-Limiterzone aus Punkt weiter unten
+   ("ECU-Soft-Limiter") als reales Fahrerschaltverhalten knapp an der Grenze, kein
+   Widerspruch. Siehe Logbuch "Viertes No-RTC-Vorkommnis…".
 
 <details>
 <summary>Vorheriger Stand (2026-09-19)</summary>
@@ -322,14 +331,17 @@ OBD/CAN-Referenz gesucht werden muss):
   PCM-Header 0x7E0/0x7E8), Formel `signed_int16(raw)/512`, per Korrelation gegen ein
   Y-Splitter-Log identifiziert (73% der App-Werte bitgenau, R²=0,958) — siehe Logbuch
   "KnockingRetard-PID gefunden…". Läuft jetzt in `tpms_poller.py`s schneller Poll-Gruppe und
-  wird generisch aus jedem CAN-Log dekodiert (`KnockRetard_CAN`). **Weiterhin offen:**
-  Vorzeichen/physikalische Bedeutung ungeklärt (Werte überwiegend ≤0, für einen "Retard"
-  unerwartet), und die Formel ist bisher nur an einem einzigen Log verifiziert — zweite
-  unabhängige Bestätigung noch ausstehend.
-- **ECU-Soft-Limiter im 3. Gang (neu 2026-09-19):** schließt die Drosselklappe bereits bei
-  modellierten ~7100-7150 U/min (Log `2026-09-19 150438`), vor dem nominellen 7500er-Redline.
-  Modell-RPM, nicht gemessen (kein Drehzahlkanal in diesem Log) — bei Gelegenheit mit einem
-  Log gegenchecken, das RPM UND den Drosselklappen-Cut gleichzeitig enthält.
+  wird generisch aus jedem CAN-Log dekodiert (`KnockRetard_CAN`). Zweite unabhängige
+  Bestätigung am 2026-09-20 dazugekommen (81% bitgenau, r=0,997 — siehe Logbuch "Viertes
+  No-RTC-Vorkommnis…"). **Weiterhin offen:** Vorzeichen/physikalische Bedeutung ungeklärt
+  (Werte überwiegend ≤0, für einen "Retard" unerwartet).
+- **ECU-Soft-Limiter im 3. Gang (2026-09-19/20):** schließt die Drosselklappe bereits bei
+  modellierten ~7100-7300 U/min (Logs `2026-09-19 150438`/`163857`), vor dem nominellen
+  7500er-Redline. **2026-09-20 mit echtem RPM gegengecheckt** (`candump-2026-09-19_233436`,
+  siehe Logbuch "Viertes No-RTC-Vorkommnis…"): dritter Zug zeigt in derselben Zone (7269 U/min)
+  einen sauberen, fahrerinitiierten Schaltvorgang OHNE Limiter-Eingriff — Modell-RPM aus
+  Speed war dort ~9% zu hoch (schätzte ~7930 statt real 7269), kein Widerspruch zum Fund,
+  aber ein Beleg dass das Speed-Modell bei diesem Tempo spürbar danebenliegen kann.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
@@ -428,10 +440,18 @@ OBD/CAN-Referenz gesucht werden muss):
     Die übrigen damals verworfenen Kandidaten (`0x20A`, `0x200`) sind unter demselben
     Gesichtspunkt nochmal anzusehen – nicht als analoge Messwerte, sondern als Zustandsbits.
 13. ~~KnockRetard-PID identifizieren~~ – **erledigt 2026-09-20**, siehe oben (DID 0x03EC).
-14. **KnockRetard-Formel an einem zweiten, unabhängigen Log bestätigen** und die
-    physikalische Bedeutung des überwiegend negativen Vorzeichens klären (z.B. mit dem
-    Nutzer/einer Mazda-Diagnoseanleitung abgleichen, ob negativ tatsächlich "Zündung
-    zurückgenommen" heißt oder umgekehrt).
+14. ~~KnockRetard-Formel an einem zweiten Log bestätigen~~ – **erledigt 2026-09-20** (81%
+    bitgenau, r=0,997). Weiterhin offen: physikalische Bedeutung des überwiegend negativen
+    Vorzeichens klären (z.B. mit dem Nutzer/einer Mazda-Diagnoseanleitung abgleichen, ob
+    negativ tatsächlich "Zündung zurückgenommen" heißt oder umgekehrt).
+15. **Bei jedem CAN-only-Log ohne begleitendes dlg/GPS: Dateiname NICHT blind vertrauen, wenn
+    kein Widerspruch zu den Frame-Zeitstempeln vorliegt** — der 2026-09-20 gefundene Fall
+    (`candump-2026-09-19_165600`→`_233436`) zeigt, dass Dateiname und Frame-Zeitstempel auch
+    GEMEINSAM falsch sein können (beide unter derselben nie synchronisierten Uhr entstanden).
+    `log_start_epoch()` kann das strukturell nicht erkennen — nur ein externer Abgleich
+    (dlg/GPS) deckt es auf. Bei Verdacht (z.B. Nutzer erinnert sich an einen Stromausfall/
+    Neustart) aktiv per Kreuzkorrelation gegenprüfen, nicht auf die automatische Erkennung
+    verlassen.
 
 ## Zusätzliche Notizen (Claude-Memory)
 Ergänzend zu diesem Dokument gepflegt, überlebt Kontext-Resets:
