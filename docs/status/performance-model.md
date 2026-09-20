@@ -3,23 +3,17 @@
 **Status:** lebendes Dokument, wird bei relevanten Änderungen in-place aktualisiert
 (nicht mehr als Datums-Snapshot geführt, siehe `docs/README.md`).  
 **Zweck:** Portierbare technische Zusammenfassung des im Agenten dokumentierten Modell- und IMU-Kenntnisstands.  
-**Abgrenzung:** Das aktive Fahrleistungsmodell ist mit Stand 21.08.2026 dokumentiert. Die IMU-Diagnosemethode und die Schwingungsanalyse wurden bis 27.08.2026 fortgeschrieben. Diagnosebefunde ändern Fahrzeugparameter nicht automatisch.
-
-> **Hinweis (Reorg 18.09.2026):** Der Inhalt unten ist inhaltlich noch auf dem Stand
-> 29.08.2026 (letzter voller Abgleich). Im Logbuch [`docs/logs/projekt-stand.md`](../logs/projekt-stand.md)
-> gibt es seither weitere performance-modell-relevante Einträge (u.a. Teillastmodell,
-> Reifen/Gewicht, 0-Vmax-Simulation, Gang-6-/Vmax-Validierung, Streckenmodell). Diese
-> sind noch nicht in die Zusammenfassung unten eingearbeitet — das ist als
-> Folgearbeit vorgemerkt, nicht stillschweigend übernommen.
+**Abgrenzung:** Das aktive Fahrleistungsmodell (inkl. Teillastkennfeld, Bereifung/Gewicht, 0-Vmax-Simulation und Gang-6-/Vmax-Validierung) ist mit Stand 30.08.2026 dokumentiert. Die IMU-Diagnosemethode (inkl. variabler Handyhalterung mit automatischer Pro-Log-Achsenerkennung) und die Schwingungsanalyse wurden bis 07.09.2026 fortgeschrieben. Diagnosebefunde ändern Fahrzeugparameter nicht automatisch.
 
 ## 1. Kurzfazit
 
-- Das Fahrleistungsmodell verwendet einen dynamischen Radradius von **0,2985 m**, eine Achsübersetzung von **2,866**, eine Referenzmasse von **1180,705 kg**, **CdA = 0,647 m²**, einen gekoppelten Antriebswirkungsgrad von **0,93**, **Crr = 0,013** und **ρ = 1,18 kg/m³**.
+- Das Fahrleistungsmodell verwendet einen dynamischen Radradius von **0,2985 m**, eine Achsübersetzung von **2,866**, eine Referenzmasse von **1180,705 kg**, **CdA = 0,647 m²**, einen gekoppelten Antriebswirkungsgrad von **0,93**, **Crr = 0,013** und **ρ = 1,18 kg/m³**. Leergewicht (ohne Fahrer/Tank) ist **1073 kg** und damit nicht mit der Referenzmasse identisch. Die Bereifung (**Nankang NS-R2 205/40/R17**) bestätigt den Radradius unabhängig über die Reifengeometrie (0,2979 m).
 - Für maximale Fahrleistung gelten gangindividuelle ATTACK-Zugkraftunterbrechungen von **0,15 / 0,15 / 0,17 / 0,23 / 0,25 s** für 1→2 bis 5→6. Der frühere Pauschalwert **0,41 s** bleibt Diagnosewert, ist aber nicht mehr Default.
 - Fahrer-WOT wird nicht allein über eine offene Drosselklappe erkannt. **APP > 90 %** kennzeichnet den Bereich oberhalb der haptischen Pedalraste; APP, ETC, Lambda, MAF, Drehzahl, Geschwindigkeit und Kupplung sind gemeinsam zu prüfen.
-- Die Volllastkurve ist im Bereich **4250 bis 6750 min⁻¹** inter-log plausibilisiert. Niedrige Drehzahlen sowie Bereiche oberhalb 7000 min⁻¹ bleiben schwächer abgesichert.
-- Die IMU-Methode **MX5_IMU_METHOD_V1.0** ist eine Diagnosemethode. Gierachse und Vertikalrichtung sind hoch plausibilisiert; die absolute Längs- und Querskalierung bleibt diagnostisch.
-- Für die Halterungsresonanz ist **20,629 Hz** nur ein fahrtspezifisch zu prüfender Startkandidat. Aktuell ist **kein Notch-Filter freigegeben**. Die Logs vom 27.08.2026 lieferten keine geeigneten stabilen Segmente und wurden als **NOT_TESTABLE** eingestuft.
+- Die Volllastkurve ist im Bereich **4250 bis 6750 min⁻¹** inter-log plausibilisiert. Niedrige Drehzahlen sowie Bereiche oberhalb 7000 min⁻¹ bleiben schwächer abgesichert. Seit 30.08.2026 gibt es zusätzlich ein eigenständiges, messwertbasiertes **Teillastkennfeld** (ETC × Drehzahl → Drehmoment-%, kreuzvalidiert RMSE 7,2 Prozentpunkte), siehe Abschnitt 5.
+- **0-Vmax-Simulation und Gang-6-/Vmax-Validierung (29./30.08.2026):** in den 08.08.2026-Logs wurden zwei echte, mehrere Sekunden lange Vmax-Plateaus gefunden (226–236 km/h bzw. 202–230 km/h, Beschleunigung praktisch null). Dort trifft das **unkorrigierte (raw) Modell** die Realität deutlich besser als das sonst verwendete bias-korrigierte Modell (Faktor 0,92) — der Korrekturfaktor aus dem mittleren Geschwindigkeitsbereich extrapoliert nicht in den Vmax-Bereich, siehe Abschnitt 6. Zusätzlich stellte sich am 06.09.2026 heraus, dass ein Teil des früher CdA/η zugeschriebenen ~5–8 %-WOT-Bias auf einen Massenfehler (fehlender 75-kg-Beifahrer in zwei Logs) zurückgeht.
+- Die IMU-Methode **MX5_IMU_METHOD_V1.0** ist eine Diagnosemethode. Gierachse und Vertikalrichtung sind hoch plausibilisiert; die absolute Längs- und Querskalierung bleibt diagnostisch. Seit 06.09.2026 kann die Handyhalterung **von Fahrt zu Fahrt wechseln**; die Achszuordnung (inkl. Vertikalachse und Gier-Kanal) wird seither **automatisch pro Log** erkannt (`scripts/imu_orientation.py`) statt über eine global fixe Matrix, siehe Abschnitt 7.
+- Für die Halterungsresonanz ist **20,629 Hz** weiterhin nur ein fahrtspezifisch zu prüfender Startkandidat, **kein Notch-Filter freigegeben**. Die Logs vom 27.08.2026 lieferten keine geeigneten stabilen Segmente (**NOT_TESTABLE**). Für die seit 06./07.09.2026 verwendete **starre** Handyhalterung (kein Halterungsarm mehr) ist die bisherige Deutung als lose schwingende Halterungs-Eigenresonanz revidiert — die jetzt nur noch einachsige Signatur spricht eher für eine über den Befestigungspunkt übertragene Fahrzeugschwingung. Gilt ausdrücklich nur für diese konkrete Einbaulage, siehe Abschnitt 8.
 
 ## 2. Statuslogik
 
@@ -36,10 +30,12 @@
 
 | Parameter | Symbol | Wert | Einheit | Status / Hinweis |
 |---|---:|---:|---|---|
-| Referenzmasse | m | 1180,705 | kg | verwendet; einzelne Logs dürfen eigene Massenannahmen tragen |
-| Dynamischer Radradius | r_dyn | 0,2985 | m | aktiv, datenbasiert plausibilisiert |
+| Referenzmasse | m | 1180,705 | kg | verwendet; spezifischer Beladungszustand (Fahrer+Tank), einzelne Logs dürfen eigene Massenannahmen tragen |
+| Leergewicht (ohne Fahrer, ohne Benzin) | m_leer | 1073 | kg | Nutzerangabe (30.08.2026); nicht identisch mit der Referenzmasse |
+| Dynamischer Radradius | r_dyn | 0,2985 | m | aktiv, datenbasiert plausibilisiert; unabhängig bestätigt über Reifengeometrie (0,2979 m, s. u.) |
 | Historischer Radradius | r_dyn,alt | 0,2997 | m | abgelöst, als Referenz erhalten |
 | Reifen-Referenzradius | r_ref | 0,2997 | m | verwendet |
+| Bereifung | — | Nankang NS-R2, 205/40/R17 | — | Nutzerangabe (30.08.2026), Semi-Slick-Trackday-Reifen; geometrischer Radius 0,2979 m passt zu r_dyn/r_ref |
 | Achsantrieb | i_final | 2,866 | 1 | validiert |
 | Antriebswirkungsgrad | η | 0,93 | 1 | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
 | Luftwiderstandsfläche | CdA | 0,647 | m² | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
@@ -109,14 +105,76 @@ Weitere Diagnosegrößen:
 | 7400 | 172 | schwach abgesichert |
 | 7500 | 169 | schwach abgesichert |
 
-Das Teillastkennfeld bleibt numerisch unverändert. Die **ETC-60°-Zeile ist ausdrücklich interpoliert**; stabile APP/ETC/Lambda/MAF-Segmente zur direkten Validierung fehlen.
+Die Volllast-Drehmomentkurve selbst bleibt numerisch unverändert (Tabelle oben). Direkte APP/ETC/Lambda/MAF-WOT-Segmente zur Absicherung ihrer Randbereiche fehlen weiterhin (siehe Abschnitt 12).
+
+### Teillastkennfeld (ETC × Drehzahl → Drehmoment-%, NEU 30.08.2026)
+
+Seit 30.08.2026 existiert ein eigenständiges, messwertbasiertes Teillastkennfeld, das die früher offene Frage "Teillastkennfeld, insbesondere ETC = 60°, direkt messen" über einen bis dahin ungenutzten Kanal statt über gezielte Kalibrierfahrten löst.
+
+| Merkmal | Wert |
+|---|---:|
+| Datenquelle | `ActualEnginePercentTorque` (CAN-PID), in 14 von 56 Logs vorhanden (64.211 Messwerte) |
+| Semantik-Check | über WOT-Segmente: median 89–98 % (p10 81–97 %) → Prozent des Volllast-Drehmoments bei der jeweiligen Drehzahl |
+| Datenbasis Kennfeld | 35.331 gefilterte Punkte (Kupplung nicht getreten, keine Bremsung, Drehzahl > 1000 min⁻¹, v > 3 m/s, gültiger Gang) |
+| Rasterung | Bin-Mediane, 5° × 250 min⁻¹-Raster, 218 robuste Bins (≥ 3 Punkte), lineare Interpolation / Nearest-Neighbor-Fallback |
+| Kreuzvalidierung (leave-one-log-out, 14 Logs) | RMSE **7,2 Prozentpunkte** |
+| Physikalische Validierung (2553 Teillast-Beschleunigungssegmente, ≥3 s, ETC 5–80°) | Kennfeld: Korrelation 0,57, RMSE 0,406 m/s² · naiv (Volllast-Annahme überall): Korrelation 0,22, RMSE 1,699 m/s² · direkt gemessen (Teilmenge n=631): Korrelation 0,79, RMSE 0,234 m/s² |
+
+Status: **datenbasiert, kreuzvalidiert**, in `scripts/partial_load_model.py` (Kennfeld-Aufbau) und seither integriert in `scripts/performance_simulation.py` (`accel(etc_deg=...)`, `find_equilibrium_speed()`, `simulate_constant_throttle()`, siehe Abschnitt 6). Einschränkungen: Datendichte bei mittlerem ETC (20–70°) deutlich dünner als bei sehr niedrigem ETC; `ActualEnginePercentTorque`-Semantik nur empirisch über den WOT-Abgleich bestätigt, nicht aus einer Mazda-Spezifikation verifiziert; keine Steigungskorrektur in den Validierungssegmenten.
 
 ## 6. Fahrleistungs- und Hochgeschwindigkeitsmodell
 
-- CdA und Wirkungsgrad sind nur **gekoppelt** plausibilisiert. Eine unabhängige Identifikation beider Größen steht aus.
+- CdA und Wirkungsgrad sind weiterhin nur **gekoppelt** plausibilisiert; eine unabhängige Identifikation beider Größen steht aus. **Wichtige Einschränkung (06.09.2026):** ein Teil des bis dahin CdA/η zugeschriebenen ~5–8 %-WOT-Bias (Verhältnis gemessen/Modell) geht auf einen Massenfehler zurück, nicht auf CdA/η selbst — für zwei Logs vom 05.09.2026 war fälschlich eine SOLO-Fahrt statt eines 75-kg-Beifahrers angenommen worden. Nach Korrektur springt das Volllast-Verhältnis gemessen/Modell im Gesamtdatensatz von Median 0,97 auf **1,00** (n=115 Segmente, Korrelation weiterhin 0,98). Die CdA/η-Kopplungsfrage bleibt grundsätzlich offen, sollte aber nicht mehr unhinterfragt auf der alten 0,94–0,97-Zahl aufbauen.
 - Eine 100–200-km/h-Auswertung darf nicht als primäre Kalibrierreferenz dienen, wenn GPS/OBD zeitlich versetzt sind oder ein Grenzpunkt in einer Schaltung liegt.
-- Ein Messwert von **222 km/h** wurde im Modellstand als plausibel eingeordnet, weil zusammenhängende Phasen über 215 km/h vorlagen.
+- Ein historischer Messwert von **222 km/h** wurde im früheren Modellstand als plausibel eingeordnet, weil zusammenhängende Phasen über 215 km/h vorlagen. Das ist inzwischen durch direkt gemessene, mehrere Sekunden lange Vmax-Plateaus überholt (s. u.).
 - Historische Simulationsergebnisse von **0–100 km/h 6,29 s**, **100–200 km/h 19,95 s**, **0–200 km/h 26,24 s** und **Vmax 229,9 km/h** sind Entwicklungshistorie, keine aktuellen Messwerte und kein automatisches Kalibrierziel.
+
+### 0-Vmax-Simulation (`scripts/performance_simulation.py`, NEU 29.08.2026)
+
+Integriert das bereits validierte Beschleunigungsmodell (Volllast-Drehmomentkurve, Getriebe-/Achsübersetzung, CdA, Crr, η, Masse) über die Zeit, inkl. Schaltlogik (nächster Gang bei stärkerer Beschleunigung, Redline-Sicherheitsnetz 7500 min⁻¹) und den gangspezifischen ATTACK-Zugkraftunterbrechungen.
+
+| Szenario | 0–100 km/h | 0–200 km/h | Vmax |
+|---|---:|---:|---:|
+| raw (unkorrigiert) | 5,80 s | 24,95 s | 231,7 km/h |
+| bias-korrigiert (Faktor 0,92, aus 44 Volllast-Segmenten) | 6,31 s | 28,46 s | 222,8 km/h |
+
+Kein Traktions-/Launch-Modell (Reifenhaftung bei niedriger Geschwindigkeit in Gang 1) enthalten, bewusst nicht eingebaut (der historische Launch-Wert μ_eff = 0,88 gilt als Diagnosewert, nicht als aktuell bestätigte IMU-Evidenz) — 0–100-Zeiten dadurch ggf. leicht optimistisch. Kein Vergleich gegen eine durchgehende reale 0-Vmax-Fahrt möglich (liegt in den Logs nicht vor; Validierung bleibt indirekt über einzelne Volllast-Segmente).
+
+### Gang-6-/Vmax-Validierung mit Geländekorrektur (`scripts/top_speed_validation.py`, NEU 29./30.08.2026)
+
+6 lange Gang-6-WOT-Segmente (≥ 3 s, muss mind. einmal 170 km/h erreichen) in 3 Logs (135–201 km/h) zeigten durchgehend noch positive Beschleunigung (+0,46 bis +0,90 m/s²) — in diesem Teildatensatz kein Geschwindigkeits-Plateau. Geländekorrektur (DGM-basierte mittlere Steigung entlang GPS-Track, `elevation_model.py`) verbessert die RMSE gegenüber unkorrigiert um 16 % (0,164 statt 0,195 m/s²); am deutlichsten bei stärkerem Gefälle (−1,36 %: Modell ohne Korrektur 0,481 m/s² vs. gemessen 0,844 m/s², mit Korrektur 0,615 m/s²).
+
+**Echte Vmax-Plateaus** wurden separat in den 08.08.2026-Logs gefunden (Fund über neuen WOT-Fallback "ETC_only", ETC_ACT ≥ 85°, nur für die kurzen `CSVLog_*`-Logs ohne APP/AFR_MZ nötig; als Diagnosewert ohne unabhängige Lambda-Bestätigung gekennzeichnet, gemäß bestehender Vorgabe "ETC allein ist kein verlässlicher WOT-Nachweis"):
+
+| Log | Zeitfenster | Dauer | v-Bereich | a_gemessen | Geländekorrektur (30.08.2026 nachgezogen) |
+|---|---|---:|---|---:|---|
+| `CSVLog_20260808_145611` | t=875–922 s | 47 s | 226–236 km/h | +0,037 m/s² | −0,42 % (leicht abschüssig) |
+| `CSVLog_20260808_214117` | t=861–954 s | 93 s | 202–230 km/h | +0,052 m/s² | +0,11 % (praktisch eben) |
+
+Beide gegengeprüft: ETC_ACT=86° (voll offen) durchgehend, TM_GEST=6, Drehzahl 5900–6050 min⁻¹ (gut abgesicherter Drehmomentkurven-Bereich), danach klarer Gaswegnahme-Abfall; zusätzlich per unabhängiger GPS-Positionsdifferenzierung bestätigt (229,3/219,9 km/h GPS vs. 232,5/224,0 km/h OBD, im Rahmen des 1-Hz-GPS-Rauschens konsistent).
+
+**Wichtiger, weiterhin offener Befund:** Bei diesen und weiteren Segmenten mit v_max ≥ 215 km/h (33 Segmente insgesamt) trifft das **unkorrigierte (raw) Modell die Realität deutlich besser** als das sonst verwendete bias-korrigierte Modell:
+
+| Modellvariante | mittlere Abweichung (gemessen − Modell) | RMSE |
+|---|---:|---:|
+| raw (Faktor 1,0) | −0,018 m/s² | 0,083 m/s² |
+| bias-korrigiert (Faktor 0,92) | +0,101 m/s² (Modell unterschätzt jetzt) | 0,130 m/s² (schlechter als roh) |
+
+Der 8–9 %-Bias-Korrekturfaktor aus dem mittleren Geschwindigkeitsbereich (130–200 km/h) **extrapoliert nicht in den Vmax-Bereich (> 215 km/h)** — der zugrunde liegende Fehler (vermutlich CdA und/oder η) skaliert vermutlich nicht gleichförmig mit v² über den gesamten Geschwindigkeitsbereich. Konsequenz: die "bias-korrigiert"-Kurve von `performance_simulation.py` ist nahe Vmax vermutlich zu pessimistisch, die "raw"-Kurve dürfte dort näher an der Realität liegen. Nicht weiter aufgelöst (kein geschwindigkeitsabhängiger Korrekturfaktor implementiert), weiterhin offener Punkt (siehe Abschnitt 12). Grade-adjustierte Vmax-Schätzungen aus den einzelnen Gang-6-Segmenten streuen zwischen 215,9 und 232,9 km/h (bias-korrigiert) — spiegelt die Steigungsabhängigkeit, nicht Modellunsicherheit.
+
+**Einschränkung:** ein Teil der ursprünglichen Plateau-Fenster lag zunächst in einer DGM-Datenlücke im Berlin-Randgebiet; nach Nachladen der verfügbaren Kacheln (30.08.2026) sind beide Plateaus jetzt (teilweise) geländekorrigiert, einzelne Teilabschnitte langer Läufe liegen weiterhin in einer echten Rest-Datenlücke.
+
+### Teillast-Simulation bei konstantem ETC (`simulate_constant_throttle()`, NEU 30.08.2026)
+
+Nutzt das Teillastkennfeld (Abschnitt 5) statt der Volllast-Kennlinie, gleiche Schaltlogik, ohne zusätzlichen Bias-/Traktionsfaktor (das Kennfeld ist bereits direkt an echten Beschleunigungsdaten validiert):
+
+| ETC | 0–100 km/h | 0–200 km/h | Gleichgewicht Gang 6 |
+|---|---:|---:|---:|
+| 30° | 9,73 s | nicht erreicht (195,8 km/h nach 90 s) | 200,4 km/h |
+| 50° | 7,82 s | 44,58 s | 214,1 km/h |
+| 70° | 7,12 s | 34,01 s | 218,9 km/h |
+
+Konstantes ETC über die ganze Simulation ist eine bewusste Vereinfachung (reale Fahrer variieren den Pedalweg kontinuierlich, z. B. in Kurvenausfahrten); für eine echte Rundenzeit-/GPS-Track-Simulation wäre ein zeitlich variabler ETC-Verlauf nötig (nicht Teil dieser Änderung).
 
 ## 7. IMU-Methode MX5_IMU_METHOD_V1.0
 
@@ -134,6 +192,8 @@ Das Teillastkennfeld bleibt numerisch unverändert. Die **ETC-60°-Zeile ist aus
 Das 50-Hz-Raster ist eine gemeinsame Ausgabetaktung. Daraus darf keine native 50-Hz-Messrate für OBD oder GPS abgeleitet werden.
 
 ### Achstransformation Smartphone → Fahrzeug
+
+**Gilt als Referenz-/Defaultfall für die feste Y-vertikal-Halterung (alle Logs vor 2026-09-06).** Seit 06.09.2026 kann die Handyhalterung **von Fahrt zu Fahrt wechseln** (bestätigt: eine neue Halterung mit Z statt Y als Vertikalachse trat auf). Die Achszuordnung erfolgt seither **automatisch pro Log** über das neue Modul `scripts/imu_orientation.py` (`detect_vertical_axis()` per Gravitationsvektor im Stillstand, mit Fallback auf Y falls nicht eindeutig bestimmbar; `horizontal_axes()` liefert die beiden übrigen Achsen in fester Reihenfolge X<Y<Z; `yaw_channel()` den zugehörigen `RotationRate`-Kanal) — nicht mehr über eine global fixe Matrix. Für alle Logs vor 2026-09-06 reproduziert die neue Pro-Log-Erkennung regressionsfrei exakt die bisherigen Ergebnisse; Verbraucher-Skripte (`brake_event_analysis.py`, `corner_event_analysis.py`, `grip_estimation.py`) wurden entsprechend umgebaut. Die unten abgedruckte Matrix und `yaw_right = -RotationRateY` bleiben für den Y-vertikal-Fall gültig; das Vorzeichen `GYRO_SIGN_SCALE = -1,0` ist bisher nur für Y und Z als erkannte Vertikalachse empirisch bestätigt, **nicht für X** (bei einem künftigen X-vertikal-Log die Korrelation gegen die GPS-Kursänderung erneut prüfen statt annehmen).
 
 ```text
 a_long = +0.954017155*AccelerationX
@@ -169,6 +229,8 @@ Einordnung:
 
 Rohdaten und Residuen sind für Rückverfolgbarkeit und Qualitätskontrolle aufzubewahren. Residuen sind nicht als Fahrzeugdynamik zu interpretieren.
 
+Hinweis: Die Bezeichnung „Halterungsresonanz" ist der historische Sammelbegriff aus den Logs vor 06.09.2026 (lose Halterung, tri-axiale Signatur). Für die seit 06./07.09.2026 verwendete starre Einbaulage ist die Deutung revidiert, siehe Abschnitt 8.
+
 ## 8. Resonanz- und Schwingungsanalyse
 
 ### Prüfverfahren
@@ -190,7 +252,10 @@ Zusammenhängende Segmente müssen mindestens 8 s dauern. Danach wird je Achse e
 - Trotz einzelner Kandidaten ist kein Notch freigegeben; produktive Störsubtraktion bleibt gesperrt.
 - Log 27.08.2026 08:16:20: 0 stabile Segmente, Status `NOT_TESTABLE`.
 - Log 27.08.2026 17:03:39: 0 stabile Segmente, Status `NOT_TESTABLE`.
-- Die Methode blieb unverändert; es erfolgte keine Fahrzeugparameteränderung.
+- **Ab 06.09.2026 variable Handyhalterung** (siehe Abschnitt 7): neue Position mit Z statt Y als Vertikalachse. Resonanzsuche läuft seither über die pro Log automatisch erkannten Achsen.
+- **Logs 07.09.2026** (`082100`, `123731`): Resonanz nur noch auf **einer** statt wie zuvor auf allen drei Achsen (082100: Y=21,1 Hz; 123731: Z=18,3 Hz), zeitlich passend zur seit 06.09.2026 geänderten Halterung.
+- **Theorie revidiert (07.09.2026, Nutzer-bestätigt):** das Handy ist bei dieser Einbaulage jetzt starr mit dem Interieur verbunden, optisch ist kein Schwingen einer Halterung mehr erkennbar (vorher schon sichtbar). Die bisherige Deutung als lose schwingende Halterungs-Eigenresonanz (tri-axiale Signatur, da eine frei schwingende Masse alle Richtungen anregt) passt für diese Einbaulage nicht mehr. Die jetzt einachsige Resonanz ist für eine reale, räumlich lokalisierte **Fahrzeug-Struktureigenmode**, die direkt über den Befestigungspunkt übertragen wird, plausibler (regt nicht alle Richtungen gleich an). **Gilt ausdrücklich nur für genau diese seit 06./07.09.2026 verwendete starre Einbaulage** (kein Halterungsarm) — keine allgemeine Regel für beliebige zukünftige Mounts. Bei jeder erkennbaren Änderung der Einbaulage (andere Handyposition/-orientierung, erneuter Halterungsarm) ist die Einzelachsen- vs. tri-axial-Frage für diesen neuen Mount erneut zu prüfen, nicht automatisch zu übernehmen. Notch-Freigabekriterien und Freigabestatus (Abschnitt 7, Filterpipeline) sind davon unberührt: weiterhin **kein Notch freigegeben**, keine ausreichenden stabilen Testsegmente vorhanden.
+- Die Methode (Filterpipeline, Prüfverfahren) blieb unverändert; es erfolgte keine Fahrzeugparameteränderung.
 
 ## 9. Kurven- und Ereignislogik
 
@@ -232,6 +297,9 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 - APP-Pedalraste bei 90 % als Nutzerdefinition.
 - Gier-Vorzeichen und Vertikalrichtung der IMU.
 - Methodische Altersgrenzen, Filterparameter und Ereignisregeln.
+- Datenbasiertes Teillastkennfeld (ETC × Drehzahl → Drehmoment-%) aus `ActualEnginePercentTorque`.
+- Leergewicht 1073 kg (ohne Fahrer/Tank) und Bereifung Nankang NS-R2 205/40/R17 als Nutzerangaben.
+- Automatische Pro-Log-Erkennung der IMU-Vertikalachse und des Gier-Kanals (`scripts/imu_orientation.py`) für die seit 06.09.2026 variable Handyhalterung.
 
 ### Modellannahmen oder gekoppelte Größen
 
@@ -249,20 +317,22 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 - Keine Haftgrenze aus `a_lat_LP4`.
 - Keine Drehmoment- oder Massenanpassung aus `a_long_LP4` ohne gezielte Kalibrierfahrt.
 - Physikalisch unplausible 20-ms-Spitzen verwerfen bzw. über geeignete 2-s-Fenster aggregieren.
+- Den 0,92-Bias-Korrekturfaktor aus dem 130–200-km/h-Bereich nicht auf den Vmax-Bereich (> 215 km/h) anwenden — dort ist er nachweislich schlechter als unkorrigiert (siehe Abschnitt 6).
+- Bei neuem Log vor gewichtsabhängigen Berechnungen das tatsächliche Gesamtgewicht (Fahrer + Zuladung) erfragen statt pauschal SOLO anzunehmen.
 
 ## 12. Priorisierte offene Punkte
 
 1. **CdA und Wirkungsgrad entkoppeln**  
-   Benötigt kontrollierte Hochgeschwindigkeits- oder Ausrollmessungen mit belastbaren Umwelt- und Streckendaten.
+   Benötigt kontrollierte Hochgeschwindigkeits- oder Ausrollmessungen mit belastbaren Umwelt- und Streckendaten. Ein Teil des früher hierfür verantwortlich gemachten ~5–8 %-WOT-Bias erwies sich am 06.09.2026 als reiner Massenfehler in zwei Logs (fehlender 75-kg-Beifahrer, siehe Abschnitt 6) — die CdA/η-Kopplung selbst bleibt trotzdem ungelöst.
 
 2. **Absolute IMU-Längs- und Querskalierung validieren**  
    Benötigt gezielte Geradeaus-Beschleunigungs-/Bremsfahrten sowie wiederholbare Kurven mit guter GPS-Referenz.
 
-3. **Halterungsresonanz reproduzierbar bestätigen oder verwerfen**  
-   Benötigt mehrere stabile Geradeaussegmente pro Fahrt und Wiederholung in weiteren Logs. Bis dahin kein Notch.
+3. **Halterungsresonanz-/Fahrzeugschwingungs-Hypothese reproduzierbar bestätigen oder verwerfen, pro Halterungskonfiguration**  
+   Die Deutung wurde am 07.09.2026 für die aktuell starre Einbaulage (kein Halterungsarm, seit 06./07.09.2026) revidiert — plausibler jetzt eine einachsige Fahrzeug-Struktureigenmode statt einer Halterungs-Eigenresonanz (siehe Abschnitt 8). Das bleibt aber im strengen Sinn ungetestet: keine der bisherigen Fahrten lieferte genug stabile Geradeaussegmente (Logs 27.08.2026 waren `NOT_TESTABLE`). Da die Halterung seit 06.09.2026 von Fahrt zu Fahrt wechseln kann, ist die Frage nicht mehr einmalig zu klären, sondern bei jeder neuen Einbaulage erneut zu prüfen. Bis dahin weiterhin kein Notch freigegeben.
 
-4. **Teillastkennfeld, insbesondere ETC = 60°, direkt messen**  
-   Benötigt thermisch stabile Segmente mit APP, ETC, Lambda, MAF, Drehzahl und klarer Kupplungs-/Schaltabgrenzung.
+4. **Teillastkennfeld, insbesondere ETC = 60° — erledigt (30.08.2026), Restlücken bleiben**  
+   Datenbasiertes ETC × Drehzahl-Kennfeld aus `ActualEnginePercentTorque` (14/56 Logs) umgesetzt und kreuzvalidiert (RMSE 7,2 Prozentpunkte), siehe Abschnitt 5. Offen bleibt: dünnere Datendichte bei mittlerem ETC (20–70°) und keine unabhängige Bestätigung der Kanal-Semantik aus einer Mazda-Spezifikation.
 
 5. **Volllastkurve an den Rändern absichern**  
    Benötigt saubere WOT-Fenster unter 4000 min⁻¹ und oberhalb 7000 min⁻¹.
@@ -272,6 +342,9 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 
 7. **Aktuellen Modellstand und IMU-Master konsolidieren**  
    Die Fahrzeugmodell-Datei und die beiden v1.1-Schwingungsfortschreibungen sollten in einem eindeutigen, versionierten Master mit Changelog zusammengeführt werden.
+
+8. **Geschwindigkeitsabhängigen Bias-Korrekturfaktor statt eines globalen Faktors entwickeln**  
+   Der pauschale 8–9 %-Korrekturfaktor aus dem 130–200-km/h-Bereich trifft den gemessenen Vmax-Bereich (> 215 km/h) nicht — dort ist das unkorrigierte Modell näher an der Realität (siehe Abschnitt 6). Benötigt eine geschwindigkeitsabhängige statt einer konstanten Korrektur.
 
 ## 13. Empfohlene Verwendung außerhalb des Agenten
 

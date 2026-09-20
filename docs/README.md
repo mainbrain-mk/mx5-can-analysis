@@ -18,7 +18,7 @@ zugehörige Status zusätzlich in-place nachgezogen.
 
 | Thema | Status (aktuell) | Logbuch (Verlauf/Herleitung) | Wichtigste Skripte |
 |---|---|---|---|
-| Fahrleistungsmodell (Antrieb, Traktion, Schaltzeiten, Fahrwiderstände) + IMU/Schwingung | [`status/performance-model.md`](status/performance-model.md) *(Stand 29.08., Auffrischung offen — siehe Hinweis im Dokument)* | [`logs/projekt-stand.md`](logs/projekt-stand.md) | `performance_simulation.py`, `drivetrain_model_validation.py`, `coastdown_analysis.py`, `partial_load_model.py`, `partial_throttle_calibration.py`, `top_speed_validation.py`, `vibration_analysis.py`, `imu_orientation.py` |
+| Fahrleistungsmodell (Antrieb, Traktion, Schaltzeiten, Fahrwiderstände) + IMU/Schwingung | [`status/performance-model.md`](status/performance-model.md) *(Stand 30.08./07.09.2026)* | [`logs/projekt-stand.md`](logs/projekt-stand.md) | `performance_simulation.py`, `drivetrain_model_validation.py`, `coastdown_analysis.py`, `partial_load_model.py`, `partial_throttle_calibration.py`, `top_speed_validation.py`, `vibration_analysis.py`, `imu_orientation.py` |
 | Strecke, Höhendaten, Racing-Line, Rundenzeit-Simulation (Spreewaldring) | [`status/vehicle-dynamics-track.md`](status/vehicle-dynamics-track.md) *(Stand 18.09.2026)* | [`logs/projekt-stand.md`](logs/projekt-stand.md) (Abschnitte ab "Höhendaten", "Spreewaldring…") | `elevation_model.py`, `check_dgm_coverage_gaps.py`, `spreewaldring_track.py`, `spreewaldring_track_surface.py`, `spreewaldring_racing_line*.py`, `spreewaldring_lap_simulation.py`, `render_report.py` |
 | Lenkwinkel, Kurvenradius, Quergrip, Kraftkreis, Bremsmodell, Schaltzeiten/Zugkraftunterbrechung, Tankstand | [`status/vehicle-dynamics-track.md`](status/vehicle-dynamics-track.md) *(Stand 18.09.2026)* | [`logs/projekt-stand.md`](logs/projekt-stand.md) (Abschnitte ab "Lenkwinkel-Kanal", "Quergrip…") | `steering_lateral_model.py`, `steering_offset_drift.py`, `steering_zero_offset.py`, `steering_radius_estimate.py`, `calibrate_axes.py`, `grip_estimation.py`, `corner_speed_model.py`, `corner_event_analysis.py`, `braking_model.py`, `brake_event_analysis.py`, `engine_braking_analysis.py`, `clutch_ride_detection.py`, `shift_traction_gap_analysis.py`, `shift_time_analysis.py` |
 | CAN-Bus-Logging: Hardware/Pi-Infrastruktur, DBC-Pflege, Signal-Reverse-Engineering, TPMS, Renncockpit-GUI | [`status/can-bus.md`](status/can-bus.md) *(Stand 2026-09-16)* | [`logs/can-bus-status.md`](logs/can-bus-status.md) | `can_log_parser.py`, `can_byte_search.py`, `can_bitsearch.py`, `can_re_toolkit.py`, `can_field_segmentation.py`, `can_opendbc_crosscheck.py`, `obd_from_can.py`, `uds_did_sweep.py`, `tpms_poller.py`, `status_gui.py`, `dash_gui.py`, `session_logger.py` |
@@ -27,13 +27,6 @@ zugehörige Status zusätzlich in-place nachgezogen.
 | Pi-Laufzeitstatus (was läuft *gerade* auf dem Auto-Pi, Deploy-Abgleich lokal↔Pi) | [`status/pi-runtime-state.md`](status/pi-runtime-state.md) *(Stand 2026-09-20)* | — (Momentaufnahme, kein Verlauf) | `can_backend.py`, `dash_gui.py`, `session_logger.py`, `tpms_poller.py` |
 | Fremde DBC-Quellen (Lizenz/Herkunft/Übernahmeregeln) | [`../data/can/external/README.md`](../data/can/external/README.md) | — | `can_opendbc_crosscheck.py` |
 | Datenpipeline / Datalake-Aufbau | *(kein eigenes Status-Doc, Infra-Teil von Performance- bzw. CAN-Status)* | `logs/projekt-stand.md` + `logs/can-bus-status.md` | `build_datalake.py`, `run_daily_pipeline.py`, `pipeline_checks.py`, `dlg_database.py` |
-
-## Offene Folgearbeit
-
-`status/performance-model.md` ist inhaltlich noch auf Stand 29.08.2026 (siehe
-Hinweis im Dokument selbst) — Teillastmodell, Reifen/Gewicht,
-0-Vmax-Simulation und Gang-6-/Vmax-Validierung aus dem Logbuch sind dort noch
-nicht eingearbeitet.
 
 ## Konventionen für neue Einträge
 
