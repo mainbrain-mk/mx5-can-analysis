@@ -64,6 +64,13 @@ DRIVE_RPM_ORANGE = 7400
 DRIVE_RPM_RED = 7500
 DRIVE_SHIFTLIGHT_MIN = 4000
 DRIVE_SHIFTLIGHT_N = 16
+# ECU-Soft-Limiter-Erkennung (2026-09-20 im CAN-Log gefunden: Drosselklappe
+# faellt trotz Vollgas schon ab ~7150-7440 U/min ein, deutlich vor dem
+# nominellen 7500er-Redline) - Kriterien vom Nutzer frei definiert.
+LIMITER_RPM_MIN = 7000
+LIMITER_APP_MIN = 99  # APP ist float, exakt 100 kommt selten an
+LIMITER_ETC_MAX = 90
+LIMITER_BLINK_HZ = 8
 DRIVE_STEER_VMAX = 60
 CLUTCH_ACTIVE_RAW = 15  # roh, vor der /1.99-Prozent-Umrechnung - gleiche
                         # Schwelle/Konvention wie can_traction_circle.py und
@@ -114,6 +121,19 @@ def _rpm_zone_color_range(lo, hi):
     if hi > DRIVE_RPM_YELLOW:
         return YELLOW
     return GREEN
+
+
+def _is_limiter_active(rpm, app, etc):
+    """RPM>7000 & Pedal voll & Drosselklappe trotzdem zu - die ECU regelt
+    selbst ab, siehe LIMITER_*-Konstanten oben."""
+    if rpm is None or app is None or etc is None:
+        return False
+    return rpm > LIMITER_RPM_MIN and app >= LIMITER_APP_MIN and etc < LIMITER_ETC_MAX
+
+
+def _blink_on(t=None, hz=LIMITER_BLINK_HZ):
+    t = time.time() if t is None else t
+    return int(t * hz * 2) % 2 == 0
 
 
 def _rpm_zone_color(rpm):
@@ -333,7 +353,12 @@ class ShiftLightRow(BoxLayout):
         anchor.add_widget(dots_row)
         self.add_widget(anchor)
 
-    def update(self, rpm):
+    def update(self, rpm, limiter_active=False):
+        if limiter_active:
+            on = _blink_on()
+            for dot in self.dots:
+                dot.set_lit(on, BLUE)
+            return
         span = DRIVE_RPM_MAX - DRIVE_SHIFTLIGHT_MIN
         step = span / DRIVE_SHIFTLIGHT_N
         frac = 0.0 if rpm is None else max(0.0, min(1.0, (rpm - DRIVE_SHIFTLIGHT_MIN) / span))
@@ -654,7 +679,10 @@ class DriveScreen(Screen):
     def refresh(self, *_args):
         c = self.client
         rpm = self.get_rpm()
-        self.shiftlights.update(rpm)
+        limiter_active = _is_limiter_active(
+            rpm, c.get(514, "APP_Accelerator_Pedal_Position"),
+            c.get(OIL_RESPONSE_KEY, "_ThrottlePosition_pct_derived"))
+        self.shiftlights.update(rpm, limiter_active)
         self.rpm_bar.update(rpm)
 
         speed = c.get(514, "VehicleSpeed")

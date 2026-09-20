@@ -191,6 +191,23 @@ def test_shiftlight_colors_cover_the_narrow_orange_zone():
     assert levels == sorted(levels)
 
 
+def test_limiter_active_needs_all_three_conditions():
+    """RPM>7000 & Vollgas & Drosselklappe trotzdem zu - siehe die 5 im CAN-Log
+    bestaetigten ECU-Limiter-Eingriffe (docs/status/can-bus.md)."""
+    assert dash_gui._is_limiter_active(7300, 100, 48)
+    assert not dash_gui._is_limiter_active(6900, 100, 48)   # RPM zu niedrig
+    assert not dash_gui._is_limiter_active(7300, 50, 48)    # Pedal nicht voll
+    assert not dash_gui._is_limiter_active(7300, 100, 92)   # Drosselklappe noch offen
+    assert not dash_gui._is_limiter_active(None, 100, 48)   # fehlender Kanal
+
+
+def test_limiter_blink_toggles_over_time():
+    hz = dash_gui.LIMITER_BLINK_HZ
+    period = 1.0 / hz
+    assert dash_gui._blink_on(0.0, hz) != dash_gui._blink_on(period / 2, hz)
+    assert dash_gui._blink_on(0.0, hz) == dash_gui._blink_on(period, hz)
+
+
 if __name__ == "__main__":
     if dash_gui is None:
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
@@ -202,4 +219,6 @@ if __name__ == "__main__":
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_fuel_gauge_smooths_out_tank_slosh()
     test_shiftlight_colors_cover_the_narrow_orange_zone()
+    test_limiter_active_needs_all_three_conditions()
+    test_limiter_blink_toggles_over_time()
     print("ok")

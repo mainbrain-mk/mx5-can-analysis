@@ -2503,3 +2503,100 @@ Uhr für spätere Logs desselben Boots trotzdem stimmen (wie bei `163755`, per K
 bitgenau OHNE Offset bestätigt) — der Marker bleibt aber "korrigiert", weil er nie erneut
 geprüft wird. Der Marker ist also bewusst konservativ (lieber zu oft warnen als einen echten
 Fall verpassen) — passt zum Nutzerwunsch "nur warnen, nicht blockieren".
+
+## ECU-Soft-Limiter: 5 Eingriffe in den letzten beiden Logs vom 19.09. bestätigt, Klopfen und Radschlupf ausgeschlossen, Live-Erkennung im Dash (2026-09-20)
+
+Nutzer fragte gezielt nach Limiter-Events in den letzten beiden Logs vom 19.09. (`163857`
+nachmittags, `233619` abends) — mit dem Hinweis, dass der Eingriff auch schon vor 7500 U/min
+ansetzen kann (siehe "ECU begrenzt im 3. Gang…" weiter oben). Beide `.dlg`-Logs selbst haben
+diesmal **keinen Drehzahlkanal** (Handy-App hat kein RPM geloggt) — ausgewertet über die
+zeitgleichen CAN-Logs (`candump-2026-09-19_163755`/`_233436`), die `EngineRPM` echt und
+hochauflösend (~90 Hz) liefern, plus `APP`, `ThrottlePosition_CAN` (= `ETC_ACT`, aus der
+OBD-Mode-1-PID 0x11, nicht Broadcast), `EnginePercentTorque_CAN`, `Gear_CAN`.
+
+**Kriterium für "echter Eingriff" statt "nur hohe Drehzahl":** Pedal (`APP`) bleibt bei 100%,
+aber die ECU macht die Drosselklappe trotzdem selbst zu — das unterscheidet einen ECU-Cut von
+einem normalen, fahrerinitiierten Schaltvorgang (dort fällt `APP` VOR dem RPM-Peak).
+
+**7 Volllast-Züge gefunden (RPM>6800-Cluster), 5 davon echte Eingriffe:**
+
+| Zeit | Log | Gang | Peak-RPM | Befund |
+|---|---|---|---|---|
+| 16:45:12 | 163755 | 3 | 7273 | ECU-Eingriff, `ETC_ACT` 92°→48° ab ~7215 U/min |
+| 16:45:58 | 163755 | 3 | 7281 | ECU-Eingriff, 92°→47° ab ~7205 U/min |
+| 16:52:03 | 163755 | 2 | 7439 | ECU-Eingriff, 92°→~24° ab ~7357 U/min |
+| 16:53:34 | 163755 | 2 | 7429 | ECU-Eingriff, 92°→29° ab ~7355 U/min |
+| 23:39:10 | 233436 | 3 | 7215 | **kein** Eingriff — `APP` fällt selbst schon bei 6897 U/min |
+| 23:40:36 | 233436 | 4 | 7297 | **kein** Eingriff — `ETC_ACT` bleibt konstant 92°, reiner Fahrerschaltvorgang |
+| 23:45:07 | 233436 | 3 | 7307 | ECU-Eingriff, 92°→37° ab ~7271 U/min bei vollem Pedal |
+
+Bei allen 5 Eingriffen fällt `EnginePercentTorque_CAN` synchron mit `ETC_ACT` (z.B. 91%→80%→
+…→0% bei Event 1), `FuelCut_CAN` wird kurz danach aktiv — aber `FuelCut_CAN` feuert auch bei
+den 2 Nicht-Eingriffen (normale Schubabschaltung beim Lupfen), taugt also NICHT als
+Unterscheidungsmerkmal, nur `APP` vs. `ETC_ACT` tut das.
+
+**Klopfen als Auslöser geprüft und erneut verworfen:** `KnockRetard_CAN` wurde für alle 5
+Zeitfenster gezogen. Bei 3 der 5 (437s/483s/631s) laufen die Werte bis zum Cut sanft im
+üblichen Nahe-Null-Band (0…0,15) und fallen exakt am Cut auf 0,000000 (eher ein
+Reset-Artefakt während der Schubabschaltung als ein echtes Klopfsignal). Bei den anderen 2
+(848s/939s, beide Gang 2) liegt im Cut-Fenster gar kein Messwert vor (Datenlücke). Die
+tatsächlichen Ausreißer im Kanal (bis −3,0 in `163755`, bis −3,5 in `233436`) liegen bei
+völlig anderen Zeitpunkten (t≈571-573s, t≈103s bzw. t≈494-540s), mit keinem der 5
+Limiter-Momente überlappend. Deckt sich mit dem alten Befund an Log `150438`
+("Klopfen als Auslöser nicht belegbar").
+
+**Radschlupf/Traktionskontrolle als Auslöser geprüft und verworfen:** max. Spread zwischen
+den 4 `WheelSpeed_CAN`-Kanälen bei allen 5 Events zwischen 1,35 und 2,27 km/h (nahe am Peak
+±1s sogar noch enger). Zum Vergleich: der dokumentierte Rauschboden zwischen denselben 4
+Kanälen liegt bei bis zu 4,5 km/h — SELBST bei unbeschleunigter Geradeausfahrt (siehe
+`docs/logs/projekt-stand.md`, Abschnitt "Bonus-Check: Radschlupf-Kandidaten"). Alle 5 Events
+liegen klar darunter. `ABS_Active_CAN` und `DSC_Status_CAN` sind bei allen 5 durchgängig 0.
+Einschränkung: `WheelSpeed_CAN_1-4` sind laut derselben Quelle nicht sicher Achse/Seite
+zugeordnet — für die Ja/Nein-Frage "gibt es überhaupt Schlupf" spielt das aber keine Rolle.
+
+**Fazit: der tatsächliche Auslöser des Soft-Limiters bleibt offen.** Weder Klopfen noch
+Traktionsverlust erklären ihn. Auffällig: die Cut-Schwelle ist gangabhängig (Gang 2
+~7350-7440 U/min, Gang 3 ~7200-7310 U/min) — spricht eher gegen einen simplen festen
+RPM-Trigger, eventuell spielt die höhere RPM-Anstiegsrate im niedrigeren Gang (mehr
+Drehmomentwandlung) eine Rolle (ECU triggert ggf. auf denselben Schwellwert, aber der
+Ist-Wert schießt in Gang 2 zwischen Erkennung und wirksamer Drosselklappenreaktion weiter
+drüber hinaus).
+
+### Live-Erkennung im Renncockpit (`dash_gui.py`)
+
+Nutzer wollte eine Live-Warnung: Shiftlight-Reihe soll bei Erreichen des Zustands schnell
+blau blitzen. Bedingungen (vom Nutzer frei definiert, an die obige Signatur angelehnt):
+RPM>7000, `APP`≥99% ("voll"), `ETC_ACT`<90 (Drosselklappe merklich unter dem Vollgas-Maximum
+von 92°).
+
+**Alle drei Kanäle waren schon live vorhanden, ohne neues Polling** — erst fälschlich
+angenommen, `ETC_ACT` sei mangels laufendem `tpms_poller.py` nicht verfügbar (nur
+`can_backend.py`+`dash_gui.py` stehen in `scripts/pi-config/autostart`). Nutzer korrigierte:
+`session_logger.py` (über `can-logger.service`, systemd-getriggert bei `can0`) startet
+`tpms_poller.py` bei jeder Fahrt selbst als Subprozess mit — dessen ungegatete Fast-Gruppe
+(`poll_obd1_fast`, PID 0x11) sendet die `ETC_ACT`-Anfragen aktiv auf den Bus, `can_backend.py`
+deckt die Antworten passiv über `_OBD1_PIDS` ab (Snapshot-Key
+`"2024:_ThrottlePosition_pct_derived"`, 0x7E8=2024) — bisher nur nie für irgendein Dash-Feld
+genutzt. Details zur laufenden Prozesskette: `docs/status/pi-runtime-state.md`.
+
+**Umsetzung** (`scripts/dash_gui.py`):
+- Neue Konstanten `LIMITER_RPM_MIN=7000`, `LIMITER_APP_MIN=99`, `LIMITER_ETC_MAX=90`,
+  `LIMITER_BLINK_HZ=8`.
+- `_is_limiter_active(rpm, app, etc)` (reine Funktion) und `_blink_on(t, hz)` (Zeit-basierter
+  Blink-Toggle, kein Extra-Timer nötig — `refresh()` läuft ohnehin mit `DRIVE_REFRESH_HZ=30`).
+- `ShiftLightRow.update()` bekommt neuen `limiter_active`-Parameter: bei Treffer werden alle
+  16 LEDs im Blink-Takt komplett blau statt in der normalen RPM-Zonenfarbe gesetzt.
+- `DriveScreen.refresh()` berechnet `limiter_active` aus den schon vorhandenen
+  Snapshot-Werten (`514:EngineRPM`, `514:APP_Accelerator_Pedal_Position`,
+  `2024:_ThrottlePosition_pct_derived`) und reicht es durch.
+- Tests ergänzt (`test_dash_gui.py`: Bedingungslogik + Blink-Toggle) — lokal nicht lauffähig
+  in dieser Sandbox (Kivy scheitert an GLX, `BadValue X_GLXCreateContext`, auch für ein
+  triviales leeres Kivy-App — Sandbox-Limitierung, kein Code-Bug).
+
+**Deploy auf den Pi:** `dash_gui.py`+`test_dash_gui.py` per `scp` kopiert, mit dem
+venv-Python auf Kompilierbarkeit geprüft (`py_compile`, OK), `dash_gui.py`-Prozess einzeln
+beendet und mit denselben Env-Variablen wie im Autostart (`DISPLAY=:0
+WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1`) über `setsid`
+neu gestartet (überlebt das Ende der SSH-Session). Log zeigt sauberen Neustart ("Start
+application main loop"), vom Nutzer bei der nächsten Sichtprüfung als "perfekt umgesetzt"
+bestätigt. `can_backend.py` blieb unangetastet (keine Änderung daran).
