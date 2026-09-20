@@ -2,7 +2,52 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-16)
+## Kurzüberblick: aktueller Stand (2026-09-20)
+
+**Status 2026-09-20 — KnockRetard-PID gefunden (DID 0x03EC, Mode 0x22, herstellerspezifisch),
+jetzt live gepollt und rückwirkend aus jedem CAN-Log dekodierbar.** Details im Logbuch unten
+("KnockingRetard-PID gefunden…").
+
+1. **`KnockRetard` = DID `0x03EC`** (PCM, 0x7E0/0x7E8), Formel `signed_int16(raw)/512` —
+   per Korrelation gegen ein Y-Splitter-Log identifiziert (73% der App-Werte bitgenau,
+   R²=0,958). Keine SAE-J1979-Standard-PID, wie die gestrige Websuche schon vermuten ließ.
+2. `scripts/tpms_poller.py` pollt die DID jetzt in derselben schnellen, intervallfreien
+   Gruppe wie Lambda+Drosselklappe — deployt auf den Pi (Dienst lief beim Deploy nicht).
+3. `scripts/can_log_parser.py`/`build_datalake.py` dekodieren die DID jetzt generisch aus
+   JEDEM CAN-Log (neuer Kanal `KnockRetard_CAN`) — `SCHEMA_VERSION` hochgezählt, voller
+   Re-Ingest aller Logs angestoßen.
+4. **Vorzeichen/physikalische Bedeutung weiterhin ungeklärt** (Werte überwiegend ≤0, für
+   einen "Retard" unerwartet) und erst an einem einzigen Log verifiziert — zweite
+   unabhängige Bestätigung noch offen.
+
+<details>
+<summary>Vorheriger Stand (2026-09-19)</summary>
+
+**Status 2026-09-19 — ECU-Soft-Limiter im 3. Gang gefunden (vor dem nominellen Redline),
+`tpms_poller.py` um Drosselklappen-PID + schnelle Poll-Gruppe erweitert, KnockingRetard-PID
+weiterhin unbekannt.** Details im Logbuch unten ("Drosselklappen-PID ergänzt…" und "ECU
+begrenzt im 3. Gang…").
+
+1. **Drosselklappenstellung (Mode-1-PID 0x11) neu in `tpms_poller.py`**, zusammen mit Lambda
+   (0x44) in einer neuen schnellen Poll-Gruppe (`OBD1_FAST_PIDS`) ohne Intervall-Gate — Takt
+   nur noch durch die ECU-Antwortzeit begrenzt. Batteriespannung bleibt bewusst langsam
+   (10s-Takt wie Öl). Deployt auf den Pi, aber der Dienst lief beim Deploy nicht (kein
+   CAN-Adapter dran) — aktiv erst beim nächsten Start.
+2. **ECU-Eingriff im 3. Gang gefunden:** Log `2026-09-19 150438`, Volllast-Zug 77→137,5 km/h.
+   Ab modellierter (nicht gemessener — kein Drehzahlkanal in diesem Log) Drehzahl von
+   ~7100-7150 U/min schließt die ECU selbst die Drosselklappe (`ETC_ACT` bricht von 86° auf
+   ~11° ein, Drehmoment 91%→0%) — spürbar vor dem nominellen 7500er-Redline.
+3. **Klopfen als Auslöser nicht belegbar:** `TimingAdvance` steigt bis zum Cut sauber
+   monoton, keine Klopf-typische Einbruch-Signatur davor. Ein echter Klopf-Kanal
+   (`KnockingRetard`) fehlt in diesem Log komplett.
+4. **`KnockingRetard`-PID weiterhin unbekannt** — keine SAE-J1979-Standard-PID, herstellerspezifisch
+   (siehe "Bekannte offene Punkte" unten). Nutzer pollt sie jetzt selbst per Handy-App parallel
+   zu einer Wiederholung des Drehzahl-Max-Tests; Auswertung ab 2026-09-20.
+
+</details>
+
+<details>
+<summary>Vorheriger Stand (2026-09-16)</summary>
 
 **Status 2026-09-16 — Renncockpit-Ansicht für den Pi gebaut, ein echter Zuverlässigkeits-
 und ein echter Performance-Bug gefunden und gefixt.** Details im Logbuch unten
@@ -29,6 +74,8 @@ Untersuchung"), volle Design-Historie inkl. Mockup-Vergleich im Chat-Verlauf der
    Fahrt gezielt auf Ruckeln achten.
 
 Diagnose-Instrumentierung (`MX5_PERF_DEBUG=1`, No-Op im Normalbetrieb) bleibt dauerhaft im Code.
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-15)</summary>
@@ -204,6 +251,10 @@ vertrauen, Details im Logbuch unten.
   ISO-TP-Multiframes zusammengesetzt. Dadurch zusätzlich verfügbar: `MassAirFlow_CAN`✓ (g/s),
   `LambdaCommanded_CAN`✓ (SOLL-Lambda, kein Sondenmesswert!), `TimingAdvance_CAN`✓ (°),
   `EnginePercentTorque_CAN`✓ (%), sowie STEER_ANGL_EPS/STEER_SPD_EPS vom EPS-Modul (0x730).
+  **`KnockRetard_CAN`✓ (°, NEU 2026-09-20):** DID `0x03EC` (PCM, herstellerspezifisch, keine
+  SAE-Standard-PID), `signed_int16(raw)/512`, per Korrelation gegen ein Y-Splitter-Log
+  identifiziert (73% bitgenau, R²=0,958) — Vorzeichen/Bedeutung noch nicht unabhängig
+  bestätigt, siehe "Bekannte offene Punkte".
   Die gemessenen Sondenwerte liefert PID 0x34 – unterstützt, aber noch nicht abgefragt. wann immer das Y-Splitter-Kabel
   genutzt wird, sind die Handy-OBD-Requests/-Antworten (`0x7E0`/`0x7E8`) selbst im CAN-Log
   enthalten – `scripts/obd_from_can.py` dekodiert sie direkt daraus, ganz ohne `.dlg`-Datei
@@ -267,6 +318,18 @@ OBD/CAN-Referenz gesucht werden muss):
   (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
 
 ### Bekannte offene Punkte
+- ~~**`KnockingRetard`-PID unbekannt**~~ – **GELÖST 2026-09-20**: DID `0x03EC` (Mode 0x22,
+  PCM-Header 0x7E0/0x7E8), Formel `signed_int16(raw)/512`, per Korrelation gegen ein
+  Y-Splitter-Log identifiziert (73% der App-Werte bitgenau, R²=0,958) — siehe Logbuch
+  "KnockingRetard-PID gefunden…". Läuft jetzt in `tpms_poller.py`s schneller Poll-Gruppe und
+  wird generisch aus jedem CAN-Log dekodiert (`KnockRetard_CAN`). **Weiterhin offen:**
+  Vorzeichen/physikalische Bedeutung ungeklärt (Werte überwiegend ≤0, für einen "Retard"
+  unerwartet), und die Formel ist bisher nur an einem einzigen Log verifiziert — zweite
+  unabhängige Bestätigung noch ausstehend.
+- **ECU-Soft-Limiter im 3. Gang (neu 2026-09-19):** schließt die Drosselklappe bereits bei
+  modellierten ~7100-7150 U/min (Log `2026-09-19 150438`), vor dem nominellen 7500er-Redline.
+  Modell-RPM, nicht gemessen (kein Drehzahlkanal in diesem Log) — bei Gelegenheit mit einem
+  Log gegenchecken, das RPM UND den Drosselklappen-Cut gleichzeitig enthält.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
@@ -364,6 +427,11 @@ OBD/CAN-Referenz gesucht werden muss):
     am 2026-09-14 schon als "Status-Flag" aufgefallen und mangels Deutung liegengeblieben.
     Die übrigen damals verworfenen Kandidaten (`0x20A`, `0x200`) sind unter demselben
     Gesichtspunkt nochmal anzusehen – nicht als analoge Messwerte, sondern als Zustandsbits.
+13. ~~KnockRetard-PID identifizieren~~ – **erledigt 2026-09-20**, siehe oben (DID 0x03EC).
+14. **KnockRetard-Formel an einem zweiten, unabhängigen Log bestätigen** und die
+    physikalische Bedeutung des überwiegend negativen Vorzeichens klären (z.B. mit dem
+    Nutzer/einer Mazda-Diagnoseanleitung abgleichen, ob negativ tatsächlich "Zündung
+    zurückgenommen" heißt oder umgekehrt).
 
 ## Zusätzliche Notizen (Claude-Memory)
 Ergänzend zu diesem Dokument gepflegt, überlebt Kontext-Resets:
@@ -373,6 +441,7 @@ Ergänzend zu diesem Dokument gepflegt, überlebt Kontext-Resets:
 - `mx5_tpms.md` — TPMS-Historie (Aufbau, Live-Test, Vorderachsen-Frage)
 - `mx5_pi_status_gui_lag_fix.md` — Diagnose/Fix des Touchdisplay-Gauge-Lags
 - `feedback_background_wait_loops.md` — Session-Mechanik-Lehre (nicht CAN-Projekt-Inhalt): Warteschleifen brauchen eine konkrete PID, kein Namensmuster
+- `mx5_knock_retard_pid.md` — KnockingRetard-PID-Recherche (negativ), Nutzer-Plan für den nächsten Log
 
 ## Hardware
 - **USB-CAN-Adapter:** DSD TECH SH-C31A, basierend auf CANable 2.0 (STM32, candleLight-Firmware)

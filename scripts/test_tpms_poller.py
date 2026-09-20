@@ -2,7 +2,9 @@
 import sys
 
 sys.path.insert(0, "scripts")
-from tpms_poller import build_request, decode_response, PIDS, PCM_PIDS
+from tpms_poller import (
+    build_request, decode_response, PIDS, PCM_PIDS, OBD1_PIDS, OBD1_FAST_PIDS, UDS_FAST_PIDS,
+)
 
 
 def test_build_request_frames_did_correctly():
@@ -67,6 +69,34 @@ def test_single_byte_decode_unchanged():
     assert decode_response(0x2A05, data) == 200
 
 
+def test_throttle_position_formula():
+    name, n_bytes, formula = OBD1_PIDS[0x11]
+    assert (name, n_bytes) == ("ThrottlePosition_pct", 1)
+    assert formula(0) == 0
+    assert round(formula(255), 1) == 100.0
+    assert round(formula(128), 1) == 50.2
+
+
+def test_fast_group_is_lambda_and_throttle_only():
+    """Batteriespannung bleibt in der langsamen Gruppe, nur Lambda+Drosselklappe pollen
+    ohne Intervall-Gate (siehe poll_obd1/poll_obd1_fast)."""
+    assert OBD1_FAST_PIDS == {0x44, 0x11}
+    assert 0x42 not in OBD1_FAST_PIDS
+
+
+def test_knock_retard_formula():
+    """DID 0x03EC, per Korrelation gegen den Handy-Log identifiziert (2026-09-20,
+    candump-2026-09-19_163755 + dlg 2026-09-19 163857): signed_int16(raw)/512 trifft 73%
+    der App-Werte bitgenau. Beide Beispiele hier sind echte, exakt passende Paare aus
+    genau diesem Log (raw=5 -> dlg 0,009766; raw=16 -> dlg 0,031251)."""
+    name, n_bytes, formula = UDS_FAST_PIDS[0x03EC]
+    assert (name, n_bytes) == ("KnockRetard_deg", 2)
+    assert formula(0) == 0
+    assert round(formula(5), 6) == round(5 / 512, 6)
+    assert round(formula(16), 6) == round(16 / 512, 6)
+    assert round(formula(65024), 6) == round((65024 - 65536) / 512, 6)  # negativer Bereich
+
+
 if __name__ == "__main__":
     test_build_request_frames_did_correctly()
     test_decode_response_extracts_raw_value()
@@ -77,5 +107,8 @@ if __name__ == "__main__":
     test_oil_temp_group()
     test_oil_temp_ignores_foreign_response()
     test_single_byte_decode_unchanged()
+    test_throttle_position_formula()
+    test_fast_group_is_lambda_and_throttle_only()
+    test_knock_retard_formula()
     print("alle Tests ok")
     print("OK")

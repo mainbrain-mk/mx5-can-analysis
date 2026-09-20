@@ -5750,3 +5750,32 @@ Selbsttests: `scripts/test_shift_traction_gap_analysis.py` (3 Faelle:
 sauberes Signal, klare Luecke, kein Signal) und `scripts/test_clutch_ride_
 detection.py` (3 Faelle: normales zuegiges Loslassen, haengende Kupplung,
 keine Daten) - beide gruen.
+
+## Automatischer Lauf: 2 neue Logs verarbeitet (2026-09-19)
+
+- `2026-09-19 142929`, Dauer=8min, Masse=1171.2kg (FLI ~41.4%->~31.4%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-19 150438`, Dauer=7min, Masse=1171.8kg (FLI ~38.3%->~38.1%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-19 142929: Resonanz auf AccelerationX bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-19 142929: Resonanz auf AccelerationY bei 6.4 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-19 142929: Resonanz auf AccelerationZ bei 12.7 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-19 150438: Resonanz auf AccelerationX bei 5.4 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-19 150438: Resonanz auf AccelerationY bei 5.4 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-19 150438: Resonanz auf AccelerationZ bei 18.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-19 142929 t=333-342s: a_lat_peak/mean-Verhaeltnis 6.5 > 2.0 (peak=-0.62g, mean=-0.09g) - moegliches Schleudern/Uebersteuern.
+- corner_event: 2026-09-19 142929 t=449-456s: a_lat_peak/mean-Verhaeltnis 4.9 > 2.0 (peak=-0.55g, mean=-0.11g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (links): 1.14g (vorher 1.00g), candump-2026-09-18_170350 @ t=343.1s, v=42km/h - unverifizierter Kandidat, manuell pruefen.
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+
+## Automatischer Lauf: 2 neue Logs verarbeitet (2026-09-20)
+
+- `2026-09-19 163857`, Dauer=17min, Masse=1171.5kg (FLI ~36.3%->~38.1%, automatisch berechnet (SOLO-Annahme))
+- `2026-09-19 233619`, Dauer=15min, Masse=1168.0kg (FLI ~30.1%->~23.8%, automatisch berechnet (SOLO-Annahme))
+
+Auffaelligkeiten:
+- vibration: 2026-09-19 233619: Resonanz auf AccelerationX bei 7.2 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- corner_event: 2026-09-19 233619 t=777-779s: a_lat_peak/mean-Verhaeltnis 2.4 > 2.0 (peak=-0.02g, mean=-0.01g) - moegliches Schleudern/Uebersteuern.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
