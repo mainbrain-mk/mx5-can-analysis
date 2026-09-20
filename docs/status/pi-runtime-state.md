@@ -46,6 +46,11 @@ done
 - Beide über `/home/pi/canlogs/../pi-config/autostart` beim Desktop-Login
   gestartet (**nicht** über systemd).
 
+**Screenshot vom laufenden Dashboard (2026-09-20, 14:44 Uhr, per `grim` über
+Wayland/labwc):**
+
+![dash_gui.py auf dem Pi](images/pi-dashboard-2026-09-20.png)
+
 ## `can-logger.service` (systemd, KeyState-getriggert)
 
 - **Aktuell `inactive`** — erwartet, kein Fehler: der Service ist per
