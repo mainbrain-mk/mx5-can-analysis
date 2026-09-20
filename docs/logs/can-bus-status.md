@@ -2256,6 +2256,70 @@ echtem Fahren bestätigt wird.
 da nachts kein Adapter dran hängt), Governor auf `performance`, Priorität angehoben. Bereit für
 die Fahrt.
 
+## Drosselklappen-PID ergänzt, schnelle Poll-Gruppe von Öl/Batterie getrennt (2026-09-19)
+
+`tpms_poller.py` bekam PID `0x11` (Mode 1, Drosselklappenstellung, `raw*100/255` %) neu in
+`OBD1_PIDS`. Bisher liefen Lambda (SOLL, 0x44) und Batteriespannung (0x42) zusammen im selben
+10s-Takt wie die Öltemperatur (siehe 2026-09-16-Eintrag oben). Weil Lambda+Drosselklappe für
+eine geplante Klopf-/Limiter-Analyse möglichst hochfrequent gebraucht werden, Batteriespannung
+und Öl aber bewusst langsam bleiben sollen (ändern sich kaum, unnötige Buslast vermeiden):
+neue Konstante `OBD1_FAST_PIDS = {0x44, 0x11}`, zwei getrennte Pollfunktionen
+(`poll_obd1` bleibt langsam/10s für Batteriespannung, neues `poll_obd1_fast` fragt Lambda+
+Drosselklappe jede Schleifenrunde ohne Intervall-Gate ab — die erreichbare Frequenz ist damit
+allein durch die Antwortzeit der ECU begrenzt, nicht durch ein festes Sleep). Der bisherige
+feste `time.sleep(0.25)` in der Hauptschleife entfällt entsprechend (das blockierende
+`bus.recv()` der schnellen Gruppe übernimmt die Taktung); nur im `--no-oil`-Fall (kein
+blockierender Call mehr pro Runde) bleibt ein Sleep-Fallback gegen Busy-Loop. `can_backend.py`
+brauchte keine Änderung — es iteriert `OBD1_PIDS` bereits generisch und dekodiert die neue PID
+automatisch mit (`_ThrottlePosition_pct_derived` im UDP-Snapshot). Test ergänzt
+(`test_tpms_poller.py`), lokal grün. Per `scp` auf den Pi kopiert und dort mit dem venv-Python
+auf Kompilierbarkeit geprüft — der Dienst (`can-logger.service`) lief zum Deploy-Zeitpunkt
+nicht (kein CAN-Adapter dran), aktiv wird die neue Version also erst beim nächsten Start.
+
+## ECU begrenzt im 3. Gang schon vor 7500 U/min — Drosselklappe wird von der ECU selbst zugemacht (2026-09-19)
+
+Log `2026-09-19 150438` (Handy-`.dlg`, **kein Drehzahlkanal diesmal geloggt** — die App hat
+diese Session keine RPM-PID abgefragt). Volllast-Zug 76,9→137,5 km/h über t=199,4–207,2s
+(erkannt über den ETC_ACT>80°-&-Lambda<0,9-Fallback aus `wot_segments()`, da `TM_GEST` in
+diesem Log fehlt). Drehzahl über `VehicleSpeed` + 3.-Gang-Verhältnis modelliert (2,035,
+Endantrieb 2,866, R_dyn 0,2985m — Konstanten aus `drivetrain_model_validation.py`), NICHT
+gemessen.
+
+Ab t≈207,25s (13:08:06 Uhr) bricht `ETC_ACT` (die tatsächliche, ECU-gesteuerte
+Drosselklappen-Ist-Position, nicht das Pedal) schlagartig von konstant ~86° auf 41°→…→11°
+ein, `ActualEnginePercentTorque` gleichzeitig von 91% auf 0%, Geschwindigkeit bleibt für ~1s
+bei 140 km/h stehen. Modellierte Drehzahl an dieser Stelle: ~7100-7150 U/min — spürbar unter
+dem nominellen Redline von 7500. Davor bereits eine sanfte Drehmoment-Abregelung von 98%
+(Peak bei ~4900-5100 U/min) auf 91% bis zum harten Cut. Interpretation: die ECU schließt hier
+selbst die Drosselklappe (Drive-by-Wire-Eingriff), nicht nur eine reine Zündungs-/
+Einspritzabregelung — ein Soft-Limiter deutlich vor dem erwarteten Redline.
+
+`TimingAdvance` für denselben Zeitraum geprüft (Frage: Klopfen als Auslöser?): steigt bis
+t=206,85s sauber monoton von ~8° auf ~19,5° (kein Hinweis auf Klopf-typischen Einbruch+
+Erholung), wird aber ab genau t=207,06s (Beginn des ECU-Eingriffs) chaotisch (Sprünge
+zwischen -2,5° und 45,5°) — zeitlich deckungsgleich mit dem Drosselklappen-/Drehmoment-Cut,
+eher Nebeneffekt der Limiter-Strategie selbst als eigenständiger Klopf-Beleg.
+
+**KnockingRetard-Recherche (kein CAN-Kanal, kein bekannter OBD-PID):** dieses Log hat gar
+keinen Klopf-Kanal (nicht abgefragt). `KnockingRetard` existiert im Datalake nur aus 5 alten
+`CSVLog_*`-Sessions vom 12./13./17.08.2026 (Car-Scanner-App), Werte meist 0 mit vereinzelten
+negativen Ausreißern bis -3° (Vorzeichen für einen "Retard" unplausibel, Formel/PID nie
+verifiziert). Aus jener Zeit gibt es kein begleitendes Y-Splitter-CAN-Log, aus dem sich die
+tatsächlich gesendete PID zurückrechnen ließe (CAN-Logging startete erst ~09-11/09-12).
+Websuche bestätigt: "Knocking Retard" ist **keine SAE-J1979-Standard-Mode-1-PID**, sondern
+herstellerspezifisch (GM: proprietäre PID 0x125D/0x125E; Toyota: komplett anderer
+Diagnose-Mode 0x21) — für Mazda nirgends dokumentiert gefunden. Ein Blindversuch in
+`tpms_poller.py` wurde deshalb bewusst NICHT gemacht (Risiko, versehentlich eine falsche PID
+zu treffen und Datenmüll als "Klopfen" zu loggen).
+
+**Nutzer-Plan (Stand Abend 19.09.):** fragt `KnockRetard` direkt per Handy-OBD-App ab und
+wiederholt den Drehzahl-Max-Test im 3. Gang. Auswertung frühestens 20.09. Sobald das Log da
+ist: prüfen, ob parallel ein CAN-Log mit Y-Splitter mitlief — falls ja, die tatsächlich
+gesendete Mode-1-PID über `scripts/obd_from_can.py` aus dem CAN-Traffic auslesen (gleiche
+Technik wie bei TimingAdvance=0x0E/LambdaCommanded=0x44/EnginePercentTorque=0x62 in
+`can_find_native_counterpart.py`), dann PID in `OBD1_PIDS`/`OBD1_FAST_PIDS` ergänzen und
+`tpms_poller.py` neu deployen.
+
 ## `build_datalake.py` von Full-Rebuild auf inkrementell umgestellt (2026-09-20)
 
 Bei inzwischen 139 Logs (>100 Mio Messwerte, 15 GB Rohdaten) dauerte der bisherige
@@ -2284,3 +2348,56 @@ Verifiziert: `--full`-Lauf mit neuem Schema liefert exakt dieselben 139 Logs /
 Summe/Anzahl pro log_id+channel, Abweichungen nur im Bereich 1e-10 durch andere
 Summierungsreihenfolge in DuckDB). Ein direkt folgender Lauf ohne Quelländerungen:
 2s statt 13min. `--full` bleibt als manueller Fluchtweg nach Mapping-Aenderungen.
+
+## KnockingRetard-PID gefunden: DID 0x03EC, per Korrelation gegen den Y-Splitter-Log identifiziert (2026-09-20)
+
+Fortsetzung von gestern ("ECU begrenzt im 3. Gang..."): Nutzer fragte `KnockRetard` (Car
+Scanner nennt den Kanal `KNOCKR`) am Abend des 19.09. per Handy-OBD-App ab und wiederholte
+den Drehzahl-Max-Test (Log `2026-09-19 233619`, kein begleitendes CAN-Log). Beim Sichten der
+neuen Logs im Datalake fiel auf, dass `KNOCKR` auch in einem FRÜHEREN Log desselben Tages
+steckt: `2026-09-19 163857` (dlg, ~16:38-16:55 lokal) — und dafür existiert sehr wohl ein
+zeitgleiches Y-Splitter-CAN-Log, `candump-2026-09-19_163755`. Genau die Konstellation, die
+gestern als Plan für "sobald ein Log mit CAN-Pairing da ist" festgehalten wurde.
+
+**Vorgehen:** `obd_from_can.py`s `decode_obd_traffic()`/`extract_did_series()` auf das CAN-Log
+angewandt, alle im Log vorkommenden Mode-1/22-Antworten (0x44, 0x11, 0x0D, 0x10, 0x62, 0x0E,
+0x42, sowie zwei bis dahin unbenannte Mode-22-DIDs `F42F`/`03EC`) per `merge_asof`
+(Toleranz 2s) gegen die zeitgleichen `KNOCKR`-Werte aus dem dlg gemappt (dabei den bekannten
+dlg-UTC-Mislabeling-Bug beachtet: dlg-`timestamp_local` ist tatsaechlich UTC, +2h fuer den
+Vergleich mit der CAN-Log-Uhr). `F42F` fiel schnell raus (bereits als `FLI`/Tankfuellstand
+bekannt, r=0,15, reiner Zufallstreffer). **`03EC` (Mode 0x22, PCM-Header 0x7E0/0x7E8, 2 Byte)
+korreliert r=-0,857 (unsigned) bzw. r=+0,979 nach Vorzeichenkorrektur.** Formel
+`signed_int16(raw)/512` trifft **73% der 3568 App-Werte bitgenau** (Rest ist
+Zeitstempel-Jitter beim 2s-Nearest-Match, keine Formelabweichung), R²=0,958 im
+Least-Squares-Fit. Bestätigt damit auch die gestrige Websuche: `KnockRetard` ist keine
+SAE-J1979-Mode-1-PID, sondern ein herstellerspezifisches Mode-22-UDS-DID.
+
+**Vorzeichen weiterhin ungeklärt** (Werte in den Daten fast ausschließlich ≤0, für einen
+"Retard" an sich unerwartet, siehe gestriger Eintrag) — hier unveraendert wie von der App
+gemeldet übernommen, keine Umkehrung vorgenommen ohne physikalische Bestätigung.
+
+**Umgesetzt:**
+- `scripts/tpms_poller.py`: neue Konstante `UDS_FAST_PIDS = {0x03EC: (...)}`, neue Funktion
+  `poll_knock_fast()`, in der Hauptschleife zusammen mit `poll_obd1_fast()` (Lambda+
+  Drosselklappe) ungebremst jede Runde abgefragt — selbe Begründung wie gestern: für eine
+  Klopf-/Limiter-Analyse sind seltene Samples wertlos. Test ergänzt (`test_tpms_poller.py`,
+  mit echten exakten Rohwert/App-Wert-Paaren aus genau diesem Log), lokal grün. Per `scp` auf
+  den Pi deployt und mit dem venv-Python kompiliert geprüft (Dienst lief beim Deploy nicht).
+- `scripts/can_log_parser.py`: `OBD_CHANNELS` um `("mode22", 0x03EC): ("KnockRetard_OBD", ...)`
+  ergänzt — damit bekommt JEDES künftige CAN-Log (auch ohne Handy/dlg) automatisch einen
+  `KnockRetard_OBD`-Kanal, sobald `tpms_poller.py` die DID pollt oder ein Y-Splitter-Handy sie
+  abfragt.
+- `scripts/build_datalake.py`: `NAME_ALIASES["KnockRetard_OBD"] = ("KnockRetard_CAN", "°")`,
+  `SCHEMA_VERSION` 1→2 hochgezaehlt (Mapping-Aenderung, siehe Docstring-Konvention weiter
+  oben) — erzwingt einen Re-Ingest aller 139 Logs, damit der neue Kanal auch rückwirkend für
+  bereits vorhandene CAN-Logs berechnet wird (die allermeisten davon werden leer sein, da
+  `tpms_poller.py` die DID vor heute nie abgefragt hat und die Handy-App sie nur in den 2
+  Logs vom 19.09. abends/nachmittags abgefragt hat).
+- `scripts/can_find_native_counterpart.py`: `OBD_REFS["KnockRetard"]` ergänzt, für künftige
+  Cross-Checks/Sweeps im selben Werkzeug wie die übrigen bekannten OBD-Referenzen.
+
+**Damit ist die von gestern offene Frage geklärt:** wir können Klopfen (bzw. das, was diese
+DID tatsächlich meldet) jetzt sowohl live auf dem Pi (schnelle Poll-Gruppe) als auch
+rückwirkend aus jedem CAN-Log erfassen. Offen bleibt die physikalische Interpretation des
+Vorzeichens sowie erneute Bestätigung an einem zweiten, unabhängigen Log (bisher nur an
+einem einzigen Y-Splitter-Log verifiziert).

@@ -69,6 +69,23 @@ PCM_PIDS = {
     0x1310: ("OilTemp_C", 2, lambda raw: raw / 100 - 40),
 }
 
+# --- Klopfen/Zuendungskorrektur (2026-09-20) ---------------------------------------------
+# DID 0x03EC identifiziert per Y-Splitter-Log (candump-2026-09-19_163755 + dlg
+# 2026-09-19 163857, beide zeitgleich): Nutzer fragte "KnockRetard" per Handy-App ab (Car
+# Scanners Kanalname "KNOCKR"), das aber KEINE SAE-J1979-Standard-Mode-1-PID ist (Websuche:
+# herstellerspezifisch, bei GM z.B. 0x125D/0x125E, bei Toyota sogar eigener Diagnose-Mode) -
+# stattdessen ein bisher unbekanntes Mode-0x22-UDS-DID auf dem PCM-Header. Gefunden per
+# Korrelation aller im CAN-Log gesehenen Mode-1/22-Antworten gegen die App-Werte:
+# signed_int16(raw)/512 trifft 73% der App-Werte bitgenau (restliche Abweichung ist
+# Interpolations-Jitter beim Zeitstempel-Matching, keine Formelabweichung), R²=0,958.
+# Vorzeichen unklar interpretierbar (negativ dominant in den Daten, fuer einen "Retard" an
+# sich unerwartet) - wird hier unveraendert wie von der App gemeldet uebernommen.
+# Laeuft in der SCHNELLEN Gruppe (siehe poll_knock_fast), aus demselben Grund wie
+# Lambda/Drosselklappe: fuer eine Klopf-/Limiter-Analyse sind seltene 10s-Samples wertlos.
+UDS_FAST_PIDS = {
+    0x03EC: ("KnockRetard_deg", 2, lambda raw: (raw - 65536 if raw >= 32768 else raw) / 512),
+}
+
 # --- Lambda (Soll) + Batteriespannung (2026-09-16, Renncockpit-Neubau) -------------------
 # Standard-Mode-1-OBD-PIDs (SAE J1979), nicht die herstellerspezifischen Mode-0x22-UDS-DIDs
 # wie oben - anderes Anfrage/Antwort-Format (siehe build_request_mode1/decode_response_mode1).
@@ -77,10 +94,18 @@ PCM_PIDS = {
 # parallel. PID 0x44 liefert nur das vom Steuergeraet ANGEFORDERTE Lambda, kein Sondenmesswert
 # (siehe scripts/can_byte_search.py, scripts/uds_did_sweep.py) - im Dashboard entsprechend
 # beschriften, nicht als gemessenen Wert ausgeben.
+#
+# 0x11 (Drosselklappenstellung, 2026-09-19) laeuft zusammen mit Lambda in der SCHNELLEN
+# Gruppe (siehe OBD1_FAST_PIDS/poll_obd1_fast) - im Gegensatz zu Batteriespannung/Oel, die
+# sich kaum aendern, will man Drosselklappe+Lambda so oft wie moeglich sehen. Die erreichbare
+# Frequenz ist dabei nicht durch ein Intervall begrenzt, sondern einzig durch die
+# Antwortzeit der ECU (poll_group wartet pro PID auf die Antwort, dann sofort die naechste).
 OBD1_PIDS = {
     0x44: ("LambdaCommanded", 2, lambda raw: raw / 32768),
     0x42: ("BatteryVoltage", 2, lambda raw: raw / 1000),
+    0x11: ("ThrottlePosition_pct", 1, lambda raw: raw * 100 / 255),
 }
+OBD1_FAST_PIDS = {0x44, 0x11}
 
 PIDS = {
     0x2A05: ("Tire1_Pressure_bar", 1, lambda raw: (raw * 1373 / 1000) / 100),
@@ -163,9 +188,26 @@ def poll_oil(bus, timeout=0.5):
     return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, PCM_PIDS, timeout)
 
 
+def poll_knock_fast(bus, timeout=0.5):
+    """KnockRetard (UDS-DID 0x03EC), ohne Wartezeit zwischen Aufrufen gedacht - wie
+    poll_obd1_fast ist die erreichbare Frequenz allein durch die ECU-Antwortzeit begrenzt."""
+    return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, UDS_FAST_PIDS, timeout)
+
+
 def poll_obd1(bus, timeout=0.5):
-    """Lambda (Soll) + Batteriespannung, Mode-1-PIDs, gleicher Header wie poll_oil."""
-    return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, OBD1_PIDS, timeout,
+    """Batteriespannung, Mode-1-PID, gleicher Header/Takt wie poll_oil - bewusst LANGSAM
+    (siehe OBD1_PIDS), Lambda+Drosselklappe laufen separat ueber poll_obd1_fast."""
+    slow_pids = {pid: v for pid, v in OBD1_PIDS.items() if pid not in OBD1_FAST_PIDS}
+    return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, slow_pids, timeout,
+                       request_fn=build_request_mode1, decode_fn=decode_response_mode1)
+
+
+def poll_obd1_fast(bus, timeout=0.5):
+    """Lambda (Soll) + Drosselklappenstellung, ohne Wartezeit zwischen Aufrufen gedacht -
+    poll_group fragt beide PIDs nacheinander ab und wartet jeweils nur auf die Antwort,
+    die erreichbare Frequenz ist also allein durch die ECU-Antwortzeit begrenzt."""
+    fast_pids = {pid: v for pid, v in OBD1_PIDS.items() if pid in OBD1_FAST_PIDS}
+    return poll_group(bus, PCM_REQUEST_ID, PCM_RESPONSE_ID_RANGE, fast_pids, timeout,
                        request_fn=build_request_mode1, decode_fn=decode_response_mode1)
 
 
@@ -210,15 +252,34 @@ def main():
                 except Exception as exc:
                     print(f"  Oelabfrage fehlgeschlagen: {exc!r}", flush=True)
                 try:
-                    values, _ = poll_obd1(bus)  # Lambda (Soll) + Batteriespannung, gleicher
-                    if values:                  # Header/Takt wie Oel, siehe poll_obd1.
+                    values, _ = poll_obd1(bus)  # Batteriespannung, gleicher Header/Takt wie
+                    if values:                  # Oel, siehe poll_obd1 (bewusst langsam).
                         print(values, flush=True)
                 except Exception as exc:
-                    print(f"  Lambda/Batterie-Abfrage fehlgeschlagen: {exc!r}", flush=True)
+                    print(f"  Batterie-Abfrage fehlgeschlagen: {exc!r}", flush=True)
                 next_oil = time.time() + args.oil_interval if args.oil_interval > 0 else float("inf")
+            if not args.no_oil:
+                # Lambda + Drosselklappe: kein next_*-Gate wie oben, jede Schleifenrunde
+                # fragt sofort erneut ab - die Rate ergibt sich allein aus der Antwortzeit
+                # der ECU (poll_group blockiert je PID auf die Antwort).
+                try:
+                    values, _ = poll_obd1_fast(bus)
+                    if values:
+                        print(values, flush=True)
+                except Exception as exc:
+                    print(f"  Lambda/Drosselklappe-Abfrage fehlgeschlagen: {exc!r}", flush=True)
+                try:
+                    values, _ = poll_knock_fast(bus)
+                    if values:
+                        print(values, flush=True)
+                except Exception as exc:
+                    print(f"  KnockRetard-Abfrage fehlgeschlagen: {exc!r}", flush=True)
+            else:
+                # Ohne die schnelle Gruppe blockiert hier nichts mehr auf den Bus - ohne
+                # Pause wuerde die Schleife bis zum naechsten TPMS-Intervall leerlaufen.
+                time.sleep(0.25)
             if args.interval <= 0 and (args.no_oil or args.oil_interval <= 0):
                 break
-            time.sleep(0.25)
     finally:
         bus.shutdown()
 

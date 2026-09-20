@@ -57,6 +57,7 @@ OBD_REFS = {
     "OBD1_LambdaCommanded": ("mode1", 0x44, lambda r: r / 32768),
     "OBD1_TimingAdvance": ("mode1", 0x0E, lambda r: r / 2 - 64),
     "OBD1_EnginePercentTorque": ("mode1", 0x62, lambda r: r - 125),
+    "KnockRetard": ("mode22", 0x03EC, lambda r: (r - 65536 if r >= 32768 else r) / 512),
     "STEER_ANGL_EPS": ("mode22", 0x3302, lambda r: r),
 }
 

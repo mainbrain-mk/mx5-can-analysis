@@ -95,6 +95,11 @@ OBD_CHANNELS = {
     ("mode1", 0x44): ("LambdaCommanded_OBD", lambda r: r / 32768),
     ("mode1", 0x0E): ("TimingAdvance_OBD", lambda r: r / 2 - 64),
     ("mode1", 0x62): ("EnginePercentTorque_OBD", lambda r: r - 125),
+    # DID 0x03EC (2026-09-20): "KnockRetard", herstellerspezifisches Mode-0x22-UDS-DID (keine
+    # SAE-J1979-Standard-PID), identifiziert per Korrelation gegen den Handy-Kanal "KNOCKR"
+    # im Y-Splitter-Log candump-2026-09-19_163755/dlg 2026-09-19 163857 - signed_int16(raw)/512
+    # trifft 73% der App-Werte bitgenau, R²=0,958 (siehe scripts/tpms_poller.py UDS_FAST_PIDS).
+    ("mode22", 0x03EC): ("KnockRetard_OBD", lambda r: (r - 65536 if r >= 32768 else r) / 512),
 }
 
 
