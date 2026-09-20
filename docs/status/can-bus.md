@@ -365,6 +365,35 @@ OBD/CAN-Referenz gesucht werden muss):
   (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
 
 ### Bekannte offene Punkte
+- **Momentanverbrauch (l/100km, Kombiinstrument-MID) – noch kein CAN-Signal gefunden, aber
+  ein neuer, sauberer Kanal + ein vielversprechender Zusatzkandidat dabei entdeckt
+  (2026-09-20, Auto bis 22.09. nicht verfügbar, daher Log-only-Kreativrunde):** weder
+  Standard-OBD-PID `0x5E` noch Mode-22-DIDs noch mehrere HS-CAN-Byte-Sweeps (gepollter UND
+  dichter nativer MAF-Proxy aus RPM×MAP, referenzfreie Feld-Segmentierung über alle 101
+  Botschaften, Schubabschaltungs-Diskriminator-Test) liefern einen eigenständigen
+  Verbrauchs-Kandidaten. **Entscheidender neuer Hebel:** Nutzer bestätigt, die
+  MID-Anzeige aktualisiert nur alle paar hundert Meter (distanz-, nicht zeitgetaktet) – ein
+  eigens gebauter Distanz-Sprung-Detektor (Wertänderung gegen zurückgelegte Strecke statt
+  Zeit) fand darüber `0x977` (`HS_CMU_MMmonth`) Byte5-6: fällt exakt mit -4,000 Rohwert-Counts
+  pro Odometer-km (r=-0,9999, 3/3 Logs) – ein echter, jetzt als `DistanceCountdown_maybe` in
+  die DBC übernommener Kanal, aber fahrverhaltensunabhängig (vermutlich Wartungsintervall,
+  nicht Verbrauch) – löst nebenbei das alte "Mileage liefert nur Müllwerte"-Rätsel (war ein
+  Dual-Column-Mix mit dem benachbarten Byte4). Das ebenfalls in `0x977` liegende Byte3-4 zeigt
+  die bisher stärkste (aber noch instabile, R²=0,33-0,71) Korrelation mit RPM/MAF alle
+  bisherigen Verbrauchskandidaten – nicht übernommen, aber vielversprechendster offener
+  Faden. **Nächster belastbarer Schritt weiterhin:** aktiver UDS-DID-Sweep am stehenden
+  Fahrzeug (`uds_did_sweep.py`) nach einer echten Einspritzzeit-DID – siehe Logbuch "Suche
+  nach dem Momentanverbrauch…" und "Kreativ-Runde ohne Testfahrt".
+- **Verbrauch aus MAF/Lambda berechnet und validiert (2026-09-20):** `fuel_g_s =
+  MAF/(Lambda·14,7)` (FuelCut als Nullstellen-Override) liefert für Einzelfahrten
+  plausible 5,8-8,6 l/100km. Über den längsten durchgehenden Y-Splitter-Abschnitt
+  (10 Logs, 188 km) stimmt die Hochrechnung (7,0-7,1 l/100km) mit der Tankanzeige
+  (0x9E Byte5, kalibriert an einem echten Tankvorgang: 150 Rohwert-Einheiten ≙ ~36 l
+  Nutzerangabe → 0,24 l/Einheit) auf 7,53 l/100km überein (~6-7% Abweichung, für zwei
+  unabhängige Methoden sehr gut). Löst nebenbei den alten "Fuel_Tank-Rohwert 0-21 zu
+  niedrig"-Verdacht (war der bereits DBC-skalierte statt der rohe Wert). `fuel_g_s`
+  ist jetzt eine einsatzbereite Rechengröße für Y-Splitter-Logs. Details: Logbuch
+  "Kraftstofffluss aus MAF/Lambda berechnet…".
 - ~~**`KnockingRetard`-PID unbekannt**~~ – **GELÖST 2026-09-20**: DID `0x03EC` (Mode 0x22,
   PCM-Header 0x7E0/0x7E8), Formel `signed_int16(raw)/512`, per Korrelation gegen ein
   Y-Splitter-Log identifiziert (73% der App-Werte bitgenau, R²=0,958) — siehe Logbuch
