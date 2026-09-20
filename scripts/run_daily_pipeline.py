@@ -26,6 +26,7 @@ import subprocess
 import sys
 from datetime import date
 
+import can_log_parser
 import pipeline_checks
 import render_report
 
@@ -44,6 +45,10 @@ DRIVER_MASS_KG = 86.0
 EMPTY_MASS_KG = 1073.0
 TANK_LITERS = 45.0
 FUEL_DENSITY_KG_L = 0.745
+# Beifahrer-Zusatzmasse (2026-09-20, siehe DBC-Kommentar bei BO_832
+# PassengerSeatOccupied_maybe / docs/logs/can-bus-status.md): wird anteilig zum
+# belegten Zeitanteil der Fahrt aufaddiert, nicht binaer - siehe compute_mass().
+PASSENGER_MASS_KG = 75.0
 
 
 def run_script(args, errors, timeout=1800):
@@ -145,6 +150,31 @@ def _find_matching_gpx(log_id):
         diff = abs((int(gh) * 3600 + int(gmi) * 60 + int(gs)) - log_s)
         if diff <= GPX_PAIR_TOLERANCE_S and (best_diff is None or diff < best_diff):
             best, best_diff = os.path.basename(gpx_path), diff
+    return best
+
+
+def _find_matching_can_log(dlg_log_id):
+    """Sucht data/can/candump-*.log mit gleichem Datum wie dlg_log_id (Format
+    'YYYY-MM-DD HHMMSS') und Startzeit innerhalb GPX_PAIR_TOLERANCE_S (dieselbe
+    Toleranz wie bei _find_matching_gpx - der Pi startet candump typischerweise
+    einige Sekunden vor der OBD-Fusion-App, siehe z.B. candump-2026-09-18_090404
+    vs. dlg '2026-09-18 090449', 45s Abstand). None, falls kein Treffer - dann
+    bleibt compute_mass() bei der reinen SOLO-Annahme."""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(\d{2})", dlg_log_id)
+    if not m:
+        return None
+    y, mo, d, h, mi, s = m.groups()
+    date_prefix = f"{y}-{mo}-{d}"
+    dlg_s = int(h) * 3600 + int(mi) * 60 + int(s)
+    best, best_diff = None, None
+    for can_path in glob.glob(f"{CAN_DIR}/candump-{date_prefix}_*.log"):
+        cm = re.match(rf"candump-{date_prefix}_(\d{{2}})(\d{{2}})(\d{{2}})\.log$", os.path.basename(can_path))
+        if not cm:
+            continue
+        ch, cmi, cs = cm.groups()
+        diff = abs((int(ch) * 3600 + int(cmi) * 60 + int(cs)) - dlg_s)
+        if diff <= GPX_PAIR_TOLERANCE_S and (best_diff is None or diff < best_diff):
+            best, best_diff = can_path, diff
     return best
 
 
@@ -343,9 +373,23 @@ def compute_mass(log_id):
     start_pct, end_pct = statistics.median(first10), statistics.median(last10)
     level_pct = (start_pct + end_pct) / 2
     fuel_kg = (level_pct / 100 * TANK_LITERS) * FUEL_DENSITY_KG_L
-    mass_kg = round(EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_kg, 1)
-    note = f"FLI ~{start_pct:.1f}%->~{end_pct:.1f}%, automatisch berechnet (SOLO-Annahme)"
-    return mass_kg, note
+    mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_kg
+    note = f"FLI ~{start_pct:.1f}%->~{end_pct:.1f}%"
+
+    can_path = _find_matching_can_log(log_id)
+    if can_path is not None:
+        occupied_s, total_s = can_log_parser.passenger_occupied_seconds(can_path)
+        if total_s > 0:
+            occupied_frac = occupied_s / total_s
+            mass_kg += PASSENGER_MASS_KG * occupied_frac
+            note += (f", Beifahrer {occupied_frac:.0%} der Fahrt "
+                     f"({os.path.basename(can_path)}, PassengerSeatOccupied_maybe)")
+        else:
+            note += ", CAN-Log ohne 0x340-Belegungsdaten (SOLO-Annahme)"
+    else:
+        note += ", kein CAN-Log gefunden (SOLO-Annahme)"
+
+    return round(mass_kg, 1), note
 
 
 def update_mass_overrides(new_logs):
