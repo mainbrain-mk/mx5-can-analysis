@@ -95,6 +95,10 @@ OBD_CHANNELS = {
     ("mode1", 0x44): ("LambdaCommanded_OBD", lambda r: r / 32768),
     ("mode1", 0x0E): ("TimingAdvance_OBD", lambda r: r / 2 - 64),
     ("mode1", 0x62): ("EnginePercentTorque_OBD", lambda r: r - 125),
+    # PID 0x11 (2026-09-20): Drosselklappenstellung, laeuft seit demselben Tag zusammen mit
+    # Lambda in tpms_poller.py's ungegateter Fast-Gruppe (siehe OBD1_FAST_PIDS) - bisher nur
+    # live im Dash sichtbar, hier nachgezogen damit sie auch im Datalake landet.
+    ("mode1", 0x11): ("ThrottlePosition_OBD", lambda r: r * 100 / 255),
     # DID 0x03EC (2026-09-20): "KnockRetard", herstellerspezifisches Mode-0x22-UDS-DID (keine
     # SAE-J1979-Standard-PID), identifiziert per Korrelation gegen den Handy-Kanal "KNOCKR"
     # im Y-Splitter-Log candump-2026-09-19_163755/dlg 2026-09-19 163857 - signed_int16(raw)/512

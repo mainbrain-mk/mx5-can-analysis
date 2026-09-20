@@ -141,7 +141,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
 # Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
 # der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
                         "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
@@ -275,6 +275,7 @@ CAN_SIGNAL_MAP = {
     "TimingAdvance_OBD": ("TimingAdvance_CAN", "°"),
     "EnginePercentTorque_OBD": ("EnginePercentTorque_CAN", "%"),
     "KnockRetard_OBD": ("KnockRetard_CAN", "°"),
+    "ThrottlePosition_OBD": ("ThrottlePosition_CAN", "%"),
     "Tire1_Temp_maybe": ("TireTemp_CAN_Tire1", "°C"),
     "Tire2_Temp_maybe": ("TireTemp_CAN_Tire2", "°C"),
     "Tire3_Temp_maybe": ("TireTemp_CAN_Tire3", "°C"),
