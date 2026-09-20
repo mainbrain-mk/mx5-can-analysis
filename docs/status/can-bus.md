@@ -322,6 +322,13 @@ vertrauen, Details im Logbuch unten.
   (hinten rechts) liegt in beiden Fahrten durchgängig ~0,15-0,2 bar über den anderen drei
   Reifen.
 
+- **Beifahrer-Gurtschloss (2026-09-20, bestätigt):** `0x340`/`HS_RCM` Byte3 Bit2
+  (`PassengerSeatbelt_Buckled`) – 1 wenn der Beifahrergurt eingesteckt ist, 0 sonst. An 2
+  unabhängigen Freitagslogs (18.09.) gegen exakte Nutzer-Zeitangaben verifiziert (Ein-/
+  Aussteigen, An-/Abschnallen). Ist der Gurtschloss-Schalter, **keine** Gewichts-/
+  Sitzbelegungserkennung – Details und offener Testfahrt-Punkt siehe Logbuch-Eintrag
+  2026-09-20 und "Bekannte offene Punkte".
+
 Aktuell im Datalake sind nur die ✓-markierten, durchgehend numerischen Telemetriekanäle
 integriert (siehe `CAN_SIGNAL_MAP` in `scripts/build_datalake.py`) – Schalter/Status-Signale
 sind genauso dekodierbar, aber bisher nicht übernommen (bei Bedarf leicht ergänzbar).
@@ -383,6 +390,11 @@ OBD/CAN-Referenz gesucht werden muss):
   No-RTC-Vorkommnis…".
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
+- **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
+  Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
+  angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
+  Gurtwarnung, Zeit notieren) und erneute Bit-Suche über `0x340` (und ggf. weitere leere
+  Botschaften) für dieses Zeitfenster. Vom Nutzer für später vorgemerkt (2026-09-20).
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
   `ABS_Active` = 0x211 (HS_ABS) Bit 42. Über ein 35-Minuten-Log zu 0,052 % gesetzt, in genau
   den zwei Phasen mit echter ABS-Modulation; Negativkontrolle 0,000 % in der Hinfahrt

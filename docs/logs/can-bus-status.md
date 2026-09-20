@@ -2600,3 +2600,48 @@ WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1`) übe
 neu gestartet (überlebt das Ende der SSH-Session). Log zeigt sauberen Neustart ("Start
 application main loop"), vom Nutzer bei der nächsten Sichtprüfung als "perfekt umgesetzt"
 bestätigt. `can_backend.py` blieb unangetastet (keine Änderung daran).
+
+## Beifahrer-Gurtschloss gefunden: `0x340`/`HS_RCM` Byte3 Bit2 (2026-09-20)
+
+Ausgangspunkt: Nutzer wollte aus den Logs ablesen können, ob der Beifahrersitz belegt war,
+Verdacht auf ein CAN-Signal wegen der Gurt-nicht-eingesteckt-Warnung. `0x340` (832) steht in
+unserer eigenen DBC bereits als leere `BO_ 832 HS_RCM`-Botschaft (Restraint Control Module —
+inhaltlich der richtige Ort für Gurt-/Rückhaltesystem-Signale). Die opendbc-`mazda_2017.dbc`
+(bereits als externe Quelle importiert, siehe Deep-Search-Eintrag 2026-09-15) benennt dieselbe
+ID `SEATBELT` mit u.a. `PASSENGER_SEATBELT` (Bit 26, little-endian) und `DRIVER_SEATBELT`
+(Bit 27) — Namen aus einer Fremd-DBC, laut Methodik nicht blind übernommen, sondern gegen
+eigene Logs geprüft (`can_opendbc_crosscheck.py`: `PASSENGER_SEATBELT` variiert 0/1 in 3 von 10
+geprüften Logs, `DRIVER_SEATBELT` in allen 10 — beide plausibel als Schaltersignale, nicht als
+Zähler).
+
+**Kreuzvalidierung gegen Nutzer-Zeitangaben (Freitag, 18.09.):**
+- `candump-2026-09-18_093544.log`: Nutzer nannte exakt den Ablauf "Beifahrer steigt in der
+  ersten Minute nach Motorstart ein und schnallt sich an, steigt später im Lauf der Fahrt aus
+  (schnallt vorher ab), Log läuft weiter". Bit 26 kippt auf 1 bei **t+35,3s** (Motorstart), auf
+  0 bei **t+745,2s** (12,4 min später) — beides passt exakt zur beschriebenen Zeitstruktur.
+- `candump-2026-09-18_090404.log`: Nutzer hatte den Gurt nur eingesteckt, um einen Pi zu
+  halten, kein echter Insasse ("Sitzbelegungsschalter dürfte nicht aktiv gewesen sein"). Bit 26
+  bleibt hier die ganze Fahrt konstant 1 — konsistent damit, dass es der **mechanische
+  Gurtschloss-Schalter** ist (reagiert aufs Einstecken, nicht auf Gewicht).
+- `candump-2026-09-18_170350.log` + Folgelog `..._171150.log` (vom Nutzer als zusammenhängende
+  Fahrt mit Beifahrer bestätigt): Bit kippt in `170350` bei t+130,3s auf 1 (Beifahrer steigt
+  während der Fahrt zu) und in `171150` bei t+393,7s (kurz vor Logende) wieder auf 0 — zweites,
+  unabhängiges Log, damit nach Projekt-Konvention (2-4 unabhängige Logs) als **bestätigt**
+  eingestuft.
+
+**Wichtige Einschränkung:** Bit 26 ist der Gurtschloss-Schalter, keine (Gewichts-)
+Sitzbelegungserkennung. In allen bisherigen Logs fiel "Beifahrer sitzt" und "Beifahrer
+angeschnallt" zeitlich praktisch zusammen — der Fall "sitzt, aber nicht angeschnallt"
+(genau das Warnungs-Szenario) wurde noch nie beobachtet. Byte 0 derselben Botschaft (opendbc
+`NEW_SIGNAL_1`) wurde als Kandidat geprüft und verworfen: es ändert sich nur kurz nach
+Motorstart (Zündungs-/BCM-Hochlauf), nicht mit Ein-/Ausstieg des Beifahrers. Kein weiteres,
+gering-kardinales Bit in `0x340` zeigt ein Muster, das eher zu einer Gewichtssensorik passt.
+**Offener Punkt (Nutzer will später eine gezielte Testfahrt machen):** Beifahrer sitzt bewusst
+einige Sekunden *ohne* sich anzuschnallen (bis die Gurtwarnung kommt), exakte Zeit notieren,
+danach erneut alle Bits von `0x340` (und ggf. andere leere Botschaften) auf ein zusätzliches,
+vom Gurtschloss unabhängiges Bit absuchen.
+
+DBC ergänzt: `PassengerSeatbelt_Buckled : 26|1@1+ (1,0) [0|1] ""` unter `BO_ 832 HS_RCM`, mit
+Herleitungskommentar. `DRIVER_SEATBELT` (Bit 27) nicht übernommen — Bitlage bei Motorola-
+Byte-Order (`@0`) noch nicht sauber verifiziert (siehe Herleitung oben, out of scope für diese
+Anfrage), nur der bereits bestätigte Kandidat eingetragen.
