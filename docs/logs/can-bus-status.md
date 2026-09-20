@@ -2645,3 +2645,224 @@ DBC ergänzt: `PassengerSeatbelt_Buckled : 26|1@1+ (1,0) [0|1] ""` unter `BO_ 83
 Herleitungskommentar. `DRIVER_SEATBELT` (Bit 27) nicht übernommen — Bitlage bei Motorola-
 Byte-Order (`@0`) noch nicht sauber verifiziert (siehe Herleitung oben, out of scope für diese
 Anfrage), nur der bereits bestätigte Kandidat eingetragen.
+
+## Suche nach dem Momentanverbrauch (l/100km, Kombiinstrument) auf dem HS-CAN (2026-09-20)
+
+Nutzerfrage: im Kombiinstrument/MID ist ein Momentanverbrauch (l/100km) sichtbar - trägt ein
+CAN-Byte diesen Wert oder eine Vorstufe davon (Einspritzmenge/Kraftstoffrate)?
+
+**Erster Check: Standard-OBD-Weg ausgeschlossen.** Mode-1-PID `0x5E` ("Engine Fuel Rate",
+SAE J1979, Liter/h) steht zwar seit dem multiframe-Fix vom 15.09. in `obd_from_can.py`s
+`MODE1_PID_LEN` (falls er je auftaucht), wird vom OBD-Fusion-Handy aber in keinem geprüften
+Y-Splitter-Log tatsächlich abgefragt (`candump-2026-09-19_233436`: nur PIDs 0x0D/0x0E/0x10/
+0x11/0x42/0x44 als Mode-1-Antworten, macht 0/113510 Treffer für 0x5E). Ebenso kein
+passender Mode-22-DID im PCM-Traffic (nur die bekannten `0xF42F`=FLI, `0x3EC`=KnockRetard,
+`0x1310`=Öltemp, plus unbekannte Slow-Group-DIDs `0x2A05-0x2A0D`). Damit bestätigt: die
+App-Kanäle "FuelRate"/"InstantFuelEconomy"/"Sofortiger Kraftstoffverbrauch" aus den
+`.dlg`-Exports sind wie in Gruppe C (14.09.) vermutet rein clientseitig aus MAF/Lambda/Speed
+berechnet, kein eigener OBD-Messwert.
+
+**HS-CAN-Sweep mit `can_byte_search.py` gegen 3 unabhängige Y-Splitter-Logs**
+(`candump-2026-09-18_162411`, `candump-2026-09-19_163755`, `candump-2026-09-19_233436`) -
+erstmals mit dem seit 15.09. verfügbaren `OBD_OBD1_MAF`-Anker (echter Luftmassenstrom, g/s)
+im Ankerset; frühere Sweeps vom 14.09. liefen noch ohne ihn. **Kein freies Byte erreicht
+gegen `OBD_OBD1_MAF` die MIN_R=0,6-Doppelschwelle in irgendeinem der 3 Logs.** Die einzigen
+Treffer über der Schwelle sind bereits bekannte/bereits verworfene Signale: `0x086`
+(Lenkwinkel-Duplikat), `0x242` (Querbeschleunigungs-Duplikat), `0x200`/`0x20A` gegen
+`OBD_OBD1_LambdaCommanded` - letzteres ist exakt der schon am 14.09. geprüfte und wegen
+Vorzeichen-/Wrap-Artefakten verworfene Kandidat (DBC-Kommentar `BO_ 522`), hier nur mit dem
+neuen, direkteren Lambda-Anker (statt AFR_MZ) nochmal mit höherem r bestätigt - ändert nichts
+an der damaligen Ablehnung.
+
+**Explorativer Nachlauf ohne Detrend-Schwelle** (nur rohe Pearson/Spearman-Korrelation gegen
+`OBD_OBD1_MAF`, um knapp unter der Doppelschwelle liegende Kandidaten nicht zu verpassen):
+ein Kandidat sticht in allen 3 Logs heraus - **`0x4FA` (HS_PCM) Byte 3**, in derselben
+Botschaft wie das bereits bestätigte `IAT_Sensor_No1` (Byte 4). Feinsuche mit
+`can_bitsearch.py` (Referenz: `OBD1_MAF`-Rohwert/100 nach SAE-Standardformel) bestätigt volles
+Byte 3 als besten Kandidaten in allen 3 Logs, aber **nur mit R²=0,40 / 0,59 / 0,62** (Scale
+≈0,67-0,78 g/s/LSB, Offset ≈14-15 g/s) - deutlich unter der Projekt-Bestätigungsschwelle
+(alle bisher bestätigten Signale: R²>0,9, stabil über Logs). **NICHT in die DBC übernommen,
+zu unsicher** - gleiches Muster wie die verworfenen AFR_MZ-Kandidaten vom 14.09. Denkbare
+Erklärung: eine grob quantisierte 1-Byte-Nebengröße (z.B. gerundete/geglättete Lastanzeige),
+die nur zufällig mit dem MAF-Trend mitläuft, kein echter Luftmassenstrom-Kanal - dafür ist ein
+einzelnes Byte über den beobachteten Bereich (0-180 g/s) ohnehin zu grobauflösend.
+
+**Ergebnis: kein Momentanverbrauch-Kandidat auf dem HS-CAN gefunden.** Bester verfügbarer
+Ersatz bleibt der bereits validierte `MAF(g/s) ≈ 0,00019·(RPM·MAP) - 8,08`
+(R²=0,945, siehe oben) kombiniert mit Lambda - beides nur per Mode-22-Polling verfügbar, kein
+Broadcast-Signal. Plausibelste Erklärung, konsistent mit dem AFR_MZ/ETC_ACT-Befund vom
+14./15.09.: das Kombiinstrument berechnet den Momentanverbrauch intern aus Größen, die es
+direkt vom PCM erhält (z.B. Einspritzzeit), ohne das Ergebnis auf den geteilten HS-CAN-Bus
+zurückzuspiegeln. **Offener Punkt für später:** `0x4FA` Byte 3 bei zukünftigen Logs mit
+größerem MAF-Wertebereich (mehr Volllast-Anteil) im Auge behalten, falls sich die Korrelation
+dort verbessert.
+
+**Nachtrag (Nutzer-Einwand, 2026-09-20 später):** Nutzer widerspricht der Vermutung, das
+Kombiinstrument schätze den Verbrauch aus MAF/Lambda/Speed - er geht davon aus, dass die
+Anzeige aus der tatsächlichen Einspritzmenge berechnet wird und dieser Wert (oder eine
+Vorstufe in Abhängigkeit von Drehzahl/Drosselklappe/MAF/Last) im Rohdatenstrom stecken muss.
+Klarstellung: die "MAF/Lambda/Speed"-Vermutung bezog sich nur auf die Handy-App-Kanäle
+("InstantFuelEconomy" etc., siehe Gruppe C vom 14.09.), nicht auf das Kombiinstrument selbst -
+dafür war "Einspritzzeit" schon die eigene Vermutung. Zwei zusätzliche, gezieltere Prüfungen
+auf denselben Nutzer-Vorschlag hin (RPM/Last/MAF als Treiber):
+
+1. **Dichterer nativer MAF-Proxy statt gepolltem OBD-MAF.** Bisher stützte sich die
+   Ankersuche auf `OBD_OBD1_MAF` (nur ~2000-5500 Samples/Log, durch OBD-Poll-Rate begrenzt).
+   Mit der bereits validierten Formel `MAF(g/s) ≈ 0,000163·(RPM·MAP) - 3,63` (R²=0,90 gegen
+   echtes MAF, siehe oben "Root-Cause-Bug"-Abschnitt) lässt sich ein lückenloser,
+   nativ-getakteter Proxy bauen (RPM@0x202 × MAP@0xFD, beide Broadcast, ~50000-62000
+   Samples/Log statt ~2000-5500). Sweep mit diesem dichteren Anker über dieselben 3 Logs:
+   einziger Treffer über MIN_R=0,6 bleibt `0x200` Byte4-5 (r_detrend 0,68-0,82) - dieselbe
+   bereits bekannte, mehrdeutige Bytespanne, die schon mit `EnginePercentTorque`,
+   `LambdaCommanded` UND `MAP` korreliert (klassische Multikollinearität: alle Lastgrößen
+   laufen im Normalbetrieb zusammen, die Korrelation allein kann nicht zwischen ihnen
+   unterscheiden). Kein neuer, eigenständiger Kandidat.
+2. **Schubabschaltung als Diskriminator.** Bei geschlossenem Gaspedal UND Drehzahl>1200 wird
+   die Einspritzung abgeschaltet (`FuelCut_CAN`, siehe oben), aber der Luftmassenstrom ändert
+   sich dabei NICHT (gleiche Drosselklappenstellung/Drehzahl) - ein echter
+   Einspritzmengen-Kanal MUSS also bei `FuelCut=1` einbrechen, ein reiner Last-/Luft-Proxy
+   NICHT. Test: bei festem Drehzahlband (1400-2000 U/min) und geschlossenem Pedal (APP<3%)
+   Median von `0x200` Byte4-5 und `0x4FA` Byte3 zwischen `FuelCut=0` und `FuelCut=1`
+   verglichen (alle 3 Logs). `0x4FA` Byte3 ist in diesem Band durchgehend 0 (keine Aussage
+   möglich, Signal zu klein/grobaufgelöst in diesem Lastbereich). `0x200` Byte4-5 (BE,
+   Rohwert um 32768 herum - vermutlich ein vorzeichenbehafteter Wert nahe 0) zeigt einen
+   KLEINEN, aber in allen 3 Logs GLEICHSINNIGEN Rückgang bei FuelCut (Median ca. 32793→32741,
+   32796→32742, 32788→32745 - je ~50 Rohwert-Counts) - das ist real und reproduzierbar,
+   aber viel zu klein für einen kompletten Einspritz-Stopp (der Rohwert bricht nicht annähernd
+   ein, er verschiebt sich nur leicht) und passt eher zum bereits bekannten
+   Lambda-Sentinel-Sprung (Soll-Lambda springt bei FuelCut auf ~2,0) als zu einer eigenen
+   Einspritzmengen-Kodierung.
+
+**Aktualisiertes Fazit: weiterhin kein sauberer, eigenständiger Einspritzmengen-/
+Verbrauchs-Kanal auf dem HS-CAN identifizierbar** - auch mit dichterer Referenz und einem
+physikalischen Diskriminator-Test bleibt nur dieselbe mehrdeutige, nicht klar zuordenbare
+Bytespanne (`0x200` Byte4-5) übrig. Das schließt die Existenz eines solchen Kanals nicht aus
+(das PCM könnte ihn broadcasten, ohne dass wir das richtige Byte/Bitfenster getroffen haben,
+oder er könnte in einer noch nie auf Last-Bezug geprüften Botschaft stecken), macht ihn aber
+per passiver Log-Analyse allein nicht auffindbar. **Einzig verlässlicher nächster Schritt:**
+ein aktiver UDS-DID-Sweep am stehenden Fahrzeug (`scripts/uds_did_sweep.py`, muss auf dem Pi
+laufen) gezielt nach einer Einspritzzeit-/"Injection Pulse Width"-DID im PCM-Bereich (z.B.
+`--range F400-F4FF`, analog zum größten bekannten Block am verwandten ND3) - das lieferte erst
+eine belastbare Referenz, gegen die sich ein HS-CAN-Byte dann sauber kalibrieren ließe.
+
+## Kreativ-Runde ohne Testfahrt (2026-09-20, Nutzer: Auto bis übernächsten Montag nicht verfügbar)
+
+Nutzer widerspricht der Einschätzung "wahrscheinlich rein intern berechnet, keine Suche mehr
+sinnvoll" und fordert eine kreativere Auswertung der VORHANDENEN Logs, da er sicher ist, dass
+die Daten (in Abhängigkeit von Drehzahl/Drosselklappe/MAF/Last) im Rohdatenstrom stecken.
+Fünf weitere, unabhängige Ansätze:
+
+1. **Dichter nativer MAF-Proxy (RPM×MAP statt gepolltem OBD-MAF)** und **2. Schubabschaltung
+   als physikalischer Diskriminator** - siehe vorheriger Abschnitt, beide ohne neuen Fund.
+2. **`0x40A` HS_IC_CentralConfig komplett decodiert** (alle 34 BFxx/C0xx-Multiplexer-Werte,
+   nicht nur die 3 bekannten). Ergebnis: bis auf `BF00_IG_ON_Timer`, `C000_TOTAL_TIME` und
+   `C001_ODO` sind ALLE anderen Sub-Felder über das gesamte Log hinweg KONSTANT (n_unique=1)
+   - reine statische Konfig-/Kalibrier-/Teilenummern-Daten, keine Trip-Computer-Werte. Sackgasse.
+3. **Referenzfreie Feld-Segmentierung** (`can_field_segmentation.py --correlate`) über ALLE
+   101 im Log vorkommenden Botschaften (nicht nur DBC-unbelegte Bytes), mit dem nativen
+   MAF-Proxy im Ankerset: 117 stabile unbelegte PHYSICAL/FLAG-Felder gefunden, aber nur 4 mit
+   Anker-Treffer - alles bereits bekannte Kandidaten (0x200 Torque%, 0x242 Querbeschleunigung,
+   0x167 ABS-Proxy). Nichts Neues zu Last/Verbrauch.
+4. **MS-CAN-Architektur geprüft:** zweiter Fahrzeugbus liegt auf OBD-Pin 3/11 (125 kbit),
+   unser Pi/CANable haengt nur an Pin 6/14 (HS-CAN, 500 kbit) - eine dedizierte
+   Verbrauchs-Botschaft dort waere fuer uns unsichtbar. Das vorhandene, nie geladene
+   `MX5ND_6thGenMazda_MSCAN.dbc` (34 Botschaften, nur 6 Signale, reines Geruest) zeigt aber:
+   die meisten `MS_IC_*`-IDs sind Gateway-Spiegelungen derselben HS-CAN-Botschaften (0x78,
+   0x79, 0x202, 0x215 etc.) - nur Klima (`MS_EATC`) und Karosserie (`MS_IC_BCMM`) sind
+   erkennbar MS-CAN-exklusiv. Kein Hinweis, dass Antriebsstrang-/Verbrauchsdaten NUR dort
+   liefen (PCM ist HS-CAN-Knoten) - zweiter Adapter (~30 EUR) bleibt zurückgestellt, siehe
+   bereits vorhandener Abschnitt 8 oben.
+5. **Nutzer-Beobachtung als Fingerabdruck (entscheidender neuer Hebel):** auf Nachfrage
+   bestätigt der Nutzer, dass die Kombiinstrument-Anzeige bei Schubabschaltung/Ausrollen auf
+   0,0 l/100km faellt, ABER sich nur alle paar HUNDERT METER aktualisiert (nicht kontinuierlich,
+   nicht zeitgetaktet) - reagiert bei Kickdown "schlagartig, aber erst bei der naechsten
+   Aktualisierung". Das ist eine fundamental andere Signatur als alles bisher Gesuchte: kein
+   glatter 20-50Hz-Sensorwert, sondern eine TREPPENFUNKTION, die nur alle paar hundert Meter
+   Fahrstrecke springt und dazwischen exakt konstant bleibt. Eigener Distanz-Sprung-Detektor
+   gebaut (Aenderungszeitpunkt jedes Bytes/Byte-Paars gegen aus `VehicleSpeed` integrierte
+   Fahrstrecke statt gegen Zeit geprueft, gesucht: Schrittweite 0.03-1.0 km mit Variationskoeffizient
+   <0.6 über alle Aenderungsereignisse) - über ALLE 101 Botschaften in allen 3 Logs.
+
+   **Fund (kein Verbrauch, aber ein echter, sauberer neuer Kanal): `0x977` (`HS_CMU_MMmonth`)
+   Byte5-6.** Aendert sich in allen 3 Logs mit fast perfekter 1.000-km-Schrittweite
+   (Variationskoeffizient nur 1-2%). Direkter Abgleich gegen den echten Kilometerstand
+   (`C001_ODO`@0x40A) im SELBEN Log: r=-0.9999 UND die Steigung ist in allen 3 Logs EXAKT
+   -4.000 Rohwert-Counts pro gefahrenem km (keine Naeherung, exakte Ganzzahl-Arithmetik) -
+   damit Skala 0.25 km/Count. Der Rohwert FAELLT mit der Fahrt, unabhaengig vom Fahrverhalten
+   (alle 3 Logs exakt dieselbe Steigung trotz unterschiedlicher Fahrprofile) - das schliesst
+   Verbrauchsabhaengigkeit aus (ein Reichweiten-/Verbrauchssignal waere fahrstilabhaengig
+   unterschiedlich stark gefallen). Plausibelste Deutung: **Wartungsintervall-Restkilometer**
+   (aktuell ~3440-3530 km, Botschaftsname "MMmonth" passt zu einer Datums-/Wartungserinnerung).
+   Erklaert nebenbei das jahrelange Raetsel: das alte, alle laengst als "liefert nur
+   Muellwerte" verworfene Signal `Mileage` (Byte4 KOMPLETT + Byte5-6) hatte dieses saubere
+   Feld mit dem benachbarten UNRUHIGEN Byte4 zu einer bedeutungslosen 22-Bit-Zahl
+   zusammengemischt - derselbe Bug-Typ wie beim TM_GEST-Dual-Column-Fall. Das nie verifizierte
+   `Date`-Signal (49|7, ueberlappte bitweise mit dem neuen Fund) wurde mitentfernt. In die
+   DBC uebernommen als `DistanceCountdown_maybe` (Bedeutung Wartungsintervall nicht
+   unabhaengig bestaetigt, nur Bitlage/Skala/Countdown-Verhalten sind harte Fakten).
+
+   **Offener Anschlusspunkt:** das ebenfalls in `0x977` liegende, unruhige Byte3-4 (Vielfache
+   von 32, Bereich 0-2000, NICHT monoton) zeigt beim gezielten `can_bitsearch.py`-Lauf gegen
+   RPM/den nativen MAF-Proxy die bisher STAERKSTE Korrelation aller Verbrauchs-Kandidaten
+   (R²=0.33-0.71 gegen MAF, bis 0.71 gegen RPM) - aber die Gewinner-Bitlage wandert zwischen
+   den 3 Logs (Byte3-Bit1 vs. Byte2-Bit0), das klassische Instabilitaets-Muster bereits
+   verworfener Kandidaten (AFR_MZ@0x0FD/0x20A). NICHT in die DBC uebernommen, aber der
+   bisher vielversprechendste Faden - lohnt sich bei neuen Logs erneut zu pruefen, evtl. mit
+   laengerer/mehrerer Datenbasis um die Bitlage zu stabilisieren.
+
+**Fazit der Kreativ-Runde:** kein Durchbruch beim eigentlichen Verbrauchswert, aber ein echter
+neuer, cross-log-bestaetigter Kanal (Wartungsintervall-Countdown) plus ein konkreter,
+statistisch staerkerer (wenn auch noch nicht bestaetigter) Kandidat fuer die naechste Runde
+- beides nur durch den distanz- statt zeitbasierten Such-Ansatz gefunden, den der
+Nutzerhinweis zur Aktualisierungsrate der Anzeige ausgeloest hat.
+
+## Kraftstofffluss aus MAF/Lambda berechnet und gegen Tankanzeige + Tankvorgang validiert (2026-09-20)
+
+Nutzer-Vorschlag: statt nach einem gebroadcasteten Verbrauchswert zu suchen, den
+Kraftstofffluss selbst aus MAF (g/s, echt, Mode-1-PID 0x10) und Lambda (Soll-Wert,
+Mode-1-PID 0x44) berechnen (`fuel_g_s = MAF/(Lambda*14.7)`, mit `FuelCut_CAN` als Override auf
+0 während Schubabschaltung) und gegen die Tankanzeige plausibilisieren.
+
+**Einzelfahrten (3 Logs, wie in der vorherigen Runde):** 5,82 / 8,20 / 8,57 l/100km - alle drei
+Werte liegen genau im erwarteten Bereich für einen ND2 2.0l SkyActiv-G (WLTP-kombiniert
+~6,9-7,9 l/100km).
+
+**Tankvorgang gefunden:** über alle 38 verfügbaren Logs seit dem 11.09. gibt es genau EINEN
+klaren Sprung im rohen `Fuel_Tank`-Byte (0x9E Byte5) - von ~28-31 (candump-2026-09-16_082929,
+ODO 169941) auf 181 (candump-2026-09-16_083214, ODO 169968), ein Sprung von ~150
+Rohwert-Einheiten. Nutzerangabe (mehrfach online bestätigt): nach Aufleuchten der
+Tankwarnung passen nur ca. 36l nach. Das ergibt eine Kalibrierung **0,24 l pro
+Rohwert-Einheit** - auffällig nah an der ohnehin im (nie verifizierten) Original-DBC
+hinterlegten Skala (0,2 l/Count). Löst nebenbei den alten "Rohwert 0-21 zu niedrig für vollen
+Tank"-Verdacht vom 12.09: das war der bereits DBC-skalierte Wert (roh~100*0,2=20), nicht der
+rohe Byte-Wert selbst (der reicht bis ~230, beobachtet bis 181 nach dem Volltanken).
+
+**Kreuzvalidierung ueber den laengsten zusammenhaengenden Abschnitt mit durchgehendem
+Y-Splitter-OBD-Traffic** (10 Logs, 2026-09-18 09:04 bis 2026-09-19 23:34, ODO 170139->170327,
++188 km):
+- **MAF/Lambda-Hochrechnung** (Summe über alle 10 Logs, Tankvorgang liegt NICHT in diesem
+  Fenster): 13,15 l über 185,1 km (eigene Geschwindigkeitsintegration, 1,5% unter der echten
+  ODO-Distanz) -> **7,11 l/100km** (7,00 l/100km bei echter ODO-Distanz).
+- **Tankanzeige** (robuster Median über je 180s am Anfang/Ende, Rohwert-Nullen durch
+  CAN-Aufwach-Transienten rausgefiltert, deutliche Schwapprausch-Streuung std~9-21
+  Rohwert-Einheiten beobachtet): 119 -> 60, Delta 59 Einheiten * 0,24 l/Einheit = 14,16 l ->
+  **7,53 l/100km**.
+- **Beide unabhängigen Methoden (Luftmasse/Lambda-Physik vs. direkte Pegelmessung, kalibriert
+  an einer realen Nutzer-Beobachtung) liegen innerhalb von 0,4-0,5 l/100km (~6-7%)
+  zueinander** - für zwei völlig unabhängige Messprinzipien mit Schwapprauschen auf der einen
+  und Dichte-/Stöchiometrie-Annahmen auf der anderen Seite ein sehr gutes Ergebnis. Beide
+  Werte plausibel für diesen Motor.
+
+**Einordnung fürs Hauptthema (Momentanverbrauch/CAN-Byte-Suche):** validiert die physikalische
+Grundannahme hinter der bisherigen MAF-Proxy-Suche - der native MAF×Lambda-Kraftstofffluss ist
+eine vertrauenswürdige, plausible Referenzgröße. Dass trotzdem kein HS-CAN-Byte gefunden wurde,
+das gut damit korreliert, spricht also eher gegen einen eigenen Broadcast-Kanal als für eine
+falsche Referenz. `fuel_g_s`/`l_100km` selbst ist aber jetzt eine einsatzbereite, validierte
+Rechengröße (nur bei Y-Splitter-Logs verfügbar, da MAF/Lambda gepollt werden) - für künftige
+Verbrauchsanalysen direkt nutzbar, ohne neue Kalibrierarbeit.
+
+**Offene Punkte:** Dichte 750 g/l ist ein Standardwert, nicht fahrzeug-/tankstellenspezifisch
+gemessen; Lambda ist der SOLL- nicht IST-Wert (Abweichung im Transienten dokumentiert, siehe
+oben); Schwapprauschen macht die Tankanzeige-Methode für kurze Fenster unbrauchbar (deshalb
+180s-Median nötig) - für Momentanverbrauch (Sekundenbereich) ist sie ohnehin ungeeignet, nur
+MAF/Lambda liefert die nötige Zeitauflösung.
