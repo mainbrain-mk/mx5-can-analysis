@@ -94,7 +94,9 @@ TPMS_CAN_ID = 0x728
 BG = (0.03, 0.03, 0.04, 1)
 CARD_BG = (0.08, 0.09, 0.11, 1)
 BORDER = (0.15, 0.16, 0.2, 1)
-CAR_LINE = (0.4, 0.43, 0.49, 1)  # heller als BORDER - die Silhouette soll ablesbar bleiben
+CAR_LINE = (1, 1, 1, 1)  # "Blueprint" beschreibt nur den Zeichenstil, nicht die Farbe -
+                          # Nutzer wollte weiss statt blau, moeglichst kraeftig/detailreich
+                          # trotz kleiner Darstellungsgroesse (2026-09-20)
 TEXT = (0.91, 0.92, 0.96, 1)
 TEXT_DIM = (0.4, 0.42, 0.47, 1)
 RED = (1, 0.18, 0.23, 1)
@@ -496,8 +498,12 @@ class TpmsCarView(Panel):
         # breiten Eckkacheln kein Textüberlapp mit der Silhouette entsteht -
         # dafür jetzt wirklich mittig (center_y war 0.44, leicht nach unten
         # versetzt).
+        # mipmap=True gg. Kanten-Flimmern/Treppcheneffekt beim Herunterskalieren
+        # der 784x1326-PNG auf die kleine Kachelgroesse - Kivys Default-Texturfilter
+        # ohne Mipmaps sieht bei einer duennen Linienzeichnung wie dieser sichtbar
+        # unruhig/unsauber aus (vom Nutzer 2026-09-20 bemaengelt).
         self._car = Image(source=CAR_TOP_VIEW_PNG, allow_stretch=True, keep_ratio=True,
-                           color=CAR_LINE, size_hint=(0.3, 0.92),
+                           mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
                            pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
         self.corner_labels = {}
