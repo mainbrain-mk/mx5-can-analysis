@@ -66,6 +66,52 @@ def test_empty_gz_reports_failure_and_leaves_no_file():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_clockstate_warning_none_when_ntp_confirmed():
+    tmp = tempfile.mkdtemp()
+    orig_can_dir = rdp.CAN_DIR
+    rdp.CAN_DIR = tmp
+    try:
+        with open(os.path.join(tmp, "clockstate-20260919-163755.txt"), "w") as f:
+            f.write("ntp\nUhr per NTP synchronisiert (2026-09-19 16:37:55)")
+        assert rdp._clockstate_warning("candump-2026-09-19_163755.log") is None
+    finally:
+        rdp.CAN_DIR = orig_can_dir
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_clockstate_warning_flags_uncorrected_clock():
+    """Echtes Beispiel vom 2026-09-19er No-RTC-Vorfall (siehe docs/logs/can-bus-status.md,
+    "Viertes No-RTC-Vorkommnis") - genau dieser Marker haette das Log schon beim Download
+    als zeitlich unsicher gekennzeichnet, statt es erst per Zufall beim Auswerten zu merken."""
+    tmp = tempfile.mkdtemp()
+    orig_can_dir = rdp.CAN_DIR
+    rdp.CAN_DIR = tmp
+    try:
+        with open(os.path.join(tmp, "clockstate-20260919-165600.txt"), "w") as f:
+            f.write("korrigiert\nUhr von 2026-09-13 13:54:01 auf gespeicherte "
+                     "2026-09-19 16:55:36 vorgestellt (kein NTP). ACHTUNG: der Anker "
+                     "stammt vom Ende der letzten Fahrt.")
+        warning = rdp._clockstate_warning("candump-2026-09-19_165600.log")
+        assert warning is not None
+        assert "korrigiert" in warning
+        assert "ACHTUNG" in warning
+    finally:
+        rdp.CAN_DIR = orig_can_dir
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_clockstate_warning_none_when_marker_missing():
+    """Aeltere Logs vor 2026-09-15 haben keinen Marker - kein falscher Alarm."""
+    tmp = tempfile.mkdtemp()
+    orig_can_dir = rdp.CAN_DIR
+    rdp.CAN_DIR = tmp
+    try:
+        assert rdp._clockstate_warning("candump-2026-09-11_180456.log") is None
+    finally:
+        rdp.CAN_DIR = orig_can_dir
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

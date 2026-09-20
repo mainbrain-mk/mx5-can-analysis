@@ -182,6 +182,33 @@ def gunzip_or_recover(gz_path, out_path, errors):
     return True
 
 
+CLOCKSTATE_RE = re.compile(r"^candump-(\d{4})-(\d{2})-(\d{2})_(\d{6})\.log$")
+
+
+def _clockstate_warning(log_name):
+    """Liest den zu einem CAN-Log gehoerigen Uhr-Marker (siehe session_logger.py
+    write_clock_marker/restore_clock) und gibt eine Warnmeldung zurueck, falls die
+    Uhr beim Start dieses Logs NICHT per NTP bestaetigt war - None, wenn der Marker
+    "ntp" sagt oder gar nicht existiert (aeltere Logs vor 2026-09-15 haben keinen).
+    Der Dateiname allein beweist nie, dass die Zeitstempel stimmen (siehe
+    docs/logs/can-bus-status.md, "Viertes No-RTC-Vorkommnis") - dieser Marker ist
+    die einzige Quelle, die das schon beim Schreiben auf dem Pi selbst festhaelt."""
+    m = CLOCKSTATE_RE.match(log_name)
+    if not m:
+        return None
+    y, mo, d, hms = m.groups()
+    clockstate_path = os.path.join(CAN_DIR, f"clockstate-{y}{mo}{d}-{hms}.txt")
+    if not os.path.exists(clockstate_path):
+        return None
+    with open(clockstate_path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    state = lines[0] if lines else ""
+    note = lines[1] if len(lines) > 1 else ""
+    if state == "ntp":
+        return None
+    return f"Uhr beim Start NICHT per NTP bestaetigt ({state}): {note} Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden."
+
+
 def sync_can_logs_from_pi(errors):
     """Neuer Schritt (vor der eigentlichen Auswertung): prueft, ob der
     Raspberry Pi erreichbar ist und abgeschlossene CAN-Logs hat, die
@@ -201,9 +228,13 @@ def sync_can_logs_from_pi(errors):
     # getrenntes Argument verliert dabei den Backslash (Remote-Shell
     # frisst ihn beim unquoted-Wort), "\n" wird zu litereal "n". Fix:
     # das komplette Remote-Kommando selbst quoten und als EIN Argument
-    # uebergeben, dann fasst ssh nichts mehr zusammen.
+    # uebergeben, dann fasst ssh nichts mehr zusammen. Holt zusaetzlich die
+    # clockstate-*.txt-Marker (session_logger.py schreibt einen pro Log,
+    # siehe write_clock_marker) - klein, immer alle neuen mitnehmen statt
+    # gezielt zu matchen.
     remote_cmd = (f"find {shlex.quote(PI_CANLOGS_DIR)} -maxdepth 1 "
-                  f"-name 'candump-*.log*' -mmin +5 -printf '%f\\n'")
+                  f"\\( -name 'candump-*.log*' -mmin +5 -o -name 'clockstate-*.txt' \\) "
+                  f"-printf '%f\\n'")
     try:
         res = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", PI_HOST, remote_cmd],
@@ -217,7 +248,14 @@ def sync_can_logs_from_pi(errors):
 
     remote_files = [l for l in res.stdout.splitlines() if l.strip()]
     local_logs = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/candump-*.log")}
-    new_remote = sorted(f for f in remote_files if f.removesuffix(".gz") not in local_logs)
+    local_clockstates = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/clockstate-*.txt")}
+
+    def _is_new(fname):
+        if fname.endswith(".txt"):
+            return fname not in local_clockstates
+        return fname.removesuffix(".gz") not in local_logs
+
+    new_remote = sorted(f for f in remote_files if _is_new(f))
     if not new_remote:
         return []
 
@@ -242,6 +280,8 @@ def sync_can_logs_from_pi(errors):
 
     new_log_ids = []
     for fname in fetched:
+        if fname.endswith(".txt"):
+            continue  # clockstate-Marker - nur mitkopiert, unten separat ausgewertet
         local_path = os.path.join(CAN_DIR, fname)
         if fname.endswith(".gz"):
             log_name = fname[:-3]
@@ -254,6 +294,10 @@ def sync_can_logs_from_pi(errors):
         res = run_script([PYTHON, "scripts/can_log_parser.py", os.path.join(CAN_DIR, log_name)], errors)
         if res is None:
             continue
+
+        warning = _clockstate_warning(log_name)
+        if warning:
+            errors.append((log_name, warning))
 
         pairs_override[log_name] = _find_matching_gpx(log_id) or ""
         new_log_ids.append(log_id)
