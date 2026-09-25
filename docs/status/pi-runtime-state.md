@@ -25,7 +25,7 @@ das lokale Repo. Deshalb dieser Abschnitt.
 | `can_backend.py` | ✅ identisch | unverändert seit 16.09. (Kivy-Neubau) |
 | `tpms_poller.py` | ✅ identisch | inkl. KnockRetard-Fast-Poll (DID 0x03EC) vom 20.09. |
 | `session_logger.py` | ⚠️ **nur Kommentar-Drift** | Pi-Version stammt vom 17.09. (commit `fc42822`), lokal seit der Doku-Umstrukturierung (`42f2013`, 18.09.) mit aktualisierten Pfad-Kommentaren (`mx5_can_bus_status.md` → `docs/logs/can-bus-status.md`). **Rein kosmetisch, keine Funktionsänderung** — kein dringender Redeploy nötig, aber beim nächsten ohnehin fälligen Deploy mitnehmen. |
-| `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch | |
+| `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ⚠️ lokal neuer (26.09.) | zwei neue `_maybe`-Signale auf 0x082 (`SteeringRate_*`); Pi-Software nutzt sie nicht, kein dringender Redeploy |
 
 **Vorgehen für den Abgleich (bei Bedarf wiederholen):**
 ```bash

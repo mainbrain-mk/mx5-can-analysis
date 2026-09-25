@@ -2600,3 +2600,96 @@ WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1`) übe
 neu gestartet (überlebt das Ende der SSH-Session). Log zeigt sauberen Neustart ("Start
 application main loop"), vom Nutzer bei der nächsten Sichtprüfung als "perfekt umgesetzt"
 bestätigt. `can_backend.py` blieb unangetastet (keine Änderung daran).
+
+## KnockRetard-Vorzeichen: negativ = Zündrücknahme, an drei unabhängigen Indizien (2026-09-25)
+
+Offline-Prüfung an vorhandenen Logs (kein Fahrzeugzugang), Ziel: die seit 20.09. offene Frage,
+ob die überwiegend negativen `KnockRetard`-Werte (DID 0x03EC) "Zündung zurückgenommen" oder das
+Gegenteil bedeuten. Datenbasis: die zwei CAN-Logs vom 19.09. (`163755`, `233436`, mit
+`KnockRetard_CAN`, `TimingAdvance_CAN`, RPM, `MAP_CAN`, APP, Drosselklappe) plus die fünf
+OBD-Fusion-Logs vom 12.-17.08. (Kanal `KnockingRetard`, dieselbe Größe aus der App, 35.099
+Samples, mit `ActualEnginePercentTorque`, Speed, RPM).
+
+1. **Last-Abhängigkeit (Aug-Logs, 5 unabhängige Fahrten):** Anteil der Samples mit
+   `KnockingRetard` < -1° steigt monoton mit dem Drehmoment: 0,0 % (<20 %), 0,2 %, 2,4 %, 11,7 %,
+   **28,4 %** (80-100 %). Nach Geschwindigkeit: 0,1 % (<60 km/h) bis 10,8 % (>170 km/h). Genau
+   das Verhalten eines echten Klopfreglers (Klopfneigung wächst mit Last/Temperatur).
+2. **Sägezahn-Form (Log `163755`, t=562-645 s, Gang 6, 187 km/h, ~4760 U/min, Drosselklappe
+   34-38 %, MAP ~80 kPa):** `KnockRetard` springt schlagartig auf -1,3...-3,0 und klingt danach
+   in ~0,3°/0,5 s linear zurück Richtung 0, dann nächster Sprung — Periode ~5 s. Das ist die
+   typische Regler-Signatur "Klopf erkannt -> sofort zurücknehmen -> schrittweise wieder
+   annähern". 391 Samples mit < -1° in diesem Log, 96 % davon bei MAP 70-90 kPa, alle bei
+   3500-5000 U/min, in vier Episoden (2,5 s bis 49 s). Auffällig: APP=0 bei ~35 % Drosselklappe
+   und konstant 187 km/h — vermutlich Tempomat (nicht per `CC_SetSpeed` geprüft), jedenfalls
+   taugt APP hier nicht als Lastindikator.
+3. **Positive Werte gibt es nur klein** (Maximum +0,5°) — passend zu einem Regler, der nur
+   zurücknimmt und maximal minimal zurückholt, nicht zu einem symmetrischen Korrekturwert.
+
+**Nicht bestätigt:** `TimingAdvance` (Mode-1-PID 0x0E) zeigt die Rücknahme nicht. Im
+stationären Segment aus Punkt 2 (konstant Gang 6/RPM/MAP) ist die Regression
+`TA ~ KR + MAP + RPM` ohne Signal (Koeffizient KR = +0,27 ± 0,14 statt ~+1; Kreuzkorrelation
+|r| ≤ 0,15 bei allen Lags ±1 s). Mögliche Erklärungen: PID 0x0E meldet den Basis-/Sollwinkel
+vor Klopfkorrektur, oder die 2-Hz-Abfrage plus 0,5°-Quantisierung und ±2° Rauschen verdecken
+ein 2-3°-Signal. Deshalb bewusst **kein** Bitgenau-/Formel-Nachweis über TA, sondern
+Indizienlage aus Punkt 1-3. Ein naiver Bin-Vergleich (RPM x MAP) sah zunächst wie ein
+Gegenbeleg aus (TA-Residuum bei KR<-0,5 sogar höher) — das war ein Confounder: Klopfen tritt fast
+nur bei stationär hoher Last auf, wo der Regler ohnehin anders arbeitet, und dabei nichts mit
+dem Vorzeichen zu tun.
+
+**Konsequenz:** Vorzeichen kann als "negativ = Zündrücknahme (Klopf-Retard)" geführt werden,
+Einheit °KW (Skala /512 aus der Formel). Bei Bedarf noch offen: ein direkter Nachweis über eine
+Referenz, die den Winkel nach Korrektur liefert (nicht PID 0x0E), oder der Abgleich mit einer
+Mazda-Diagnoseanleitung. Der ECU-Soft-Limiter (siehe voriger Abschnitt) bleibt davon
+unberührt: dort war `KnockRetard` bei allen 5 Eingriffen im Nahe-Null-Band.
+
+## Byte-Sweep-Neulauf über alle Logs: Lenkgeschwindigkeit auf 0x082 gefunden (2026-09-26)
+
+Offline (kein Fahrzeugzugang). `can_byte_search.py` mit den seit 15.09. korrigierten 29 Ankern
+über alle 28 Logs >=20 MB neu laufen lassen (vorher nur 8 Logs, davon 5 noch mit dem alten,
+unvollständigen Ankersatz). Nebenbei einen Absturz behoben: ein Log
+(`candump-2026-09-16_090826`) enthielt Frames unterschiedlicher Länge auf derselben ID
+(abgeschnittene letzte Zeile), `np.stack` scheiterte — jetzt wird auf die häufigste Länge
+gefiltert. Konsolidierung: `results/can_byte_search_consolidated_2026-09-26.csv` (pro
+Feld+Anker: Anzahl Logs, r min/median/max; das alte `..._consolidated.csv` vom 14.09. ist
+überholt).
+
+### Neuer Fund: `SteeringRate_Abs_maybe` + `SteeringRate_Dir_maybe` (0x082, HS_SSU)
+
+Der Sweep zeigte `0x082` "b5-6" gegen `STEER_SPD_EPS` mit r=0,92 (4 Logs mit OBD-Traffic).
+Weil `0x082` schon den Lenkwinkel trägt, ließ sich die Vermutung ohne OBD-Referenz und in
+**allen** 28 Logs prüfen: Betrag gegen die Ableitung des eigenen Winkels (`d Winkel/dt`,
+Zentraldifferenz über ±45 ms, Ausreißer >1500 deg/s verworfen).
+
+- **Betrag:** 12 Bit little-endian, Startbit 44 (Byte6 = High, Byte5 obere Nibble = Low; die
+  untere Nibble von Byte5 ist konstant 4). r(|Rate|) = **0,988-0,998 in allen 28 Logs**,
+  Steigung 0,468-0,486 deg/s je LSB, praktisch identisch von Log zu Log.
+- **Vorzeichen:** Byte7 Bit0. Korrelation mit sign(Rate) bei |Rate|>20 deg/s: -0,9987 und
+  -0,9995 (zwei Logs). 1 = Winkel sinkt.
+- Mit Vorzeichen decodiert (cantools, `44|12@1+ (0.5,0)` + `56|1@1+`): r=0,9926, Steigung
+  0,962 gegen die Referenzableitung (Log `093544`, n=185.066).
+- **Erste, naive Auswertung lag falsch:** unsigned/little-endian-Fehler und ein
+  ungefilterter Wrap-Ausreißer (-18.854 deg/s) drückten r auf ~0,00. Erst Endianness prüfen
+  (die Sweep-Bezeichnung `b5-6_LE` bedeutet Byte6 als High-Byte) und den Betrag statt der
+  vorzeichenbehafteten Rate vergleichen.
+- **Skala nicht kalibriert:** 0,5 deg/s je LSB als runder Wert angenommen; die gemessene
+  Steigung liegt 3-6 % darunter, was auch von der Glättung der Referenzableitung kommen kann.
+  Offen: Regressions-Offset von ca. -2 deg/s, und ein Abgleich gegen `STEER_SPD_EPS`
+  (Vorzeichenkonvention beider Kanäle prüfen).
+- In `MX5ND_6thGenMazda_HSCAN_extended.dbc` als `_maybe` eingetragen (Kommentare mit
+  Herleitung). **Nicht im Datalake** (`CAN_SIGNAL_MAP` unverändert) — nachziehen, wenn der
+  Kanal gebraucht wird, z.B. für Lenkgeschwindigkeit bei der Übersteuer-Erkennung.
+
+### Übrige Sweep-Treffer (Kandidaten, nicht geprüft)
+
+Nur Felder mit Treffer in mehreren Logs zählen; die r=1,0-Einzelläufer (0x211/0x243 gegen
+`WheelSpeed_2`, viele IDs gegen die Kupplung) stammen aus je einem Log mit Standphase bzw.
+Ties und sind Artefakte.
+
+| Feld | Anker | Logs | r (min-max) | Einschätzung |
+|---|---|---|---|---|
+| `0x086` Byte4-5 | Lenkwinkel (Spearman) | 25 | 0,61-0,94 | monoton, aber nicht linear (Pearson früher ~0); vermutlich EPAS-Größe (Motorstrom/Torsion?). Bekannter, bisher unaufgelöster Rest von 0x86 |
+| `0x20A` Byte3-5 | Soll-Lambda | 22 | 0,64-0,85 | Zustands-/Schubbezug (Soll-Lambda springt bei Schub auf 2,0); Bitlage wechselte früher zwischen Logs, siehe "Nächste Schritte" 12 |
+| `0x200` Byte4-5 | %-Drehmoment / Pedal / MAP | 16 / 5 / 3 | 0,63-0,87 | bekannter Top-Kandidat Last-Domäne, jetzt über 16 statt 10 Logs |
+| `0x4DB` (HS_DCDC) Byte2-4 | Soll-Lambda | 16 | 0,60-0,76 | neu; passt zu i-ELOOP-Rekuperation in der Schubphase, Hypothese ungeprüft (gegen `FuelCut_CAN`/Verzögerung testen) |
+| `0x4FA` Byte2-3 | %-Drehmoment / ETC_ACT | 6 / 4 | 0,61-0,74 | schwach |
+| `0x242` (HS_FSC2, Kamera) Byte2-4 | Querbeschleunigung | 5 | 0,61-0,70 | vermutlich Kamera-Kurvenkrümmung, schwach |

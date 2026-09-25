@@ -239,7 +239,10 @@ vertrauen, Details im Logbuch unten.
   BARO_Barometric_pressure (kPa), WheelSpeed_1-4✓ (km/h, Sentinel 0xFFFF gefiltert),
   DSC_Status (nur System an/aus, kein Regelungseingriff), VehicleSpeed✓ (km/h).
 - **Lenkung:** Steering_Wheel_Absolute_Angle✓ (deg) – Nullpunkt per GPS bestätigt (0,0°
-  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. `SteeringAngle_EPAS` (0x86, EPAS, früher
+  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. **`SteeringRate_Abs_maybe`/`SteeringRate_Dir_maybe`
+  (0x082 Byte5-7, NEU 2026-09-26):** Betrag (12 Bit, `44|12@1+`, 0,5 deg/s je LSB, nicht kalibriert)
+  und Vorzeichen (Byte7 Bit0) der Lenkgeschwindigkeit; r=0,988-0,998 gegen die Ableitung des
+  Winkels in allen 28 Logs, siehe Logbuch "Byte-Sweep-Neulauf…". `SteeringAngle_EPAS` (0x86, EPAS, früher
   `SteeringAngle_related`) – **2026-09-15 endgültig gelöst, die 09-14-Erklärung war falsch.**
   Das oberste Bit ist ein Gültigkeits-/Init-Flag (eigenes Signal `SteeringAngle_EPAS_Invalid`),
   kein Teil des Zahlenwerts; es ist nur in 0,0-0,5% der Frames gesetzt (Block am Logstart,
@@ -364,8 +367,10 @@ OBD/CAN-Referenz gesucht werden muss):
   "KnockingRetard-PID gefunden…". Läuft jetzt in `tpms_poller.py`s schneller Poll-Gruppe und
   wird generisch aus jedem CAN-Log dekodiert (`KnockRetard_CAN`). Zweite unabhängige
   Bestätigung am 2026-09-20 dazugekommen (81% bitgenau, r=0,997 — siehe Logbuch "Viertes
-  No-RTC-Vorkommnis…"). **Weiterhin offen:** Vorzeichen/physikalische Bedeutung ungeklärt
-  (Werte überwiegend ≤0, für einen "Retard" unerwartet).
+  No-RTC-Vorkommnis…"). **Vorzeichen 2026-09-25 per Indizien geklärt:** negativ = Zündrücknahme
+  (Anteil <-1° steigt mit Drehmoment von 0 % auf 28 %, Sägezahn-Signatur bei stationärer
+  Hochlast) — `TimingAdvance` (PID 0x0E) zeigt die Rücknahme aber nicht, siehe Logbuch
+  "KnockRetard-Vorzeichen…".
 - **ECU-Soft-Limiter im 2./3. Gang (2026-09-19/20):** schließt die Drosselklappe trotz
   `APP`=100% schon deutlich vor dem nominellen 7500er-Redline. **2026-09-20 Nachmittag an
   5 Eingriffen über beide letzten Logs vom 19.09. bestätigt** (7273/7281/7439/7429/7307
@@ -381,6 +386,9 @@ OBD/CAN-Referenz gesucht werden muss):
   Frühere Einzelbefunde (Log `150438`/`163857`, dritter Zug bei 7269 U/min ohne Eingriff)
   weiterhin gültig, siehe Logbuch "ECU begrenzt im 3. Gang…" und "Viertes
   No-RTC-Vorkommnis…".
+- **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x086` Byte4-5
+  (25 Logs, nicht linear), `0x20A` (22 Logs), `0x4DB` HS_DCDC (16 Logs, i-ELOOP-/Schub-Hypothese),
+  Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
@@ -480,9 +488,8 @@ OBD/CAN-Referenz gesucht werden muss):
     Gesichtspunkt nochmal anzusehen – nicht als analoge Messwerte, sondern als Zustandsbits.
 13. ~~KnockRetard-PID identifizieren~~ – **erledigt 2026-09-20**, siehe oben (DID 0x03EC).
 14. ~~KnockRetard-Formel an einem zweiten Log bestätigen~~ – **erledigt 2026-09-20** (81%
-    bitgenau, r=0,997). Weiterhin offen: physikalische Bedeutung des überwiegend negativen
-    Vorzeichens klären (z.B. mit dem Nutzer/einer Mazda-Diagnoseanleitung abgleichen, ob
-    negativ tatsächlich "Zündung zurückgenommen" heißt oder umgekehrt).
+    bitgenau, r=0,997). **2026-09-25 per Indizien geklärt** (negativ = Zündrücknahme, siehe Logbuch
+    "KnockRetard-Vorzeichen…"); ein direkter Nachweis über einen Winkel nach Korrektur fehlt noch.
 15. **Bei jedem CAN-only-Log ohne begleitendes dlg/GPS: Dateiname NICHT blind vertrauen, wenn
     kein Widerspruch zu den Frame-Zeitstempeln vorliegt** — der 2026-09-20 gefundene Fall
     (`candump-2026-09-19_165600`→`_233436`) zeigt, dass Dateiname und Frame-Zeitstempel auch
