@@ -2724,3 +2724,40 @@ Hypothese "DCDC/i-ELOOP lädt den Kondensator in der Schubphase". Geprüft gegen
 - Mögliche Relevanz fürs Fahrleistungsmodell (nicht geprüft): Zustand 4 markiert Schubphasen,
   in denen der Generator zusätzlich bremst. Ob sich das Schleppmoment in
   `engine_braking_analysis.py` zwischen Zustand 4 und 8 unterscheidet, wäre ein einfacher Test.
+
+## Soft-Limiter offline: Ereignis-Bitdiff und zwei Hypothesen, kein Auslöser gefunden (2026-09-26)
+
+Erneute Suche nach dem Auslöser des ECU-Soft-Limiters (siehe 2026-09-20) an den vorhandenen
+Logs `163755` (4 Eingriffe) und `233436` (2 Eingriffe + 1 Kontrollzug ohne Eingriff, Gang 4,
+Peak 7136 U/min). Eingriffsbeginn = erste Abtastung mit `ETC_ACT` < 88 % bei `APP` >= 99 %.
+Beginne (Log-Sekunden, Gang, U/min): 436,3 (3, 7146), 481,7 (3, 7155), 847,8 (2, 7386),
+938,4 (2, 7355) | 273,9 (3, 7139), 630,2 (3, 7216).
+
+1. **Ereignis-Bitdiff** (`can_event_bit_diff.py --event window`, Fenster kurz vor dem Beginn
+   gegen die Vorlaufphase desselben Vollgaszugs bzw. den Kontrollzug): in beiden Logs treffen
+   dieselben Bits an, nämlich `0x08A` Bit 14/54 (DCDC), `0x200` Bit 28, `0x45A` Bit 46,
+   `0x49C` Bit 58-60, `0x4D4` Bit 6/23/29/30 (jeweils Lift 0,44-0,77, ausserhalb <= 0,12).
+   **Auf Rauschniveau:** nur 2 bzw. 4 Ereignisse, und die Fenster liegen im Drehzahlmaximum
+   (>7000 U/min), sodass jedes drehzahl-, last- oder zustandsabhängige Bit mitgeht. Nicht
+   als Auslöser gewertet, nur als Kandidatenliste notiert. Ein Ergebnis mit dem breiteren
+   Fenster (±0,5 s um den Beginn) enthielt zusätzlich `0x4DB` Rekuperationsstufe — das ist
+   eine Folge des Eingriffs (Schub danach), keine Ursache.
+2. **"Vorhergesagte Drehzahl" als Schwelle** (RPM + Anstieg × Vorlauf): die Streuung des
+   Beginn-RPM steigt mit jedem Vorlauf (Standardabweichung 111 U/min bei 0 s auf 165 U/min
+   bei 0,3 s). Anstiegsrate am Beginn: Gang 3 340-470 U/min/s, Gang 2 740-750 U/min/s. Damit
+   ist die Gangabhängigkeit (Gang 2 ~7355-7386, Gang 3 ~7139-7216) **nicht** durch die
+   Anstiegsrate erklärbar — diese Hypothese aus dem 20.09.-Eintrag ist widerlegt.
+3. **Zeitgeber "Dauer über 7000 U/min":** Dauer bis zum Beginn 0,46-0,60 s bei 5 Eingriffen
+   (der sechste, `273,9`, setzt schon beim ersten Überschreiten ein, Dauer 0), aber der
+   Kontrollzug (Gang 4, 7136 U/min) blieb 0,74 s über 7000 ohne Eingriff. Kein reiner
+   Zeitgeber. Hinweis: dieser Kontrollzug lag mit 7136 knapp unter der Gang-3-Schwelle
+   (~7139-7216); der zweite Kontrollzug aus dem Eintrag vom 20.09. (Gang 4, 7297 U/min, ohne
+   Eingriff) liegt darüber. Die Schwellen wären damit nicht monoton in der Gangnummer
+   (Gang 2 ~7370, Gang 3 ~7150, Gang 4 > 7300) — sofern der Gang-4-Zug überhaupt bei vollem
+   Pedal lief (dort fiel APP schon selbst ab).
+
+**Stand:** der Auslöser bleibt offen. Mit 6 Eingriffen und 2 Kontrollen lässt sich keine der
+Hypothesen (Drehzahl, Anstieg, Zeit, Klopfen, Schlupf) tragfähig trennen. Sinnvoll wäre neue
+Fahrdaten: gezielte Vollgaszüge in Gang 2, 3 und 4 bis in die Begrenzung, damit sich Gang,
+Drehzahl, Temperatur (Öl/Kühlwasser/Ansaugluft) und Last entkoppeln lassen. Die Kandidaten
+aus 1. dann an diesen Zügen gegenprüfen.

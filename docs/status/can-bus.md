@@ -379,7 +379,7 @@ OBD/CAN-Referenz gesucht werden muss):
   **Klopfen ausgeschlossen** (`KnockRetard_CAN` bleibt bei allen 5 Events im Nahe-Null-Band).
   **Radschlupf/DSC-Traktionseingriff ebenfalls ausgeschlossen** (Radgeschwindigkeits-Spread
   ≤2,3 km/h, unter dem 4,5-km/h-Rauschboden; `ABS_Active_CAN`/`DSC_Status_CAN` durchgehend 0).
-  **Der tatsächliche Auslöser bleibt offen** — auffällig ist die Gangabhängigkeit der
+  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 2-4 nötig)** — auffällig ist die Gangabhängigkeit der
   Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
   festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:
   RPM>7000 & `APP`≥99% & `ETC_ACT`<90 → Shiftlights blinken blau, 8 Hz), deployt auf dem Pi.
