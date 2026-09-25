@@ -2833,8 +2833,8 @@ Botschaft ist 8 Byte / 66 Hz; Byte5=0, Byte6=15, Byte7=128 konstant, Byte1-3 var
   Lambda > 1,9) = 0,81/0,85/0,83 in drei Logs, P(Schub | Bit=0) = 0,95/0,96/0,77, nie bei
   Gaspedal >= 1 (0,000). Das erklärt den Lambda-Treffer, aber `FuelCut` (0x0FD) ist die
   bessere Größe (P(FuelCut | Schub) = 0,98/0,98/0,91). Bitlage-Wechsel: hier nicht
-  reproduziert, das Bit sitzt in allen geprüften Logs auf derselben Position; die früheren
-  Wechsel waren Suchartefakte breiter Byte-Paare.
+  reproduziert, das Bit sitzt in allen drei geprüften Logs auf derselben Position; vermutlich
+  waren die früheren Wechsel Suchartefakte breiter Byte-Paare (nicht einzeln nachgeprüft).
 - **Byte0 = Motorzustand (`EngineState_raw_maybe`):** 17-54 (meist 53) = Zündung an, Motor
   steht (RPM ~1, Kühlwasser = Umgebung); 86 = Anlassen (2 Frames, Kupplung 198); 117/118 =
   Motor läuft (117 im Leerlauf/Warmlauf, 118 überwiegend Fahrt; Bit0/1 wechseln);
@@ -2843,3 +2843,34 @@ Botschaft ist 8 Byte / 66 Hz; Byte5=0, Byte6=15, Byte7=128 konstant, Byte1-3 var
 - Beides in der DBC als `_maybe` eingetragen (`BO_ 522`), cantools-Decode geprüft.
 - Kein neues analoges Signal; **`0x20A` ist damit als Zustandsbotschaft eingeordnet** und kann aus
   der Suche nach analogen Kanälen herausgenommen werden.
+
+## 0x200 Byte4-5 ist nicht das Motormoment; 0x4FA nur teilweise eingeordnet (2026-09-26)
+
+**0x200 Byte4-5** (Last-Domäne, zuletzt r=0,72-0,94 gegen Pedal/Drehmoment in 6-16 Logs). Test,
+ob es ein echtes Motormoment in Nm ist: Vergleich gegen ein kinematisches Referenzmoment
+(Beschleunigung aus `VehicleSpeed`, Fahrwiderstände und Übersetzungen aus
+`drivetrain_model_validation.py`, nur eingekuppelt, Gang 2-6, Pedal > 0,5 %, > 1500 U/min):
+
+| Größe | R² gegen das kinematische Moment (Logs `163755` / `093544`) |
+|---|---|
+| OBD-`EnginePercentTorque_CAN` (PID 0x62) | 0,88 / 0,91 |
+| `0x200` Byte4-5 (raw - 32768) | 0,49 / 0,60 |
+
+Die Nm-je-Zähler-Steigung schwankt zwischen 0,50 und 0,84 (fünf Logs), der Achsenabschnitt
+zwischen 10 und 44 Nm — also **kein** gut kalibrierbares Moment. Die Beziehung zum
+OBD-%Moment ist konvex (raw ~178 bei 80-100 %, ~34 bei 20-40 %, ~ -22 bei 0-20 %). Am Limiter
+fällt es sanft mit, nicht sprunghaft wie das OBD-%Moment. Eher ein Fahrerwunsch- oder
+Indiziertes-Moment-Signal als das abgegebene Moment. Nicht in die DBC.
+
+**0x4FA / 0x42B (Familie, siehe vorheriger Abschnitt):** `0x4FA` Byte0 ist 0 bei Motor aus, im
+Betrieb überwiegend 4 und steigt mit Last (128 bei Pedal 100 % und 5600 U/min, 104/108 bei
+Pedal 90-96 %) — Bitfeld einer Lastzuordnung, kein Gang (Kreuztabelle gegen `Gear_CAN`
+ohne Struktur). Byte1 = 34-40 (0 bei Motor aus) korreliert mit der Ansauglufttemperatur
+(r=-0,71 in einem Log) und Drehzahl (0,41), nicht mit dem Rekuperationszustand. Deutung offen.
+
+**Einzelbeobachtung zum Limiter:** in `163755` fällt das OBD-%Moment bei einem Eingriff
+(t=847,2 s, Gang 2) schon von 93 auf 58 %, wenn die Drosselklappe (`ETC_ACT`) noch bei 92°
+steht (0,6 s vor deren Abfall, bei ~6970 U/min statt 7385). Das deutet auf einen früheren
+Drehmomenteingriff (z.B. Zündung) hin. Nicht verwertet: das %Moment ist mit ~0,15 s
+Abtastung zu grob und in vier der sechs Ereignisse lückenhaft; ein Onset über %Moment statt
+`ETC_ACT` bräuchte neue Züge mit mehr Abtastpunkten.
