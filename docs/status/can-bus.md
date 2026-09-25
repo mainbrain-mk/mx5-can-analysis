@@ -254,7 +254,7 @@ vertrauen, Details im Logbuch unten.
   `SteeringAngle_related_3` saß auf den falschen Bits (Byte4-5). Der echte zweite Kanal liegt
   auf 26|11 und ist nach Verwerfen der Invalid-Frames ebenfalls perfekt linear
   (`1,6·raw − 1600`, R²=0,9997-0,9999, RMSE 0,72-1,07° über 5 Logs) – eine grob aufgelöste
-  Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 bleibt unidentifiziert.
+  Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 war Teil des Kanals (2026-09-26 aufgelöst: 15-Bit-Erweiterung, `SteeringAngle_EPAS_Abs_maybe`, nullpunktstabil, siehe Logbuch "0x086 Byte4-5 aufgelöst…").
   **`SteeringTorque_maybe` (0x240 Byte0, neu 2026-09-15)** – vermutlich das EPAS-Lenkmoment:
   Median exakt 0 im Stand und geradeaus, r gegen den Lenkwinkel nur 0,23-0,52 über das ganze
   Log aber 0,78-0,86 gefiltert auf >40 km/h (bei Parkiergeschwindigkeit dominiert der
@@ -386,8 +386,8 @@ OBD/CAN-Referenz gesucht werden muss):
   Frühere Einzelbefunde (Log `150438`/`163857`, dritter Zug bei 7269 U/min ohne Eingriff)
   weiterhin gültig, siehe Logbuch "ECU begrenzt im 3. Gang…" und "Viertes
   No-RTC-Vorkommnis…".
-- **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x086` Byte4-5
-  (25 Logs, nicht linear), `0x20A` (22 Logs); `0x4DB` HS_DCDC ist als i-ELOOP-Rekuperationszustand
+- **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x20A` (22 Logs);
+  `0x086` Byte4-5 ist als zweite Winkelspur aufgelöst; `0x4DB` HS_DCDC ist als i-ELOOP-Rekuperationszustand
   geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
@@ -439,7 +439,7 @@ OBD/CAN-Referenz gesucht werden muss):
   verifiziert.
 - ~~`SteeringAngle_related_3` braucht eine nichtlineare Umrechnung~~ – **erledigt/verworfen
   2026-09-15:** das Signal saß auf den falschen Bits. Der echte Kanal (26|11) ist linear
-  (`SteeringAngle_EPAS_Coarse`); Byte4-5 bleibt unidentifiziert, die frühere Einstufung als
+  (`SteeringAngle_EPAS_Coarse`); Byte4-5 ist seit 2026-09-26 aufgelöst (`SteeringAngle_EPAS_Abs_maybe`, 15 Bit, nullpunktstabile zweite Winkelspur), die frühere Einstufung als
   nichtlinearer Lenkwinkel ist nicht belegt.
 - Bei jedem CAN-only-Log ohne GPS-/OBD-Zeitanker: Datum mit Vorsicht behandeln – der
   Pi hat keine RTC, ohne NTP während der ganzen Session bleibt die Uhr durchgehend falsch,

@@ -2790,3 +2790,34 @@ Einziger benannter Nachbar: `0x200` Byte4-5 korreliert in 6/6 Logs mit `APP` (0,
 **Fazit:** die Clusterung zeigt, dass es unter den unbelegten Bytes kaum "versteckte
 Duplikate bekannter Größen" gibt; die Ausbeute liegt bei Zuständen/Ereignissen
 (`0x4FA`/`0x42B`, `0x4DB`) und Einzelfeldern (`0x086` Byte4-5), nicht bei Familien.
+
+## 0x086 Byte4-5 aufgelöst: zweite, nullpunktstabile Winkelspur (2026-09-26)
+
+Aus dem Sweep-Neulauf (`0x086` Byte4-5 gegen den Lenkwinkel, 25 Logs, r 0,61-0,94 nur
+monoton-nichtlinear) — der seit 15.09. offene Rest von 0x86 ("Byte4-5 unidentifiziert").
+Byte4 zeigt über dem Lenkwinkel einen Sägezahn (232 bei 0°, +0,62 pro Grad, Wrap alle ~410°),
+Byte5 hat nur 64 verschiedene Werte (Bit3=1, Bit2=0 konstant, obere Nibble 16 Stufen). Das
+erklärt die schwache lineare Korrelation, das Signal ist **modulo** (Pearson auf einem
+Sägezahn ~0).
+
+- **Deutung:** Byte4 ist das untere Byte von `SteeringAngle_EPAS_Coarse` (26|11, 1,6°/LSB, die
+  Bits liefen bis in Byte4 hinein), und die obere Nibble von Byte5 sind die **4 fehlenden
+  Feinbits desselben Winkels**. Zusammen: 15 Bit `26|15@0+`, 0,1°/LSB, `raw*0,1-1600` —
+  exakt die Auflösung und Codierung des primären `SteeringAngle_EPAS` (6|15) derselben
+  Botschaft.
+- **Zirkuläre Prüfung** (raw12 = Byte4<<4 | Byte5>>4 gegen `10*Winkel` mod 4096): Skala 10,0
+  Zähler/Grad in allen Logs, Konzentration R=1,000.
+- **Entscheidend — Nullpunkt:** Median-Versatz gegen den absoluten SSU-Winkel (`0x082`), vier
+  Logs (`093544`, `081105`, `084511`, `084853`): **0,10 / 0,65 / 0,03 / 0,00°** für die neue
+  Spur, dagegen **-4,47 / +10,00 / -3,90 / +2,62°** für das primäre `SteeringAngle_EPAS`
+  (das bekanntlich pro Log eine Nullpunktkorrektur braucht). 90 %-Perzentil der Restabweichung
+  0,75-2,05° (Interpolationsschätzung, keine synchronen Abtastungen, hauptsächlich Zeitversatz
+  bei schnellen Lenkbewegungen).
+- **Konsequenz:** die neue Spur ist eine zweite, nullpunktstabile Winkelquelle auf 0x086.
+  Für CAN-Logs, die `0x082` nicht enthalten, ist sie der bessere Ersatz als
+  `SteeringAngle_EPAS`. DBC: `SteeringAngle_EPAS_Coarse` wurde zu
+  `SteeringAngle_EPAS_Abs_maybe` (`26|15@0+ (0.1,-1600)`), cantools-Decode geprüft (30,0° ->
+  30,0). Unerklärt bleiben die unteren Bits von Byte5 (Werte 0-3 auf Bit1-0).
+- Erster Versuch bei dieser Untersuchung war eine "12-Bit-Wrap-Kopie" auf Byte4-5, das
+  überlappte in der DBC mit `Coarse` und ließ sich erst durch den Überlappungsfehler von
+  cantools erklären: die beiden waren dasselbe Signal.
