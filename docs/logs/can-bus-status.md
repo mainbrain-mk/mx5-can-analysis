@@ -2761,3 +2761,32 @@ Hypothesen (Drehzahl, Anstieg, Zeit, Klopfen, Schlupf) tragfähig trennen. Sinnv
 Fahrdaten: gezielte Vollgaszüge in Gang 2, 3 und 4 bis in die Begrenzung, damit sich Gang,
 Drehzahl, Temperatur (Öl/Kühlwasser/Ansaugluft) und Last entkoppeln lassen. Die Kandidaten
 aus 1. dann an diesen Zügen gegenprüfen.
+
+## Familien-Clusterung unbelegter Bytes: nur Zähler-Familien und ein offenes Duplikat (2026-09-26)
+
+Neues Skript `scripts/can_field_families.py`: alle unbelegten Bytes und Byte-Paare der DBC
+(rund 300 je Log, ohne Konstanten/Flags mit <8 Werten) plus alle Datalake-Kanäle des Logs
+auf ein 10-Hz-Raster, monotone Reihen (Zähler, Kilometerstand) verworfen, 20-s-Trend
+abgezogen, Spearman-Rang-Korrelation untereinander. Kanten zählen nur, wenn sie in >=4 von 6
+grossen Logs (`081105`, `163711`, `084511`, `083214`, `084853`, `093544`) mit Median-|r| >= 0,90
+halten (Nachbarschaft zu bekannten Kanälen ab 0,7).
+
+**Ergebnis: 5 Familien über 6/6 Logs, aber praktisch nur Zähler.** Prüfung der Schrittweiten
+je Byte (häufigster Schritt mod 256) zeigt, dass die Familien synchron laufende Rollzähler
+sind, die verschiedene Botschaften eines Steuergeräts teilen:
+
+| Familie | Mitglieder | Befund |
+|---|---|---|
+| RCM | `0x075` B0, `0x076` B0 | Zähler, Schritt +5, r=0,998 |
+| ABS | `0x078` B6, `0x211` B4, `0x21E` B7 | Zähler (Schritt 16 bzw. 255), r 0,97-0,98 |
+| PCM | `0x167` B3, `0x200` B6 | Zähler (Schritt 32 bzw. 2), r 0,98-0,99 |
+| Kamera | `0x242` B0, `0x243` B0-7 | Zähler (Schritt 16), r=0,998 |
+| **`0x42B` B4-6 ~ `0x4FA` B0-2** | — | **kein Zähler**: 99 % der Schritte 0, 8-11 verschiedene Werte, r 0,97-0,99. Byte0 von `0x4FA` nimmt Werte in der Form 1024·k (Bit 2-6 einzeln gesetzt, ein Zustandsbyte), Byte1 = 35-40. Wechselt bei Fahrt/Stillstand (Anfahren, Halt), keine Korrelation mit den bekannten Kanälen (|r| <= 0,18). Bedeutung offen |
+
+Nebengewinn (aus dem Deep-Search-Plan): diese Zähler sind jetzt benannt und lassen sich aus
+künftigen Sweeps herausnehmen; sie erklären einen Teil der Zufallstreffer früherer Läufe.
+Einziger benannter Nachbar: `0x200` Byte4-5 korreliert in 6/6 Logs mit `APP` (0,86), `%`-Drehmoment
+(0,78), Längsbeschleunigung (0,73), `MAP` (0,72) — Last-Domäne, bekannt (siehe Sweep-Neulauf).
+**Fazit:** die Clusterung zeigt, dass es unter den unbelegten Bytes kaum "versteckte
+Duplikate bekannter Größen" gibt; die Ausbeute liegt bei Zuständen/Ereignissen
+(`0x4FA`/`0x42B`, `0x4DB`) und Einzelfeldern (`0x086` Byte4-5), nicht bei Familien.
