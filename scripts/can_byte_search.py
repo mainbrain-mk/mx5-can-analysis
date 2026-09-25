@@ -32,6 +32,13 @@ MIN_R = 0.6
 GRID_HZ = 10.0
 DETREND_WINDOW_S = 20.0
 
+# Schwellwerte fuer die abgeleiteten Ereignis-Proxys (extract_anchors(), 2026-09-20)
+BRAKING_THRESHOLD_BAR = 5.0        # gleicher Schwellwert wie im bestehenden _abs_proxy
+STANDSTILL_MIN_S = 3.0
+GEAR_SHIFT_WINDOW_S = 1.0          # +-Fenster um einen Gangwechsel
+WOT_APP_MIN = 95.0                 # grobe Vollgas-Naeherung, siehe Kommentar in extract_anchors()
+LIMITER_RPM_MIN, LIMITER_APP_MIN, LIMITER_ETC_MAX = 7000, 99, 90  # wie dash_gui.py::_is_limiter_active
+
 # Bekannte, bereits validierte Anker-Signale: (can_id, cantools_signal_name)
 ANCHOR_SIGNALS = {
     "EngineRPM": 0x202,
@@ -53,6 +60,15 @@ ANCHOR_SIGNALS = {
     "Steering_Wheel_Absolute_Angle": 0x82,
     "MAP_Manifold_absolute_pressure_sensor": 0xFD,
     "CoolantTemp": 0x420,
+    # 2026-09-20 ergaenzt: Signale, die seit dem letzten Anker-Ausbau (2026-09-15) gefunden
+    # wurden, siehe docs/status/can-bus.md - fehlten bisher in JEDEM --correlate-Lauf.
+    "ABS_Active": 0x211,
+    "DSC_Status": 0x415,
+    "MT_Gear_Actual": 0xFD,
+    "FuelCut": 0xFD,
+    "AmbientTemp": 0x420,
+    "SteeringAngle_EPAS": 0x86,
+    "YawRate_related": 0x78,
 }
 
 # Mode-22-DIDs aus map_obd_dids.py (2026-09-14, ueber 4 Logs bestaetigt) - als zusaetzliche
@@ -61,6 +77,9 @@ KNOWN_DIDS = {"AFR_MZ": 0xDA85, "BFP_PRE_MZ": 0x280A, "ETC_ACT": 0x093C,
               "CPP_PER_MZ": 0x0478, "FLI": 0xF42F,
               # 2026-09-15: zusaetzliche Module, vorher nie dekodiert (nur 0x7E0/0x7E8)
               "STEER_SPD_EPS": 0x3301, "STEER_ANGL_EPS": 0x3302,
+              # 2026-09-20: KnockRetard-DID (siehe docs/status/can-bus.md), Rohwert reicht fuer
+              # die reine Korrelation - Formel/Vorzeichen sind fuer diesen Zweck irrelevant.
+              "KnockRetard": 0x03EC,
               # Oeltemperatur: seit 2026-09-15 pollt tpms_poller.py sie selbst alle 10s,
               # steht also in jedem neuen Log. ACHTUNG beim Auswerten: sie ist eine langsame
               # Monotonie - die Doppelschwelle dieses Skripts (roh UND detrended) verwirft
@@ -79,7 +98,14 @@ KNOWN_DIDS = {"AFR_MZ": 0xDA85, "BFP_PRE_MZ": 0x280A, "ETC_ACT": 0x093C,
 # uds_did_sweep.py --mode1-survey.
 KNOWN_MODE1_PIDS = {"OBD1_VehicleSpeed": 0x0D, "OBD1_MAF": 0x10,
                     "OBD1_LambdaCommanded": 0x44, "OBD1_TimingAdvance": 0x0E,
-                    "OBD1_EnginePercentTorque": 0x62}
+                    "OBD1_EnginePercentTorque": 0x62,
+                    # 2026-09-20 ergaenzt: PID 0x11, seit 2026-09-19 von tpms_poller.py selbst
+                    # in der schnellen Gruppe gepollt (OBD1_FAST_PIDS) - die reale Quelle des
+                    # Live-ETC_ACT im Renncockpit (dash_gui.py-Snapshot-Key
+                    # "_ThrottlePosition_pct_derived"), NICHT der Mode-22-DID 0x093C oben
+                    # (der nur bei aktivem Phone-Y-Splitter existiert). Formel raw*100/255
+                    # siehe tpms_poller.py::OBD1_PIDS.
+                    "OBD1_ThrottlePosition": 0x11}
 
 
 def dbc_unclaimed_bytes(db):
@@ -105,24 +131,41 @@ def message_period_s(raw_df, can_id):
 
 
 def extract_anchors(raw_df, db, decoded_obd, log_has_obd):
-    """Alle Anker-Zeitreihen (Name -> (t, val) np-Arrays) fuer dieses Log."""
+    """Alle Anker-Zeitreihen (Name -> (t, val) np-Arrays) fuer dieses Log.
+
+    2026-09-20: nach CAN-ID gruppiert statt pro Signalname einzeln - mehrere ANCHOR_SIGNALS
+    teilen sich oft dieselbe Botschaft (z.B. EngineRPM/VehicleSpeed/APP alle auf 0x202,
+    WheelSpeed_1-4 alle auf 0x215), wurden also bisher pro Frame mehrfach unabhaengig
+    dekodiert. Gruppiert deckt EIN msg.decode()-Aufruf pro Frame alle ihre Signale gleichzeitig
+    ab - 22 Anker teilen sich nur 12 eindeutige CAN-IDs, also ~1,6-1,7x weniger Dekodierarbeit
+    (gemessen, nicht nur geschaetzt)."""
     anchors = {}
+    by_can_id = {}
     for sig_name, can_id in ANCHOR_SIGNALS.items():
+        by_can_id.setdefault(can_id, []).append(sig_name)
+
+    for can_id, sig_names in by_can_id.items():
         msg = db.get_message_by_frame_id(can_id)
         sub = raw_df[raw_df["can_id"] == can_id]
         if sub.empty:
             continue
-        t_list, v_list = [], []
+        t_lists = {n: [] for n in sig_names}
+        v_lists = {n: [] for n in sig_names}
         for t, data in sub[["t", "data"]].itertuples(index=False):
             try:
-                decoded = msg.decode(data, allow_truncated=True)
+                # decode_choices=False: wir wollen den rohen Zahlenwert (z.B. DSC_Status
+                # 0/1), keine cantools-NamedSignalValue-Enums - gleiches Muster wie
+                # can_opendbc_crosscheck.py.
+                decoded = msg.decode(data, allow_truncated=True, decode_choices=False)
             except Exception:
                 continue
-            if sig_name in decoded:
-                t_list.append(t)
-                v_list.append(decoded[sig_name])
-        if t_list:
-            anchors[sig_name] = (np.array(t_list), np.array(v_list, dtype=float))
+            for n in sig_names:
+                if n in decoded:
+                    t_lists[n].append(t)
+                    v_lists[n].append(decoded[n])
+        for n in sig_names:
+            if t_lists[n]:
+                anchors[n] = (np.array(t_lists[n]), np.array(v_lists[n], dtype=float))
 
     if log_has_obd:
         for name, did in KNOWN_DIDS.items():
@@ -140,6 +183,33 @@ def extract_anchors(raw_df, db, decoded_obd, log_has_obd):
     if "Lateral_Acc_Raw" in anchors:
         t, v = anchors["Lateral_Acc_Raw"]
         anchors["PROXY_high_lat_g"] = (t, np.abs(v))
+    # 2026-09-20 ergaenzt (siehe Plan "Cluster-C gegen bekannten Fahrtverlauf"): nicht nur
+    # stetige Messwerte, sondern auch Fahrsituationen als Vergleichsgroesse fuer Kandidaten,
+    # die selbst eher Flags/Zustaende sind statt analoger Messwerte.
+    if "MT_Gear_Actual" in anchors:
+        p = _gear_shift_proxy(anchors)
+        if p is not None:
+            anchors["PROXY_gear_shift"] = p
+    if "VehicleSpeed" in anchors:
+        p = _standstill_proxy(anchors)
+        if p is not None:
+            anchors["PROXY_standstill"] = p
+    p = _threshold_proxy(anchors, "BrakePressure", BRAKING_THRESHOLD_BAR)
+    if p is not None:
+        anchors["PROXY_braking"] = p
+    # Grobe Vollgas-Naeherung ueber APP allein (in JEDEM Log vorhanden, kein OBD-Traffic
+    # noetig) - bewusst NICHT die vollstaendige WOT-Erkennung aus drivetrain_model_validation.
+    # py::wot_segments() (ETC_ACT>80 & Lambda/AFR_MZ<0.9, siehe mx5_wot_detection_criteria-
+    # Memory zur bekannten Unzuverlaessigkeit von ETC_ACT allein): der rohe CAN-OBD-Wert von
+    # AFR_MZ hat hier keine bestaetigte Lambda-Skala, und ETC_ACT braucht OBD-Traffic (nur
+    # ~10/32 Logs). Als reiner Korrelations-Anker (nicht als autoritative Ereigniserkennung)
+    # ist die APP-Naeherung ausreichend und deckt jedes Log ab.
+    p = _threshold_proxy(anchors, "APP_Accelerator_Pedal_Position", WOT_APP_MIN)
+    if p is not None:
+        anchors["PROXY_wot_active"] = p
+    p = _limiter_proxy(anchors)
+    if p is not None:
+        anchors["PROXY_limiter_active"] = p
 
     return {k: v for k, v in anchors.items() if v is not None and len(v[0]) > 50}
 
@@ -162,6 +232,76 @@ def _abs_proxy(anchors):
         return grid, spread
     except Exception:
         return None
+
+
+def _sorted_by_t(t, v):
+    order = np.argsort(t)
+    return t[order], v[order]
+
+
+def _threshold_proxy(anchors, name, threshold):
+    """1 wenn Anker > threshold, sonst 0 - auf dessen eigener Zeitbasis (Resampling
+    uebernimmt correlate_candidate()/prepare_anchors_for_window() spaeter selbst)."""
+    if name not in anchors:
+        return None
+    t, v = anchors[name]
+    return t, (v > threshold).astype(float)
+
+
+def _gear_shift_proxy(anchors, window_s=GEAR_SHIFT_WINDOW_S):
+    """1 fuer +-window_s um jeden Gangwechsel (MT_Gear_Actual aendert sich) - Schaltmomente
+    als Vergleichsgroesse fuer Kandidaten, die beim Schalten mitkippen (z.B. Kupplungs-/
+    Motorsteuerungs-Status)."""
+    t, v = _sorted_by_t(*anchors["MT_Gear_Actual"])
+    changes = t[1:][np.diff(v) != 0]
+    if len(changes) == 0:
+        return None
+    grid = np.arange(t.min(), t.max(), 1 / GRID_HZ)
+    near = np.zeros_like(grid)
+    for c in changes:
+        near[np.abs(grid - c) <= window_s] = 1.0
+    return grid, near
+
+
+def _standstill_proxy(anchors, min_duration_s=STANDSTILL_MIN_S):
+    """1 wenn VehicleSpeed<1 km/h fuer mindestens min_duration_s am Stueck (kurze Nulldurch-
+    gaenge/Ampel-Anrollen sollen nicht als Stillstand zaehlen)."""
+    t, v = _sorted_by_t(*anchors["VehicleSpeed"])
+    grid = np.arange(t.min(), t.max(), 1 / GRID_HZ)
+    slow = np.interp(grid, t, v) < 1.0
+    min_run = max(1, int(min_duration_s * GRID_HZ))
+    run = np.zeros_like(slow, dtype=float)
+    count = 0
+    for i, s in enumerate(slow):
+        count = count + 1 if s else 0
+        if count >= min_run:
+            run[i - min_run + 1:i + 1] = 1.0
+    return (grid, run) if run.any() else None
+
+
+def _limiter_proxy(anchors):
+    """ECU-Soft-Limiter-Verdacht: RPM>7000 & APP>=99 & ETC_ACT<90% - dieselben Schwellwerte
+    wie dash_gui.py::_is_limiter_active(), hier auf den rohen Log-Ankern statt dem Live-
+    Snapshot. Quelle fuer ETC_ACT ist OBD_OBD1_ThrottlePosition (Mode-1-PID 0x11, raw*100/255,
+    seit 2026-09-19 in JEDEM Log von tpms_poller.py selbst gepollt) - NICHT der Mode-22-DID
+    0x093C, der nur bei aktivem Phone-Y-Splitter existiert (siehe KNOWN_MODE1_PIDS-Kommentar)."""
+    needed = ("EngineRPM", "APP_Accelerator_Pedal_Position", "OBD_OBD1_ThrottlePosition")
+    if not all(n in anchors for n in needed):
+        return None
+    t_r, v_r = _sorted_by_t(*anchors["EngineRPM"])
+    t_a, v_a = _sorted_by_t(*anchors["APP_Accelerator_Pedal_Position"])
+    t_e, v_e = _sorted_by_t(*anchors["OBD_OBD1_ThrottlePosition"])
+    v_e = v_e * 100 / 255  # raw -> % (siehe tpms_poller.py::OBD1_PIDS-Formel)
+    t0 = max(t_r.min(), t_a.min(), t_e.min())
+    t1 = min(t_r.max(), t_a.max(), t_e.max())
+    if t1 - t0 < 10:
+        return None
+    grid = np.arange(t0, t1, 1 / GRID_HZ)
+    rpm = np.interp(grid, t_r, v_r)
+    app = np.interp(grid, t_a, v_a)
+    etc = np.interp(grid, t_e, v_e)
+    active = (rpm > LIMITER_RPM_MIN) & (app >= LIMITER_APP_MIN) & (etc < LIMITER_ETC_MAX)
+    return (grid, active.astype(float)) if active.any() else None
 
 
 def _resample(t, v, t0, t1, hz):
