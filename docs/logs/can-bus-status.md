@@ -2693,3 +2693,34 @@ Ties und sind Artefakte.
 | `0x4DB` (HS_DCDC) Byte2-4 | Soll-Lambda | 16 | 0,60-0,76 | neu; passt zu i-ELOOP-Rekuperation in der Schubphase, Hypothese ungeprüft (gegen `FuelCut_CAN`/Verzögerung testen) |
 | `0x4FA` Byte2-3 | %-Drehmoment / ETC_ACT | 6 / 4 | 0,61-0,74 | schwach |
 | `0x242` (HS_FSC2, Kamera) Byte2-4 | Querbeschleunigung | 5 | 0,61-0,70 | vermutlich Kamera-Kurvenkrümmung, schwach |
+
+## 0x4DB (HS_DCDC) = i-ELOOP-Rekuperationszustand, an 5 Logs bestätigt (2026-09-26)
+
+Nachtest zum Sweep-Kandidaten `0x4DB` gegen Soll-Lambda (16 Logs, r 0,60-0,76). Das Soll-Lambda
+springt bei Schubabschaltung auf ~2,0 und ist deshalb ein Zustandsindikator; daraus die
+Hypothese "DCDC/i-ELOOP lädt den Kondensator in der Schubphase". Geprüft gegen Gaspedal
+(`APP`), Längsbeschleunigung, Bremsdruck, `FuelCut` in den Logs `163755`, `093544`,
+`084511`, `081105`, `211833`. 10-Hz-Botschaft; nur Byte0 und Byte3 (Byte4=248) variieren.
+
+- **`Byte3` = Zustand:** 8 = normal (~85 %), **4 = Rekuperation**, 11 = selten (338-2390 Frames,
+  immer mit Byte4=248, Bedeutung offen). Zustand 4 tritt in 7,7-12,4 % aller Frames auf; darin
+  ist das Pedal zu **100 % (APP<1)** und die Längsbeschleunigung zu 91-98 % negativ
+  (< -0,03 g), in den übrigen Frames sind es nur 39-55 % bzw. 12-17 %. Umgekehrt liegt bei
+  Pedal-zu nur in ~15 % der Zeit Zustand 4 an, also nicht jede Schubphase rekuperiert.
+- **`Byte0`:** Bit4 = Rekuperations-Flag (in Zustand 4 immer 1, sonst nie), Bits 7-5 = Stufe
+  0-4 (Rohwerte 22/54/86/118/150 bzw. 17/50/82/115/148, untere Nibble variiert). Die Stufe
+  fällt im Lauf einer Verzögerung meist stufenweise ab (86 -> 54 -> 22). Bedeutung
+  (Ladeleistung, Ladestrom oder Kondensator-Ladezustand) offen; Korrelation mit Speed in
+  Zustand 4 nur 0,51.
+- **Nicht deckungsgleich mit `FuelCut`:** es gibt Frames mit FuelCut=1 und Zustand 8 und
+  umgekehrt — die beiden Bits beschreiben verwandte, aber verschiedene Zustände.
+- Das Rohbyte-Korrelieren gegen `FuelCut` allein hätte es nur als r~0,7 stehen lassen; erst
+  der Vergleich gegen Gaspedal/Verzögerung (100 %) macht den Fund belastbar.
+- In der DBC als `DCDC_State_maybe`, `DCDC_RegenFlag_maybe`, `DCDC_RegenLevel_maybe`
+  eingetragen (`BO_ 1243`, cantools-Decode geprüft: Flag=1 in 100 % der Zustand-4-Frames,
+  0 % sonst; P(APP<1 | Zustand 4)=0,996). Nicht im Datalake. Der Nachbar `0x08A` (100 Hz,
+  ebenfalls DCDC) bleibt offen: Byte1 zeigt r=0,53 gegen `FuelCut`, Byte5-6 r=-0,34 — noch
+  nichts Eindeutiges.
+- Mögliche Relevanz fürs Fahrleistungsmodell (nicht geprüft): Zustand 4 markiert Schubphasen,
+  in denen der Generator zusätzlich bremst. Ob sich das Schleppmoment in
+  `engine_braking_analysis.py` zwischen Zustand 4 und 8 unterscheidet, wäre ein einfacher Test.

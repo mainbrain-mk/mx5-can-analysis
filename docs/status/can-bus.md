@@ -387,8 +387,8 @@ OBD/CAN-Referenz gesucht werden muss):
   weiterhin gültig, siehe Logbuch "ECU begrenzt im 3. Gang…" und "Viertes
   No-RTC-Vorkommnis…".
 - **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x086` Byte4-5
-  (25 Logs, nicht linear), `0x20A` (22 Logs), `0x4DB` HS_DCDC (16 Logs, i-ELOOP-/Schub-Hypothese),
-  Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
+  (25 Logs, nicht linear), `0x20A` (22 Logs); `0x4DB` HS_DCDC ist als i-ELOOP-Rekuperationszustand
+  geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
 - Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
