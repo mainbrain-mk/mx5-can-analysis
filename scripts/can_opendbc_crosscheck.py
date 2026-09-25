@@ -80,14 +80,25 @@ def our_signal_bits(db):
 
 
 def signal_bit_indices(sig):
-    """Absolute Bitindizes (0..63, MSB-first ueber die 8 Bytes) eines cantools-Signals.
-    Big-Endian zaehlt vom Startbit abwaerts, Little-Endian aufwaerts - genau die
-    Konvention, an der schon der 0x40A-VIN-Byte-Order-Bug haengengeblieben ist."""
+    """Absolute Bitindizes (0..63, MSB-first ueber die 8 Bytes, dieselbe Konvention wie
+    can_field_segmentation.py::bit_matrix()/np.unpackbits) eines cantools-Signals.
+
+    Big-Endian (Motorola/DBC "@0"): DBC-eigene Startbit-Zaehlung laeuft byteweise gespiegelt
+    zur sequenziellen MSB-first-Zaehlung (Bit 7..0 = Byte0, Bit 15..8 = Byte1, ...) - fuer
+    einen vollen Byte- oder Byte-Paar-umfassenden Bereich stimmen beide Zaehlungen als MENGE
+    zufaellig ueberein, bei einem Feld, das NICHT bytegrenz-ausgerichtet ueber eine Bytegrenze
+    laeuft (z.B. 9 Bit ab Bit 49), driften sie auseinander (2026-09-20 gefunden: fuehrte dazu,
+    dass unsere eigene "covered"-Pruefung fuer so ein Feld beim Feld-Clustering die FALSCHEN
+    zwei Bits als belegt gemeldet haette). Deshalb hier zweistufig: erst die DBC-eigene
+    Bitfolge ablaufen (Abwaertszaehlung + Sprung +15 an der Byte-Grenze, das ist die Reihen-
+    folge, die cantools beim Dekodieren tatsaechlich nutzt), dann JEDE einzelne DBC-Bitnummer
+    in die sequenzielle Nummer zurueckrechnen (dieselbe Formel ist ihre eigene Umkehrung:
+    seq = 8*(dbc//8) + (7 - dbc%8))."""
     idx = []
     if sig.byte_order == "big_endian":
         pos = sig.start
         for _ in range(sig.length):
-            idx.append(pos)
+            idx.append(8 * (pos // 8) + (7 - pos % 8))
             if pos % 8 == 0:
                 pos += 15
             else:
@@ -209,6 +220,22 @@ def self_test():
     sig = {s.name: s for s in db.get_message_by_frame_id(0x415).signals}["CTR3"]
     bits = signal_bit_indices(sig)  # 8|4@1+ little-endian -> Bits 8..11
     assert sorted(bits) == [8, 9, 10, 11], sorted(bits)
+
+    # Regressionstest 2026-09-20: ein big-endian-Feld, das NICHT byte-ausgerichtet ist (auch
+    # ohne Bytegrenzenkreuzung), driftet ohne die seq<->dbc-Rueckrechnung auseinander - hier
+    # gegen unsere eigene DBC + echten Log per cantools-Dekodierung ground-truth-geprueft
+    # (MT_Gear_Actual: DBC "19|3@0+" dekodiert tatsaechlich Bits 20-22, NICHT 17-19, siehe
+    # docs/logs/can-bus-status.md "Bit-Indizierungs-Bug ...").
+    hs_db = load_db("hscan")
+    sig = {s.name: s for s in hs_db.get_message_by_frame_id(0xFD).signals}["MT_Gear_Actual"]
+    assert sorted(signal_bit_indices(sig)) == [20, 21, 22], sorted(signal_bit_indices(sig))
+
+    # dasselbe fuer ein Feld, das eine Bytegrenze NICHT ausgerichtet ueberquert (der urspruenglich
+    # gefundene Fall: SteeringWheelSpeed_related, 9 Bit ab DBC-Bit 54, quert Byte6/Byte7 - das Signal
+    # ist seit 2026-09-26 in der DBC durch SteeringRate_Abs_maybe ersetzt, daher als Testsignal von Hand gebaut).
+    import cantools
+    sig = cantools.database.can.Signal("t", start=54, length=9, byte_order="big_endian", is_signed=False)
+    assert sorted(signal_bit_indices(sig)) == list(range(49, 58)), sorted(signal_bit_indices(sig))
     print("self-test ok")
 
 
