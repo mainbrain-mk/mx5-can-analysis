@@ -411,6 +411,10 @@ def search_log(can_path, min_period_s=0.2, max_bytes_to_scan=None, verbose=True)
         sub = raw[raw["can_id"] == can_id]
         if len(sub) < 100 or not free_bytes:
             continue
+        # Frames mit abweichender Laenge (z.B. abgeschnittene letzte Zeile nach hartem Stromverlust,
+        # candump-2026-09-16_090826) auf die haeufigste Laenge einschraenken, sonst scheitert np.stack
+        lens = sub["data"].str.len()
+        sub = sub[lens == lens.mode().iloc[0]]
         data_arr = np.stack(sub["data"].apply(lambda d: np.frombuffer(d, dtype=np.uint8)).to_numpy())
         t_arr = sub["t"].to_numpy()
         t0, t1 = t_arr.min(), t_arr.max()

@@ -3145,3 +3145,277 @@ gemessen; Lambda ist der SOLL- nicht IST-Wert (Abweichung im Transienten dokumen
 oben); Schwapprauschen macht die Tankanzeige-Methode für kurze Fenster unbrauchbar (deshalb
 180s-Median nötig) - für Momentanverbrauch (Sekundenbereich) ist sie ohnehin ungeeignet, nur
 MAF/Lambda liefert die nötige Zeitauflösung.
+
+## KnockRetard-Vorzeichen: negativ = Zündrücknahme, an drei unabhängigen Indizien (2026-09-25)
+
+Offline-Prüfung an vorhandenen Logs (kein Fahrzeugzugang), Ziel: die seit 20.09. offene Frage,
+ob die überwiegend negativen `KnockRetard`-Werte (DID 0x03EC) "Zündung zurückgenommen" oder das
+Gegenteil bedeuten. Datenbasis: die zwei CAN-Logs vom 19.09. (`163755`, `233436`, mit
+`KnockRetard_CAN`, `TimingAdvance_CAN`, RPM, `MAP_CAN`, APP, Drosselklappe) plus die fünf
+OBD-Fusion-Logs vom 12.-17.08. (Kanal `KnockingRetard`, dieselbe Größe aus der App, 35.099
+Samples, mit `ActualEnginePercentTorque`, Speed, RPM).
+
+1. **Last-Abhängigkeit (Aug-Logs, 5 unabhängige Fahrten):** Anteil der Samples mit
+   `KnockingRetard` < -1° steigt monoton mit dem Drehmoment: 0,0 % (<20 %), 0,2 %, 2,4 %, 11,7 %,
+   **28,4 %** (80-100 %). Nach Geschwindigkeit: 0,1 % (<60 km/h) bis 10,8 % (>170 km/h). Genau
+   das Verhalten eines echten Klopfreglers (Klopfneigung wächst mit Last/Temperatur).
+2. **Sägezahn-Form (Log `163755`, t=562-645 s, Gang 6, 187 km/h, ~4760 U/min, Drosselklappe
+   34-38 %, MAP ~80 kPa):** `KnockRetard` springt schlagartig auf -1,3...-3,0 und klingt danach
+   in ~0,3°/0,5 s linear zurück Richtung 0, dann nächster Sprung — Periode ~5 s. Das ist die
+   typische Regler-Signatur "Klopf erkannt -> sofort zurücknehmen -> schrittweise wieder
+   annähern". 391 Samples mit < -1° in diesem Log, 96 % davon bei MAP 70-90 kPa, alle bei
+   3500-5000 U/min, in vier Episoden (2,5 s bis 49 s). Auffällig: APP=0 bei ~35 % Drosselklappe
+   und konstant 187 km/h — vermutlich Tempomat (nicht per `CC_SetSpeed` geprüft), jedenfalls
+   taugt APP hier nicht als Lastindikator.
+3. **Positive Werte gibt es nur klein** (Maximum +0,5°) — passend zu einem Regler, der nur
+   zurücknimmt und maximal minimal zurückholt, nicht zu einem symmetrischen Korrekturwert.
+
+**Nicht bestätigt:** `TimingAdvance` (Mode-1-PID 0x0E) zeigt die Rücknahme nicht. Im
+stationären Segment aus Punkt 2 (konstant Gang 6/RPM/MAP) ist die Regression
+`TA ~ KR + MAP + RPM` ohne Signal (Koeffizient KR = +0,27 ± 0,14 statt ~+1; Kreuzkorrelation
+|r| ≤ 0,15 bei allen Lags ±1 s). Mögliche Erklärungen: PID 0x0E meldet den Basis-/Sollwinkel
+vor Klopfkorrektur, oder die 2-Hz-Abfrage plus 0,5°-Quantisierung und ±2° Rauschen verdecken
+ein 2-3°-Signal. Deshalb bewusst **kein** Bitgenau-/Formel-Nachweis über TA, sondern
+Indizienlage aus Punkt 1-3. Ein naiver Bin-Vergleich (RPM x MAP) sah zunächst wie ein
+Gegenbeleg aus (TA-Residuum bei KR<-0,5 sogar höher) — das war ein Confounder: Klopfen tritt fast
+nur bei stationär hoher Last auf, wo der Regler ohnehin anders arbeitet, und dabei nichts mit
+dem Vorzeichen zu tun.
+
+**Konsequenz:** Vorzeichen kann als "negativ = Zündrücknahme (Klopf-Retard)" geführt werden,
+Einheit °KW (Skala /512 aus der Formel). Bei Bedarf noch offen: ein direkter Nachweis über eine
+Referenz, die den Winkel nach Korrektur liefert (nicht PID 0x0E), oder der Abgleich mit einer
+Mazda-Diagnoseanleitung. Der ECU-Soft-Limiter (siehe voriger Abschnitt) bleibt davon
+unberührt: dort war `KnockRetard` bei allen 5 Eingriffen im Nahe-Null-Band.
+
+## Byte-Sweep-Neulauf über alle Logs: Lenkgeschwindigkeit auf 0x082 gefunden (2026-09-26)
+
+Offline (kein Fahrzeugzugang). `can_byte_search.py` mit den seit 15.09. korrigierten 29 Ankern
+über alle 28 Logs >=20 MB neu laufen lassen (vorher nur 8 Logs, davon 5 noch mit dem alten,
+unvollständigen Ankersatz). Nebenbei einen Absturz behoben: ein Log
+(`candump-2026-09-16_090826`) enthielt Frames unterschiedlicher Länge auf derselben ID
+(abgeschnittene letzte Zeile), `np.stack` scheiterte — jetzt wird auf die häufigste Länge
+gefiltert. Konsolidierung: `results/can_byte_search_consolidated_2026-09-26.csv` (pro
+Feld+Anker: Anzahl Logs, r min/median/max; das alte `..._consolidated.csv` vom 14.09. ist
+überholt).
+
+### Neuer Fund: `SteeringRate_Abs_maybe` + `SteeringRate_Dir_maybe` (0x082, HS_SSU)
+
+Der Sweep zeigte `0x082` "b5-6" gegen `STEER_SPD_EPS` mit r=0,92 (4 Logs mit OBD-Traffic).
+Weil `0x082` schon den Lenkwinkel trägt, ließ sich die Vermutung ohne OBD-Referenz und in
+**allen** 28 Logs prüfen: Betrag gegen die Ableitung des eigenen Winkels (`d Winkel/dt`,
+Zentraldifferenz über ±45 ms, Ausreißer >1500 deg/s verworfen).
+
+- **Betrag:** 12 Bit little-endian, Startbit 44 (Byte6 = High, Byte5 obere Nibble = Low; die
+  untere Nibble von Byte5 ist konstant 4). r(|Rate|) = **0,988-0,998 in allen 28 Logs**,
+  Steigung 0,468-0,486 deg/s je LSB, praktisch identisch von Log zu Log.
+- **Vorzeichen:** Byte7 Bit0. Korrelation mit sign(Rate) bei |Rate|>20 deg/s: -0,9987 und
+  -0,9995 (zwei Logs). 1 = Winkel sinkt.
+- Mit Vorzeichen decodiert (cantools, `44|12@1+ (0.5,0)` + `56|1@1+`): r=0,9926, Steigung
+  0,962 gegen die Referenzableitung (Log `093544`, n=185.066).
+- **Erste, naive Auswertung lag falsch:** unsigned/little-endian-Fehler und ein
+  ungefilterter Wrap-Ausreißer (-18.854 deg/s) drückten r auf ~0,00. Erst Endianness prüfen
+  (die Sweep-Bezeichnung `b5-6_LE` bedeutet Byte6 als High-Byte) und den Betrag statt der
+  vorzeichenbehafteten Rate vergleichen.
+- **Skala nicht kalibriert:** 0,5 deg/s je LSB als runder Wert angenommen; die gemessene
+  Steigung liegt 3-6 % darunter, was auch von der Glättung der Referenzableitung kommen kann.
+  Offen: Regressions-Offset von ca. -2 deg/s, und ein Abgleich gegen `STEER_SPD_EPS`
+  (Vorzeichenkonvention beider Kanäle prüfen).
+- In `MX5ND_6thGenMazda_HSCAN_extended.dbc` als `_maybe` eingetragen (Kommentare mit
+  Herleitung). **Nicht im Datalake** (`CAN_SIGNAL_MAP` unverändert) — nachziehen, wenn der
+  Kanal gebraucht wird, z.B. für Lenkgeschwindigkeit bei der Übersteuer-Erkennung.
+
+### Übrige Sweep-Treffer (Kandidaten, nicht geprüft)
+
+Nur Felder mit Treffer in mehreren Logs zählen; die r=1,0-Einzelläufer (0x211/0x243 gegen
+`WheelSpeed_2`, viele IDs gegen die Kupplung) stammen aus je einem Log mit Standphase bzw.
+Ties und sind Artefakte.
+
+| Feld | Anker | Logs | r (min-max) | Einschätzung |
+|---|---|---|---|---|
+| `0x086` Byte4-5 | Lenkwinkel (Spearman) | 25 | 0,61-0,94 | monoton, aber nicht linear (Pearson früher ~0); vermutlich EPAS-Größe (Motorstrom/Torsion?). Bekannter, bisher unaufgelöster Rest von 0x86 |
+| `0x20A` Byte3-5 | Soll-Lambda | 22 | 0,64-0,85 | Zustands-/Schubbezug (Soll-Lambda springt bei Schub auf 2,0); Bitlage wechselte früher zwischen Logs, siehe "Nächste Schritte" 12 |
+| `0x200` Byte4-5 | %-Drehmoment / Pedal / MAP | 16 / 5 / 3 | 0,63-0,87 | bekannter Top-Kandidat Last-Domäne, jetzt über 16 statt 10 Logs |
+| `0x4DB` (HS_DCDC) Byte2-4 | Soll-Lambda | 16 | 0,60-0,76 | neu; passt zu i-ELOOP-Rekuperation in der Schubphase, Hypothese ungeprüft (gegen `FuelCut_CAN`/Verzögerung testen) |
+| `0x4FA` Byte2-3 | %-Drehmoment / ETC_ACT | 6 / 4 | 0,61-0,74 | schwach |
+| `0x242` (HS_FSC2, Kamera) Byte2-4 | Querbeschleunigung | 5 | 0,61-0,70 | vermutlich Kamera-Kurvenkrümmung, schwach |
+
+## 0x4DB (HS_DCDC) = i-ELOOP-Rekuperationszustand, an 5 Logs bestätigt (2026-09-26)
+
+Nachtest zum Sweep-Kandidaten `0x4DB` gegen Soll-Lambda (16 Logs, r 0,60-0,76). Das Soll-Lambda
+springt bei Schubabschaltung auf ~2,0 und ist deshalb ein Zustandsindikator; daraus die
+Hypothese "DCDC/i-ELOOP lädt den Kondensator in der Schubphase". Geprüft gegen Gaspedal
+(`APP`), Längsbeschleunigung, Bremsdruck, `FuelCut` in den Logs `163755`, `093544`,
+`084511`, `081105`, `211833`. 10-Hz-Botschaft; nur Byte0 und Byte3 (Byte4=248) variieren.
+
+- **`Byte3` = Zustand:** 8 = normal (~85 %), **4 = Rekuperation**, 11 = selten (338-2390 Frames,
+  immer mit Byte4=248, Bedeutung offen). Zustand 4 tritt in 7,7-12,4 % aller Frames auf; darin
+  ist das Pedal zu **100 % (APP<1)** und die Längsbeschleunigung zu 91-98 % negativ
+  (< -0,03 g), in den übrigen Frames sind es nur 39-55 % bzw. 12-17 %. Umgekehrt liegt bei
+  Pedal-zu nur in ~15 % der Zeit Zustand 4 an, also nicht jede Schubphase rekuperiert.
+- **`Byte0`:** Bit4 = Rekuperations-Flag (in Zustand 4 immer 1, sonst nie), Bits 7-5 = Stufe
+  0-4 (Rohwerte 22/54/86/118/150 bzw. 17/50/82/115/148, untere Nibble variiert). Die Stufe
+  fällt im Lauf einer Verzögerung meist stufenweise ab (86 -> 54 -> 22). Bedeutung
+  (Ladeleistung, Ladestrom oder Kondensator-Ladezustand) offen; Korrelation mit Speed in
+  Zustand 4 nur 0,51.
+- **Nicht deckungsgleich mit `FuelCut`:** es gibt Frames mit FuelCut=1 und Zustand 8 und
+  umgekehrt — die beiden Bits beschreiben verwandte, aber verschiedene Zustände.
+- Das Rohbyte-Korrelieren gegen `FuelCut` allein hätte es nur als r~0,7 stehen lassen; erst
+  der Vergleich gegen Gaspedal/Verzögerung (100 %) macht den Fund belastbar.
+- In der DBC als `DCDC_State_maybe`, `DCDC_RegenFlag_maybe`, `DCDC_RegenLevel_maybe`
+  eingetragen (`BO_ 1243`, cantools-Decode geprüft: Flag=1 in 100 % der Zustand-4-Frames,
+  0 % sonst; P(APP<1 | Zustand 4)=0,996). Nicht im Datalake. Der Nachbar `0x08A` (100 Hz,
+  ebenfalls DCDC) bleibt offen: Byte1 zeigt r=0,53 gegen `FuelCut`, Byte5-6 r=-0,34 — noch
+  nichts Eindeutiges.
+- Mögliche Relevanz fürs Fahrleistungsmodell (nicht geprüft): Zustand 4 markiert Schubphasen,
+  in denen der Generator zusätzlich bremst. Ob sich das Schleppmoment in
+  `engine_braking_analysis.py` zwischen Zustand 4 und 8 unterscheidet, wäre ein einfacher Test.
+
+## Soft-Limiter offline: Ereignis-Bitdiff und zwei Hypothesen, kein Auslöser gefunden (2026-09-26)
+
+Erneute Suche nach dem Auslöser des ECU-Soft-Limiters (siehe 2026-09-20) an den vorhandenen
+Logs `163755` (4 Eingriffe) und `233436` (2 Eingriffe + 1 Kontrollzug ohne Eingriff, Gang 4,
+Peak 7136 U/min). Eingriffsbeginn = erste Abtastung mit `ETC_ACT` < 88 % bei `APP` >= 99 %.
+Beginne (Log-Sekunden, Gang, U/min): 436,3 (3, 7146), 481,7 (3, 7155), 847,8 (2, 7386),
+938,4 (2, 7355) | 273,9 (3, 7139), 630,2 (3, 7216).
+
+1. **Ereignis-Bitdiff** (`can_event_bit_diff.py --event window`, Fenster kurz vor dem Beginn
+   gegen die Vorlaufphase desselben Vollgaszugs bzw. den Kontrollzug): in beiden Logs treffen
+   dieselben Bits an, nämlich `0x08A` Bit 14/54 (DCDC), `0x200` Bit 28, `0x45A` Bit 46,
+   `0x49C` Bit 58-60, `0x4D4` Bit 6/23/29/30 (jeweils Lift 0,44-0,77, ausserhalb <= 0,12).
+   **Auf Rauschniveau:** nur 2 bzw. 4 Ereignisse, und die Fenster liegen im Drehzahlmaximum
+   (>7000 U/min), sodass jedes drehzahl-, last- oder zustandsabhängige Bit mitgeht. Nicht
+   als Auslöser gewertet, nur als Kandidatenliste notiert. Ein Ergebnis mit dem breiteren
+   Fenster (±0,5 s um den Beginn) enthielt zusätzlich `0x4DB` Rekuperationsstufe — das ist
+   eine Folge des Eingriffs (Schub danach), keine Ursache.
+2. **"Vorhergesagte Drehzahl" als Schwelle** (RPM + Anstieg × Vorlauf): die Streuung des
+   Beginn-RPM steigt mit jedem Vorlauf (Standardabweichung 111 U/min bei 0 s auf 165 U/min
+   bei 0,3 s). Anstiegsrate am Beginn: Gang 3 340-470 U/min/s, Gang 2 740-750 U/min/s. Damit
+   ist die Gangabhängigkeit (Gang 2 ~7355-7386, Gang 3 ~7139-7216) **nicht** durch die
+   Anstiegsrate erklärbar — diese Hypothese aus dem 20.09.-Eintrag ist widerlegt.
+3. **Zeitgeber "Dauer über 7000 U/min":** Dauer bis zum Beginn 0,46-0,60 s bei 5 Eingriffen
+   (der sechste, `273,9`, setzt schon beim ersten Überschreiten ein, Dauer 0), aber der
+   Kontrollzug (Gang 4, 7136 U/min) blieb 0,74 s über 7000 ohne Eingriff. Kein reiner
+   Zeitgeber. Hinweis: dieser Kontrollzug lag mit 7136 knapp unter der Gang-3-Schwelle
+   (~7139-7216); der zweite Kontrollzug aus dem Eintrag vom 20.09. (Gang 4, 7297 U/min, ohne
+   Eingriff) liegt darüber. Die Schwellen wären damit nicht monoton in der Gangnummer
+   (Gang 2 ~7370, Gang 3 ~7150, Gang 4 > 7300) — sofern der Gang-4-Zug überhaupt bei vollem
+   Pedal lief (dort fiel APP schon selbst ab).
+
+**Stand:** der Auslöser bleibt offen. Mit 6 Eingriffen und 2 Kontrollen lässt sich keine der
+Hypothesen (Drehzahl, Anstieg, Zeit, Klopfen, Schlupf) tragfähig trennen. Sinnvoll wäre neue
+Fahrdaten: gezielte Vollgaszüge in Gang 2, 3 und 4 bis in die Begrenzung, damit sich Gang,
+Drehzahl, Temperatur (Öl/Kühlwasser/Ansaugluft) und Last entkoppeln lassen. Die Kandidaten
+aus 1. dann an diesen Zügen gegenprüfen.
+
+## Familien-Clusterung unbelegter Bytes: nur Zähler-Familien und ein offenes Duplikat (2026-09-26)
+
+Neues Skript `scripts/can_field_families.py`: alle unbelegten Bytes und Byte-Paare der DBC
+(rund 300 je Log, ohne Konstanten/Flags mit <8 Werten) plus alle Datalake-Kanäle des Logs
+auf ein 10-Hz-Raster, monotone Reihen (Zähler, Kilometerstand) verworfen, 20-s-Trend
+abgezogen, Spearman-Rang-Korrelation untereinander. Kanten zählen nur, wenn sie in >=4 von 6
+grossen Logs (`081105`, `163711`, `084511`, `083214`, `084853`, `093544`) mit Median-|r| >= 0,90
+halten (Nachbarschaft zu bekannten Kanälen ab 0,7).
+
+**Ergebnis: 5 Familien über 6/6 Logs, aber praktisch nur Zähler.** Prüfung der Schrittweiten
+je Byte (häufigster Schritt mod 256) zeigt, dass die Familien synchron laufende Rollzähler
+sind, die verschiedene Botschaften eines Steuergeräts teilen:
+
+| Familie | Mitglieder | Befund |
+|---|---|---|
+| RCM | `0x075` B0, `0x076` B0 | Zähler, Schritt +5, r=0,998 |
+| ABS | `0x078` B6, `0x211` B4, `0x21E` B7 | Zähler (Schritt 16 bzw. 255), r 0,97-0,98 |
+| PCM | `0x167` B3, `0x200` B6 | Zähler (Schritt 32 bzw. 2), r 0,98-0,99 |
+| Kamera | `0x242` B0, `0x243` B0-7 | Zähler (Schritt 16), r=0,998 |
+| **`0x42B` B4-6 ~ `0x4FA` B0-2** | — | **kein Zähler**: 99 % der Schritte 0, 8-11 verschiedene Werte, r 0,97-0,99. Byte0 von `0x4FA` nimmt Werte in der Form 1024·k (Bit 2-6 einzeln gesetzt, ein Zustandsbyte), Byte1 = 35-40. Wechselt bei Fahrt/Stillstand (Anfahren, Halt), keine Korrelation mit den bekannten Kanälen (|r| <= 0,18). Bedeutung offen |
+
+Nebengewinn (aus dem Deep-Search-Plan): diese Zähler sind jetzt benannt und lassen sich aus
+künftigen Sweeps herausnehmen; sie erklären einen Teil der Zufallstreffer früherer Läufe.
+Einziger benannter Nachbar: `0x200` Byte4-5 korreliert in 6/6 Logs mit `APP` (0,86), `%`-Drehmoment
+(0,78), Längsbeschleunigung (0,73), `MAP` (0,72) — Last-Domäne, bekannt (siehe Sweep-Neulauf).
+**Fazit:** die Clusterung zeigt, dass es unter den unbelegten Bytes kaum "versteckte
+Duplikate bekannter Größen" gibt; die Ausbeute liegt bei Zuständen/Ereignissen
+(`0x4FA`/`0x42B`, `0x4DB`) und Einzelfeldern (`0x086` Byte4-5), nicht bei Familien.
+
+## 0x086 Byte4-5 aufgelöst: zweite, nullpunktstabile Winkelspur (2026-09-26)
+
+Aus dem Sweep-Neulauf (`0x086` Byte4-5 gegen den Lenkwinkel, 25 Logs, r 0,61-0,94 nur
+monoton-nichtlinear) — der seit 15.09. offene Rest von 0x86 ("Byte4-5 unidentifiziert").
+Byte4 zeigt über dem Lenkwinkel einen Sägezahn (232 bei 0°, +0,62 pro Grad, Wrap alle ~410°),
+Byte5 hat nur 64 verschiedene Werte (Bit3=1, Bit2=0 konstant, obere Nibble 16 Stufen). Das
+erklärt die schwache lineare Korrelation, das Signal ist **modulo** (Pearson auf einem
+Sägezahn ~0).
+
+- **Deutung:** Byte4 ist das untere Byte von `SteeringAngle_EPAS_Coarse` (26|11, 1,6°/LSB, die
+  Bits liefen bis in Byte4 hinein), und die obere Nibble von Byte5 sind die **4 fehlenden
+  Feinbits desselben Winkels**. Zusammen: 15 Bit `26|15@0+`, 0,1°/LSB, `raw*0,1-1600` —
+  exakt die Auflösung und Codierung des primären `SteeringAngle_EPAS` (6|15) derselben
+  Botschaft.
+- **Zirkuläre Prüfung** (raw12 = Byte4<<4 | Byte5>>4 gegen `10*Winkel` mod 4096): Skala 10,0
+  Zähler/Grad in allen Logs, Konzentration R=1,000.
+- **Entscheidend — Nullpunkt:** Median-Versatz gegen den absoluten SSU-Winkel (`0x082`), vier
+  Logs (`093544`, `081105`, `084511`, `084853`): **0,10 / 0,65 / 0,03 / 0,00°** für die neue
+  Spur, dagegen **-4,47 / +10,00 / -3,90 / +2,62°** für das primäre `SteeringAngle_EPAS`
+  (das bekanntlich pro Log eine Nullpunktkorrektur braucht). 90 %-Perzentil der Restabweichung
+  0,75-2,05° (Interpolationsschätzung, keine synchronen Abtastungen, hauptsächlich Zeitversatz
+  bei schnellen Lenkbewegungen).
+- **Konsequenz:** die neue Spur ist eine zweite, nullpunktstabile Winkelquelle auf 0x086.
+  Für CAN-Logs, die `0x082` nicht enthalten, ist sie der bessere Ersatz als
+  `SteeringAngle_EPAS`. DBC: `SteeringAngle_EPAS_Coarse` wurde zu
+  `SteeringAngle_EPAS_Abs_maybe` (`26|15@0+ (0.1,-1600)`), cantools-Decode geprüft (30,0° ->
+  30,0). Unerklärt bleiben die unteren Bits von Byte5 (Werte 0-3 auf Bit1-0).
+- Erster Versuch bei dieser Untersuchung war eine "12-Bit-Wrap-Kopie" auf Byte4-5, das
+  überlappte in der DBC mit `Coarse` und ließ sich erst durch den Überlappungsfehler von
+  cantools erklären: die beiden waren dasselbe Signal.
+
+## 0x20A (HS_PCM_w_i_ELOOP): Motorzustand und ein Teilmengen-Schubbit (2026-09-26)
+
+Sweep-Treffer `0x20A` Byte3-5 gegen Soll-Lambda (22 Logs, r 0,64-0,85) und die frühere
+Beobachtung, dass die Bitlage zwischen Logs wechselte (siehe "Nächste Schritte" 12). Die
+Botschaft ist 8 Byte / 66 Hz; Byte5=0, Byte6=15, Byte7=128 konstant, Byte1-3 variieren
+(analog, nicht ausgewertet), Byte0 und Byte4 sind Zustandsbytes:
+
+- **Byte4 Bit7 = 0 (`FuelNotCut_maybe`)** ist die Teilmenge einer Schubphase: P(Bit=0 | Soll-
+  Lambda > 1,9) = 0,81/0,85/0,83 in drei Logs, P(Schub | Bit=0) = 0,95/0,96/0,77, nie bei
+  Gaspedal >= 1 (0,000). Das erklärt den Lambda-Treffer, aber `FuelCut` (0x0FD) ist die
+  bessere Größe (P(FuelCut | Schub) = 0,98/0,98/0,91). Bitlage-Wechsel: hier nicht
+  reproduziert, das Bit sitzt in allen drei geprüften Logs auf derselben Position; vermutlich
+  waren die früheren Wechsel Suchartefakte breiter Byte-Paare (nicht einzeln nachgeprüft).
+- **Byte0 = Motorzustand (`EngineState_raw_maybe`):** 17-54 (meist 53) = Zündung an, Motor
+  steht (RPM ~1, Kühlwasser = Umgebung); 86 = Anlassen (2 Frames, Kupplung 198); 117/118 =
+  Motor läuft (117 im Leerlauf/Warmlauf, 118 überwiegend Fahrt; Bit0/1 wechseln);
+  245/246 = Motor steht nach dem Lauf (RPM ~20, Kühlwasser 90 °C, nur in `081105`,
+  vermutlich i-stop). Aus zwei Logs, Zuordnung nicht referenzgestützt.
+- Beides in der DBC als `_maybe` eingetragen (`BO_ 522`), cantools-Decode geprüft.
+- Kein neues analoges Signal; **`0x20A` ist damit als Zustandsbotschaft eingeordnet** und kann aus
+  der Suche nach analogen Kanälen herausgenommen werden.
+
+## 0x200 Byte4-5 ist nicht das Motormoment; 0x4FA nur teilweise eingeordnet (2026-09-26)
+
+**0x200 Byte4-5** (Last-Domäne, zuletzt r=0,72-0,94 gegen Pedal/Drehmoment in 6-16 Logs). Test,
+ob es ein echtes Motormoment in Nm ist: Vergleich gegen ein kinematisches Referenzmoment
+(Beschleunigung aus `VehicleSpeed`, Fahrwiderstände und Übersetzungen aus
+`drivetrain_model_validation.py`, nur eingekuppelt, Gang 2-6, Pedal > 0,5 %, > 1500 U/min):
+
+| Größe | R² gegen das kinematische Moment (Logs `163755` / `093544`) |
+|---|---|
+| OBD-`EnginePercentTorque_CAN` (PID 0x62) | 0,88 / 0,91 |
+| `0x200` Byte4-5 (raw - 32768) | 0,49 / 0,60 |
+
+Die Nm-je-Zähler-Steigung schwankt zwischen 0,50 und 0,84 (fünf Logs), der Achsenabschnitt
+zwischen 10 und 44 Nm — also **kein** gut kalibrierbares Moment. Die Beziehung zum
+OBD-%Moment ist konvex (raw ~178 bei 80-100 %, ~34 bei 20-40 %, ~ -22 bei 0-20 %). Am Limiter
+fällt es sanft mit, nicht sprunghaft wie das OBD-%Moment. Eher ein Fahrerwunsch- oder
+Indiziertes-Moment-Signal als das abgegebene Moment. Nicht in die DBC.
+
+**0x4FA / 0x42B (Familie, siehe vorheriger Abschnitt):** `0x4FA` Byte0 ist 0 bei Motor aus, im
+Betrieb überwiegend 4 und steigt mit Last (128 bei Pedal 100 % und 5600 U/min, 104/108 bei
+Pedal 90-96 %) — Bitfeld einer Lastzuordnung, kein Gang (Kreuztabelle gegen `Gear_CAN`
+ohne Struktur). Byte1 = 34-40 (0 bei Motor aus) korreliert mit der Ansauglufttemperatur
+(r=-0,71 in einem Log) und Drehzahl (0,41), nicht mit dem Rekuperationszustand. Deutung offen.
+
+**Einzelbeobachtung zum Limiter:** in `163755` fällt das OBD-%Moment bei einem Eingriff
+(t=847,2 s, Gang 2) schon von 93 auf 58 %, wenn die Drosselklappe (`ETC_ACT`) noch bei 92°
+steht (0,6 s vor deren Abfall, bei ~6970 U/min statt 7385). Das deutet auf einen früheren
+Drehmomenteingriff (z.B. Zündung) hin. Nicht verwertet: das %Moment ist mit ~0,15 s
+Abtastung zu grob und in vier der sechs Ereignisse lückenhaft; ein Onset über %Moment statt
+`ETC_ACT` bräuchte neue Züge mit mehr Abtastpunkten.
