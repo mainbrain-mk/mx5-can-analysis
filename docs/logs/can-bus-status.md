@@ -2821,3 +2821,25 @@ Sägezahn ~0).
 - Erster Versuch bei dieser Untersuchung war eine "12-Bit-Wrap-Kopie" auf Byte4-5, das
   überlappte in der DBC mit `Coarse` und ließ sich erst durch den Überlappungsfehler von
   cantools erklären: die beiden waren dasselbe Signal.
+
+## 0x20A (HS_PCM_w_i_ELOOP): Motorzustand und ein Teilmengen-Schubbit (2026-09-26)
+
+Sweep-Treffer `0x20A` Byte3-5 gegen Soll-Lambda (22 Logs, r 0,64-0,85) und die frühere
+Beobachtung, dass die Bitlage zwischen Logs wechselte (siehe "Nächste Schritte" 12). Die
+Botschaft ist 8 Byte / 66 Hz; Byte5=0, Byte6=15, Byte7=128 konstant, Byte1-3 variieren
+(analog, nicht ausgewertet), Byte0 und Byte4 sind Zustandsbytes:
+
+- **Byte4 Bit7 = 0 (`FuelNotCut_maybe`)** ist die Teilmenge einer Schubphase: P(Bit=0 | Soll-
+  Lambda > 1,9) = 0,81/0,85/0,83 in drei Logs, P(Schub | Bit=0) = 0,95/0,96/0,77, nie bei
+  Gaspedal >= 1 (0,000). Das erklärt den Lambda-Treffer, aber `FuelCut` (0x0FD) ist die
+  bessere Größe (P(FuelCut | Schub) = 0,98/0,98/0,91). Bitlage-Wechsel: hier nicht
+  reproduziert, das Bit sitzt in allen geprüften Logs auf derselben Position; die früheren
+  Wechsel waren Suchartefakte breiter Byte-Paare.
+- **Byte0 = Motorzustand (`EngineState_raw_maybe`):** 17-54 (meist 53) = Zündung an, Motor
+  steht (RPM ~1, Kühlwasser = Umgebung); 86 = Anlassen (2 Frames, Kupplung 198); 117/118 =
+  Motor läuft (117 im Leerlauf/Warmlauf, 118 überwiegend Fahrt; Bit0/1 wechseln);
+  245/246 = Motor steht nach dem Lauf (RPM ~20, Kühlwasser 90 °C, nur in `081105`,
+  vermutlich i-stop). Aus zwei Logs, Zuordnung nicht referenzgestützt.
+- Beides in der DBC als `_maybe` eingetragen (`BO_ 522`), cantools-Decode geprüft.
+- Kein neues analoges Signal; **`0x20A` ist damit als Zustandsbotschaft eingeordnet** und kann aus
+  der Suche nach analogen Kanälen herausgenommen werden.

@@ -306,6 +306,8 @@ BO_ 514 HS_PCM: 8 HS_PCM
    SG_ APP_Accelerator_Pedal_Position : 39|16@0+ (0.0015625,0) [0|1] "%" Vector__XXX
 
 BO_ 522 HS_PCM_w_i_ELOOP: 8 HS_PCM
+   SG_ EngineState_raw_maybe : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ FuelNotCut_maybe : 39|1@0+ (1,0) [0|1] "" Vector__XXX
 
 BO_ 543 HS_PCM: 8 HS_PCM
 
@@ -694,3 +696,5 @@ CM_ SG_ 130 SteeringRate_Dir_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-
 CM_ SG_ 1243 DCDC_State_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-26), i-ELOOP/DCDC-Wandler (HS_DCDC, 10 Hz), aus dem Sweep-Neulauf (0x4DB gegen Soll-Lambda in 16 Logs) und danach gegen Gaspedal/Laengsbeschleunigung geprueft. Byte3 = 4: Rekuperation/Schubphase - in 5 Logs zu 100% bei geschlossenem Gaspedal (APP<1) und zu 91-98% bei Verzoegerung (acc<-0,03 g), Anteil 7,7-12,4% aller Frames; in den uebrigen Frames ist das Pedal nur zu 39-55% zu. Byte3 = 8: Normalzustand (~85%). Byte3 = 11: selten (338-2390 Frames), immer zusammen mit Byte4=248, Bedeutung offen (vermutlich Start-/Sonderzustand). Deckt sich nur teilweise mit FuelCut (0x0FD). Deutung als i-ELOOP-Rekuperation ist Hypothese (Physik passt, kein Referenzkanal).";
 CM_ SG_ 1243 DCDC_RegenFlag_maybe "Byte0 Bit4, in der Rekuperation (State=4) immer 1, sonst 0. Eigene Ergaenzung 2026-09-26, siehe DCDC_State_maybe.";
 CM_ SG_ 1243 DCDC_RegenLevel_maybe "Byte0 Bits 7-5, in der Rekuperation Stufen 0-4 (Rohwerte 22/54/86/118/150 bzw. 17/50/82/115/148 je nach Log, untere Nibble variiert). Faellt im Lauf einer Verzoegerung meist stufenweise ab (z.B. 86->54->22). Bedeutung unklar (Ladestrom-/Ladeleistungsstufe oder Kondensator-Ladezustand); Eigene Ergaenzung 2026-09-26.";
+CM_ SG_ 522 EngineState_raw_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-26), aus dem Sweep-Neulauf (0x20A gegen Soll-Lambda, 22 Logs). Byte0 ist ein Motorzustands-Byte (rohe Werte). Aus zwei Logs mit Kaltstart bzw. Auto-Stopp: 17-54 (meist 53) = Zuendung an, Motor steht (Drehzahl 0-1); 86 = Anlassen (2 Frames, Kupplung durchgetreten); 117/118 = Motor laeuft (Leerlauf bzw. Fahrt, Bit0/1 wechseln zwischen 117 und 118, Bedeutung offen); 245/246 = Motor steht wieder nach dem Lauf (Drehzahl ~20, Kuehlwasser 90 Grad, nur im Log 09-14_081105, vermutlich i-stop-Automatikstopp). Nur aus 2 Logs gelesen, Zuordnung nicht referenzgestuetzt.";
+CM_ SG_ 522 FuelNotCut_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-26). Byte4 Bit7: 1 im Normalbetrieb, 0 in einer TEILMENGE der Schubabschaltung. Gegen Soll-Lambda > 1,9 (PID 0x44) in drei Logs: P(Bit=0 | Schub) = 0,81/0,85/0,83, P(Schub | Bit=0) = 0,95/0,96/0,77; nie 0 bei Gaspedal >= 1 (0,000), zu 18-23% bei Pedal zu. FuelCut (0x0FD Byte5 Bit1) deckt den Schub besser ab (P=0,98/0,98/0,91), dieses Bit liefert also nichts Neues, eher eine Untermenge (vermutlich 'stabile' Schubabschaltung nach Verzoegerungszeit). Damit ist auch der Sweep-Treffer 0x20A gegen Soll-Lambda (r 0,64-0,85 in 22 Logs) erklaert.";
