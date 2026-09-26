@@ -176,6 +176,50 @@ def test_fix_can_log_clocks_renames_whole_boot_group():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_fix_clock_jump_shifts_part_before_ntp_and_renames():
+    """NTP-Sync mitten in der Fahrt (Nachbau candump-2026-09-11_201950, Sprung +67588,875 s):
+    Teil vor dem Sprung + Name werden nachgezogen, Frames danach bleiben, Marker gilt als ok.
+    Ein Log mit zwei Spruengen wird nur gemeldet, nicht angefasst."""
+    tmp = tempfile.mkdtemp()
+    orig = (rdp.CAN_DIR, rdp.subprocess.run)
+    rdp.CAN_DIR = tmp
+    ssh_cmds = []
+    rdp.subprocess.run = lambda args, **kw: ssh_cmds.append(args[-1]) or subprocess.CompletedProcess(args, 0, "", "")
+    try:
+        old_id = "candump-2026-09-11_201950"
+        start_us = int(datetime(2026, 9, 11, 20, 19, 50, tzinfo=rdp.LOCAL_TZ).timestamp()) * 10**6 + 920951
+        jump_us = 67588_875_000
+        ts = [start_us + i * 5000 for i in range(100)]            # 20 s vor dem Sync, 200 Hz
+        ts += [ts[-1] + jump_us + (i + 1) * 5000 for i in range(50)]
+        with open(os.path.join(tmp, f"{old_id}.log"), "w") as f:
+            f.writelines(f"({t // 10**6:010d}.{t % 10**6:06d}) can0 202#00001F4000000000\n" for t in ts)
+        with open(os.path.join(tmp, rdp._clockstate_name(old_id)), "w") as f:
+            f.write("plausibel\nkein NTP, Systemzeit >= gespeicherte Zeit - vermutlich ok (2026-09-11 20:19:50)")
+
+        errors = []
+        new_id = rdp.fix_clock_jump(old_id, errors)
+        assert errors == [], errors
+        assert new_id == "candump-2026-09-12_150619", new_id
+        assert "sudo mv candump-2026-09-11_201950.log.gz candump-2026-09-12_150619.log.gz" in ssh_cmds[0]
+        with open(os.path.join(tmp, f"{new_id}.log")) as f:
+            got = [rdp._candump_ts_us(l) for l in f]
+        assert got[:100] == [t + jump_us for t in ts[:100]] and got[100:] == ts[100:]
+        assert max(b - a for a, b in zip(got, got[1:])) == 5000  # lueckenlos
+        assert rdp._clockstate_warning(f"{new_id}.log") is None
+        assert rdp.find_clock_jump(os.path.join(tmp, f"{new_id}.log")) is None
+
+        two_id = "candump-2026-09-20_023215"
+        two = ts[:10] + [ts[9] + 10**7] + [ts[9] + 2 * 10**7]
+        with open(os.path.join(tmp, f"{two_id}.log"), "w") as f:
+            f.writelines(f"({t // 10**6:010d}.{t % 10**6:06d}) can0 202#00\n" for t in two)
+        assert rdp.fix_clock_jump(two_id, errors) == two_id
+        assert len(errors) == 1 and "nicht korrigiert" in errors[0][1]
+        assert len(ssh_cmds) == 1
+    finally:
+        rdp.CAN_DIR, rdp.subprocess.run = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
