@@ -3892,3 +3892,11 @@ im Kombiinstrument.
 **Nebenbei:** Die Parallelsession (automatische Neudatierung) lief im selben Arbeitsverzeichnis;
 mein Commit `4410007` hat einen Zwischenstand ihrer `run_daily_pipeline.py` mitgenommen, der Rest
 steht in `2c35136`. Inhaltlich vollständig, Tests grün.
+
+**Korrektur (Nutzer, gleicher Abend):** voll sind laut Mazda **45 l**, nicht die aus der Reichweite
+abgeleiteten ~46 l. Damit Liter ≈ **3,0** + 1,10 · roh, vor dem Tanken 10,6 l, Tankanzeige 0
+(roh ≈ 4,6) bei ~8 l. Die ~1 l Differenz zur Reichweiten-Rechnung (dort 9 l Reserve + 2,55 l)
+liegt im Rahmen: die Reichweite rechnet das Kombiinstrument mit einem eigenen Verbrauchswert, und
+der Füllstand beim Abschalten der Zapfpistole schwankt. Die Zählerkalibrierung (4834 Schritte/l)
+hängt davon nicht ab - Voll-bis-Voll braucht nur zweimal denselben Füllstand. `FUEL_L_AT_FLI0`
+auf 3,0, heutige Massen neu: 1245,2 / 1243,1 / 1242,0 / 1265,7 kg.

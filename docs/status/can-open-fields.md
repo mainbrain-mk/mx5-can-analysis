@@ -76,9 +76,9 @@ Trip-Kilometerstand und Restreichweite: auf dem HS-CAN nicht gefunden (Suche üb
 für die Reichweite gezielt nach einem Feld 33 km → mehrere 100 km beim Tanken - nur Zufallstreffer).
 
 **Tankinhalt in Litern (26.09.):** `Fuel_Tank` (0x09E) gegen die über den Tank 16.→26.09. verbrauchten
-Liter (Bordcomputer × 1,04): Liter ≈ 4,0 + 1,10 · roh (66 Stützpunkte, Rest 0,5 roh), voll ≈ 46 l,
-Sättigung bei roh 36,2 (erste ~2,3 l nach dem Tanken), Anzeige 0 bei ~9 l (roh ~4,6). Der Sockel von
-~4 l fehlte in der bisherigen Formel FLI % = 2,486 · roh.
+Liter (Bordcomputer × 1,04): Liter ≈ 3,0 + 1,10 · roh (66 Stützpunkte, Rest 0,5 roh), voll = 45 l (Mazda),
+Sättigung bei roh 36,2 (erste ~2,3 l nach dem Tanken), Anzeige 0 (roh ~4,6) bei ~8 l. Der Sockel von
+~3 l fehlte in der bisherigen Formel FLI % = 2,486 · roh.
 
 ## B. Offene Werte mit beobachtetem Verhalten
 
