@@ -3900,3 +3900,23 @@ liegt im Rahmen: die Reichweite rechnet das Kombiinstrument mit einem eigenen Ve
 der Füllstand beim Abschalten der Zapfpistole schwankt. Die Zählerkalibrierung (4834 Schritte/l)
 hängt davon nicht ab - Voll-bis-Voll braucht nur zweimal denselben Füllstand. `FUEL_L_AT_FLI0`
 auf 3,0, heutige Massen neu: 1245,2 / 1243,2 / 1242,0 / 1265,7 kg.
+
+## Handy-PIDs ausgedünnt, beste Sync-Referenz ist MAF, nicht KnockRetard (2026-09-26 abends)
+
+Nutzer hat in OBD Fusion Motordrehmoment (Broadcast 0x167) und FuelLevel % (Broadcast 0x09E)
+abgewählt. Offen waren KnockRetard, Zündzeitpunkt Zyl. 1 und Luftmassenstrom. Test als
+Zeit-Referenz (candump-2026-09-26_130440 gegen dlg 130327, Offset in 0,1-s-Schritten ±30 s,
+Anteil bitgenau gleicher Werte, dlg-Wert gegen nächsten CAN-Wert ≤ 0,3 s):
+
+| dlg-Kanal | am richtigen Offset | bester falscher Offset (> 1 s daneben) | distinkte Werte |
+|---|---|---|---|
+| `MassAirFlowRate` | 94 % | 11 % | 795 |
+| `TimingAdvance` | 95 % | 19 % | 110 |
+| `KNOCKR` | 98 % | **94 %** | 42 |
+
+KnockRetard ist meist 0 und trennt richtige und falsche Offsets kaum - die bisherigen
+Zuordnungen hielten nur, weil die Geschwindigkeits-Korrelation den Offset vorher schon auf wenige
+Sekunden eingegrenzt hatte. **Künftig MAF (oder Zündzeitpunkt) für die bitgenaue Synchronisation
+nehmen**, GPS-Geschwindigkeit für die Grobsuche (so macht es die Pipeline automatisch). Das Handy
+braucht KnockRetard nicht mehr (der Pi pollt es ~50×/s, die Antworten stehen im CAN-Log); MAF und
+Zündzeitpunkt bleiben im Handy (kein Broadcast, der Pi fragt sie nicht ab).
