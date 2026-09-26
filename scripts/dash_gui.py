@@ -1227,8 +1227,26 @@ class TestModeScreen(Screen):
 
 # --- App -------------------------------------------------------------------------------
 
+BOOT_TIMING_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boot_timing.log")
+
+
+def _log_first_frame(*_args):
+    """Bootzeit-Messung: haengt eine Zeile 'Prozessstart / erster Frame' (Sekunden seit Boot) an."""
+    Window.unbind(on_flip=_log_first_frame)
+    try:
+        with open("/proc/self/stat") as fh:
+            start = int(fh.read().rsplit(")", 1)[1].split()[19]) / os.sysconf("SC_CLK_TCK")
+        with open("/proc/uptime") as fh:
+            now = float(fh.read().split()[0])
+        with open(BOOT_TIMING_LOG, "a") as fh:
+            fh.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} proc_start={start:.1f}s first_frame={now:.1f}s\n")
+    except (OSError, ValueError, IndexError):
+        pass
+
+
 class MX5DashApp(App):
     def build(self):
+        Window.bind(on_flip=_log_first_frame)
         Window.clearcolor = BG
         self.client = SnapshotClient()
         self.sm = ScreenManager(transition=NoTransition())

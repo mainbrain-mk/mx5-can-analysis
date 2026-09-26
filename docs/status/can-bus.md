@@ -666,6 +666,10 @@ OBD/CAN-Referenz gesucht werden muss):
   gemeinsam, bei eindeutigem Treffer Umbenennung lokal + Pi (±1 s genau), sonst Warnung. Am
   Fahrtag hätte das 3 von 6 Logs automatisch korrigiert; kurze dlg (<300 GPS-Punkte) reichen
   nicht. Siehe Logbuch "Automatische Uhrkorrektur in der Pipeline".
+  **Seit 2026-09-27** korrigiert `fix_clock_jump()` (vor dem Dekodieren) zusätzlich einen **Uhrsprung mitten im Log**
+  (NTP-Sync während der Fahrt): Lücke > 5 s = Sprung, Teil davor + Name werden nachgezogen, Marker
+  `ntp_sprung_korrigiert`, Original bleibt als `.log.gz`. Am Bestand validiert (einziger Fall `candump-2026-09-11_201950`,
+  schließt korrigiert auf 1 ms an `_150619` an). Siehe Logbuch "Sprungkorrektur". DS3231-RTC bestellt (ARCELI, kommt 28.09.).
 
 ### Nächste Schritte
 - **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die

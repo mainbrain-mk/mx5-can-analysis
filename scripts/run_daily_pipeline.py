@@ -245,7 +245,7 @@ def _clockstate_warning(log_name):
         lines = f.read().splitlines()
     state = lines[0] if lines else ""
     note = lines[1] if len(lines) > 1 else ""
-    if state == "ntp":
+    if state in ("ntp", JUMP_FIXED_STATE):
         return None
     return f"Uhr beim Start NICHT per NTP bestaetigt ({state}): {note} Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden."
 
@@ -397,6 +397,9 @@ def fix_can_log_clocks(log_ids, errors):
         for m in members:
             claimed = datetime.strptime(m, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
             new_id = datetime.fromtimestamp(claimed + offset, LOCAL_TZ).strftime("candump-%Y-%m-%d_%H%M%S")
+            if new_id == m:  # Uhr lief schon richtig (NTP kam vor diesem Log, Marker ist vom Logger-Start)
+                messages.append(f"Pi-Uhr bestaetigt: {m} (Offset {offset:+d} s, dlg '{dlg}')")
+                continue
             if _rename_can_log(m, new_id, errors):
                 renamed[m] = new_id
                 messages.append(f"Pi-Uhr ohne NTP korrigiert: {m} -> {new_id} (Offset {offset:+d} s, "
@@ -412,6 +415,88 @@ def fix_can_log_clocks(log_ids, errors):
         with open(CAN_GPS_PAIRS_OVERRIDE_PATH, "w", encoding="utf-8") as f:
             json.dump(pairs, f, indent=2, ensure_ascii=False, sort_keys=True)
     return [renamed.get(i, i) for i in log_ids], messages
+
+
+# Uhrsprung mitten im Log (2026-09-27, siehe docs/logs/can-bus-status.md "Sprungkorrektur"): kommt der
+# NTP-Sync erst waehrend der Fahrt, springen die candump-Zeitstempel um die Uhrabweichung nach vorn.
+# Bei laufendem Bus liegen Frames im ms-Takt (groesste normale Luecke im Bestand 1,27 s), eine Luecke
+# > 5 s ist also der Sprung. Der Teil danach ist NTP-richtig -> Teil davor + Dateiname um den Sprung
+# nachziehen. Im Bestand genau ein Fall (candump-2026-09-11_201950, +67588,9 s = Duplikat von _150619).
+CLOCK_JUMP_MIN_US = 5 * 10**6
+CLOCK_JUMP_BACK_US = -1 * 10**6
+JUMP_FIXED_STATE = "ntp_sprung_korrigiert"
+
+
+def _candump_ts_us(line):
+    """'(1789150790.920951) can0 ...' -> 1789150790920951 (ganzzahlig, float verliert hier die us)."""
+    sec, usec = line[1:line.index(")")].split(".")
+    return int(sec) * 10**6 + int(usec)
+
+
+def find_clock_jump(log_path):
+    """-> (Zeilennummer des ersten Frames nach dem Sprung, Sprung in us) oder None. ValueError bei
+    mehreren Spruengen oder einem Rueckwaertssprung - dann lieber nichts anfassen und melden."""
+    jumps, prev, last_dt = [], None, 0
+    with open(log_path) as f:
+        for i, line in enumerate(f):
+            try:
+                ts = _candump_ts_us(line)
+            except ValueError:
+                continue  # abgeschnittene letzte Zeile (Stromverlust), wie parse_candump()
+            if prev is not None:
+                dt = ts - prev
+                if CLOCK_JUMP_BACK_US <= dt <= CLOCK_JUMP_MIN_US:
+                    last_dt = dt
+                else:  # Luecke minus normaler Frame-Abstand davor = Uhrsprung (auf ~1 ms genau)
+                    jumps.append((i, dt - last_dt))
+            prev = ts
+    if not jumps:
+        return None
+    if len(jumps) > 1 or jumps[0][1] < 0:
+        raise ValueError(", ".join(f"Zeile {i}: {d / 1e6:+.3f} s" for i, d in jumps))
+    return jumps[0]
+
+
+def fix_clock_jump(log_id, errors):
+    """Korrigiert einen Uhrsprung im frisch geholten Log: erst umbenennen (Pi + lokal, wie
+    fix_can_log_clocks), dann die Zeitstempel vor dem Sprung verschieben und den Marker auf
+    JUMP_FIXED_STATE setzen. Das Original bleibt als .log.gz lokal und auf dem Pi erhalten.
+    Gibt die (ggf. neue) log_id zurueck."""
+    path = os.path.join(CAN_DIR, f"{log_id}.log")
+    try:
+        jump = find_clock_jump(path)
+    except ValueError as e:
+        errors.append((f"{log_id}.log", f"Mehrere/rueckwaerts gerichtete Uhrspruenge ({e}), nicht korrigiert."))
+        return log_id
+    if jump is None:
+        return log_id
+    line_no, jump_us = jump
+    claimed = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
+    new_id = datetime.fromtimestamp(claimed + round(jump_us / 1e6), LOCAL_TZ).strftime("candump-%Y-%m-%d_%H%M%S")
+    marker = os.path.join(CAN_DIR, _clockstate_name(log_id))
+    old_marker = "kein Marker"
+    if os.path.exists(marker):
+        with open(marker, encoding="utf-8") as f:
+            old_marker = f.read().strip().replace("\n", " | ")
+    if not _rename_can_log(log_id, new_id, errors):
+        return log_id
+    path = os.path.join(CAN_DIR, f"{new_id}.log")
+    with open(path) as src, open(path + ".tmp", "w") as dst:
+        for i, line in enumerate(src):
+            if i < line_no:
+                try:
+                    t = _candump_ts_us(line) + jump_us
+                    line = f"({t // 10**6:010d}.{t % 10**6:06d}){line[line.index(')') + 1:]}"
+                except ValueError:
+                    pass
+            dst.write(line)
+    os.replace(path + ".tmp", path)
+    with open(os.path.join(CAN_DIR, _clockstate_name(new_id)), "w", encoding="utf-8") as f:
+        f.write(f"{JUMP_FIXED_STATE}\nUhrsprung {jump_us / 1e6:+.3f} s vor Frame-Zeile {line_no} (NTP-Sync waehrend "
+                f"der Fahrt); Zeitstempel davor und Name nachtraeglich korrigiert, vorher {log_id} "
+                f"[{old_marker}]. Unveraenderte Zeitstempel: {new_id}.log.gz.\n")
+    print(f"Uhrsprung korrigiert: {log_id} -> {new_id} ({jump_us / 1e6:+.3f} s ab Zeile {line_no})")
+    return new_id
 
 
 def sync_can_logs_from_pi(errors):
@@ -494,7 +579,8 @@ def sync_can_logs_from_pi(errors):
                 continue
         else:
             log_name = fname
-        log_id = os.path.splitext(log_name)[0]
+        log_id = fix_clock_jump(os.path.splitext(log_name)[0], errors)  # vor dem Dekodieren
+        log_name = f"{log_id}.log"
 
         res = run_script([PYTHON, "scripts/can_log_parser.py", os.path.join(CAN_DIR, log_name)], errors)
         if res is None:

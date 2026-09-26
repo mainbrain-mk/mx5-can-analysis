@@ -87,3 +87,41 @@ auskommentierte Fallback-Zeile in derselben Datei stehen.
   dem Pi gehören (`/home/pi/canlogs/`, per `scp`).
 - Ein Ansible/cloud-init-artiges volles Reproduktions-Tooling — für einen
   einzelnen Pi bewusst nicht gebaut, siehe Trade-off-Diskussion im Chat.
+
+## Bootzeit-Optimierung (2026-09-27)
+
+Alles per `overlayroot-chroot` bzw. `raspi-config`; Rollback-Liste der Unit-Zustaende vorher:
+`/home/pi/canlogs/backup-boot-2026-09-26/unit-files-before.txt`.
+
+- **journald:** `/etc/systemd/journald.conf.d/volatile.conf` mit `Storage=volatile`, `RuntimeMaxUse=30M`.
+  Grund: 370 MB Alt-Journals im ro-Unterbau liessen `systemd-journal-flush` 30 s blockieren (sysinit 36 s -> 10 s).
+- **Abgeschaltet (`systemctl disable`):** `apt-daily(-upgrade).timer`, `dpkg-db-backup.timer`, `man-db.timer`,
+  `e2scrub_all.timer`, `e2scrub_reap.service`, `cups.{service,socket,path}`, `cups-browsed`, `udisks2`,
+  `triggerhappy.{service,socket}`, `rpi-eeprom-update`, `dphys-swapfile`. **Maskiert:** `ModemManager` (sonst
+  D-Bus-Reaktivierung durch NetworkManager). Bewusst AN: Avahi (`car.local`), Bluetooth, NetworkManager, ssh,
+  fake-hwclock, timesyncd.
+- **`/boot/firmware/config.txt`:** `camera_auto_detect=0` (`sudo mount -o remount,rw /boot/firmware`,
+  `sudo raspi-config nonint do_camera 1`, danach wieder `remount,ro`). Vorher-Kopie `backup-boot-2026-09-26/config.txt.vorher`.
+- **Gotcha:** mehrere `overlayroot-chroot`-Aufrufe hintereinander lassen `/media/root-ro` auf `rw` haengen
+  (remount,ro = EBUSY); erst ein Reboot stellt `ro` sicher her. Aenderungen deshalb in EINEM Aufruf buendeln
+  und danach `findmnt -no OPTIONS /media/root-ro` pruefen.
+- **Desktop-Autostart:** in `/etc/xdg/labwc/autostart` sind `pcmanfm --desktop` und `wf-panel-pi` auskommentiert
+  (Original: `backup-boot-2026-09-26/labwc-autostart.orig`). labwc fuehrt System- UND User-Autostart aus, der
+  User-Autostart (`~/.config/labwc/autostart`) kann System-Eintraege nicht abschalten. WLAN ist davon unabhaengig
+  (systemweites NM-Profil, `psk-flags 0`, kein Agent noetig); ohne Panel fehlt nur das Klick-Menue zum WLAN-Wechsel
+  (dann `nmcli` per ssh). Wiederherstellen: `#` entfernen (per `overlayroot-chroot`).
+- `initial_turbo=30` getestet, ohne Wirkung, wieder auskommentiert (`clear_config_var`). Kein Effekt hatte auch
+  `camera_auto_detect=0`; beides ist harmlos.
+- **Audio-Kette aus** (Dash nutzt keinen Ton; Bluetooth selbst bleibt an, nur kein BT-Audio):
+  `systemctl --global mask pipewire.{socket,service} pipewire-pulse.{socket,service} wireplumber.service
+  filter-chain.service pulseaudio.{service,socket}` (pulseaudio springt sonst als Ersatz ein).
+- **Session-Autostart ausgeblendet** per `Hidden=true`-Overrides in `/home/pi/.config/autostart/`:
+  `polkit-mate-authentication-agent-1`, `pwrkey`, `pprompt`, `pulseaudio`. Bewusst behalten: `autotouch` (Touch),
+  `env-display`, `xwayauth` (Kivy laeuft ueber SDL2/X11 -> Xwayland), `kanshi`.
+- **WLAN-Watchdog** (`wlan-watchdog.service` + `.timer`, erster Lauf 30 s nach Boot, dann alle 15 s, `AccuracySec=1s` - der systemd-Default von 1 min Spielraum haette ihn sonst verzoegert; ~40 ms CPU je Lauf): ohne Panel gibt es keinen NM-Passwort-Agenten;
+  ein einzelner WPA-Handshake-Fehler beim Boot sperrt dann den Autoconnect bis zum Reboot ("no-secrets", am
+  27.09. beobachtet). Der Watchdog macht `nmcli con up wireless` nur bei "getrennt" UND sichtbarer SSID.
+- **Dateien per stdin in den Unterbau** (im chroot ist `/tmp` das des Unterbaus):
+  `tar -c a b | ssh pi@... 'sudo overlayroot-chroot sh -c "mkdir -p /root/x && tar -x -C /root/x && install ..."'`
+- **Nicht nachmachen:** ein Boot-Preload der Mesa-Bibliotheken (Page-Cache vorwaermen) wurde getestet und
+  verworfen - bei ~5-7 MB/s Kartenlesegeschwindigkeit verdraengt er alles andere (lightdm 13 s -> 40 s).

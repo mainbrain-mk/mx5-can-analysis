@@ -20,6 +20,8 @@ Fahrten (ohne NTP, als `candump-2026-09-20_023215/_031203` benannt) - auf dem Pi
 wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo, altes Skript in
 `backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler. Greift ab der nächsten Session.
 
+**Nachtrag 2026-09-27, ~00:05 Uhr (Bootzeit-Optimierung):** journald `Storage=volatile`, Boot-Timer/-Dienste abgeschaltet, ModemManager maskiert, `camera_auto_detect=0` (per `raspi-config nonint do_camera 1`), `dash_gui.py` (md5 4a7c1a56, Vorversion `backup-boot-2026-09-26/dash_gui.py.94b3dc87`) schreibt beim ersten Frame eine Zeile nach `/home/pi/canlogs/boot_timing.log`. Details/Messwerte: `logs/can-bus-status.md` ("Bootzeit-Optimierung 27.09."), Config-Kopien in `scripts/pi-config/SETUP.md`. Panel/pcmanfm im System-Autostart deaktiviert (`/etc/xdg/labwc/autostart`, Original `backup-boot-2026-09-26/labwc-autostart.orig`). Danach (27.09. ~00:45): Audio-Kette (pipewire/wireplumber/pulseaudio) global maskiert, polkit-Agent/pwrkey/pprompt aus dem Session-Autostart, `wlan-watchdog.timer` neu (siehe SETUP.md). Dash-Erstframe zuletzt bei 34,6 s nach Boot (ohne CANable). **Engpass ist die SD-Karte selbst (~5-7 MB/s auf belegten Bereichen)** - siehe Logbuch.
+
 **Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
 
