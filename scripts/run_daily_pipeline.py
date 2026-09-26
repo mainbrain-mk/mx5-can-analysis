@@ -248,13 +248,15 @@ def _clockstate_warning(log_name):
 # Automatische Uhrkorrektur (2026-09-26, siehe docs/logs/can-bus-status.md "Automatische
 # Uhrkorrektur"): Offset per VehicleSpeed (CAN) gegen GPS-Geschwindigkeit der dlg-Dateien.
 CLOCK_ANCHOR_RE = re.compile(r"auf gespeicherte (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
-CLOCK_FIX_MAX_RMSE_KMH = 4.0     # Treffer nur unterhalb dieser Speed-RMSE
+CLOCK_FIX_MAX_RMSE_KMH = 5.0     # echte Treffer 26.09.: 3,3-3,4 km/h, Fehltreffer >= 9 km/h
 CLOCK_FIX_MIN_POINTS = 300       # Mindestueberlappung in GPS-Punkten ...
-CLOCK_FIX_MIN_FRACTION = 0.5     # ... oder Anteil der kuerzeren Reihe, was kleiner ist
+CLOCK_FIX_MIN_FRACTION = 0.5     # ... oder Anteil der CAN-Log-Sekunden, was kleiner ist,
+CLOCK_FIX_MIN_POINTS_FLOOR = 60  # aber nie weniger (kurze Logs passen sonst ueberall)
 CLOCK_FIX_MIN_SPEED_STD = 5.0    # Stillstand passt auf jeden Offset -> Bewegung verlangen
 CLOCK_FIX_SEPARATION_S = 30      # zweiter Treffer weiter weg als das -> mehrdeutig
 CLOCK_FIX_GROUP_TOL_S = 5        # Logs eines Boots muessen sich so genau einig sein
 CAN_TO_GPS_SPEED = 0.968         # VehicleSpeed eilt GPS ~3 % vor (Fahrtag 26.09.)
+GPS_SPEED_LAG_S = 1              # Handy-GPS-Speed haengt 0,8-2,7 s nach (gegen KnockRetard, 26.09.)
 DOTNET_EPOCH_TICKS = 621355968000000000
 
 
@@ -288,7 +290,7 @@ def _offset_candidates(can_s, gps_s):
     c0, g0 = int(can_s.index.min()), int(gps_s.index.min())
     c = can_s.reindex(range(c0, int(can_s.index.max()) + 1)).to_numpy()
     g = gps_s.reindex(range(g0, int(gps_s.index.max()) + 1)).to_numpy()
-    need = min(CLOCK_FIX_MIN_POINTS, CLOCK_FIX_MIN_FRACTION * min(can_s.size, gps_s.size))
+    need = max(CLOCK_FIX_MIN_POINTS_FLOOR, min(CLOCK_FIX_MIN_POINTS, CLOCK_FIX_MIN_FRACTION * can_s.size))
     out = []
     for k in range(max(1 - len(c), c0 - g0 - 120), len(g)):  # k: gps-Index minus can-Index
         i0, i1 = max(0, -k), min(len(c), len(g) - k)
@@ -297,7 +299,7 @@ def _offset_candidates(can_s, gps_s):
         n = int(ok.sum())
         if n < need or gg[ok].std() < CLOCK_FIX_MIN_SPEED_STD:
             continue
-        out.append((float(np.sqrt(np.mean((cc[ok] - gg[ok]) ** 2))), g0 + k - c0, n))
+        out.append((float(np.sqrt(np.mean((cc[ok] - gg[ok]) ** 2))), g0 + k - c0 - GPS_SPEED_LAG_S, n))
     return out
 
 

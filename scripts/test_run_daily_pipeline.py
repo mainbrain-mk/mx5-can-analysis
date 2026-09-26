@@ -4,9 +4,15 @@ deckt genau den Fall ab, der am 2026-09-18 zwei CAN-Logs verschluckt hat
 `python scripts/test_run_daily_pipeline.py`.
 """
 import gzip
+import json
 import os
 import shutil
+import sqlite3
+import subprocess
 import tempfile
+from datetime import datetime
+
+import numpy as np
 
 import run_daily_pipeline as rdp
 
@@ -109,6 +115,64 @@ def test_clockstate_warning_none_when_marker_missing():
         assert rdp._clockstate_warning("candump-2026-09-11_180456.log") is None
     finally:
         rdp.CAN_DIR = orig_can_dir
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_fix_can_log_clocks_renames_whole_boot_group():
+    """Nachbau des Fahrtags 26.09. (docs/logs/can-bus-status.md, "Automatische Uhrkorrektur"):
+    zwei Logs desselben Pi-Boots (gleicher Anker), beide um die Standzeit zu frueh. Das erste
+    faehrt und liegt unter einer dlg-GPS-Spur, das zweite steht nur - es muss den Offset des
+    ersten uebernehmen. Pi-Aufrufe werden abgefangen, nichts verlaesst den Rechner."""
+    tmp = tempfile.mkdtemp()
+    orig = (rdp.CAN_DIR, rdp.RAW_DIR, rdp.CAN_GPS_PAIRS_OVERRIDE_PATH, rdp.subprocess.run)
+    rdp.CAN_DIR, rdp.RAW_DIR = tmp, tmp
+    rdp.CAN_GPS_PAIRS_OVERRIDE_PATH = os.path.join(tmp, "pairs.json")
+    ssh_cmds = []
+    rdp.subprocess.run = lambda args, **kw: ssh_cmds.append(args[-1]) or subprocess.CompletedProcess(args, 0, "", "")
+    try:
+        offset = 6 * 86400 + 12 * 3600 + 8 * 60 + 26
+        rng = np.random.default_rng(0)
+        speed = np.clip(np.cumsum(rng.normal(0, 3, 900)) + 60, 0, 160)  # km/h, 1 Hz
+        logs = {"candump-2026-09-19_235409": speed, "candump-2026-09-20_001000": np.zeros(120)}
+        for log_id, v in logs.items():
+            start = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=rdp.LOCAL_TZ).timestamp()
+            with open(os.path.join(tmp, f"{log_id}.log"), "w") as f:
+                for i in range(len(v) * 10):  # 10 Hz, linear zwischen den Sekundenwerten
+                    kmh = np.interp(i / 10, np.arange(len(v)), v)
+                    f.write(f"({start + i / 10:.6f}) can0 202#0000{round(kmh * 100):04X}00000000\n")
+            with open(os.path.join(tmp, rdp._clockstate_name(log_id)), "w") as f:
+                f.write("korrigiert\nUhr von 2026-09-13 13:54:17 auf gespeicherte 2026-09-19 23:51:49 "
+                        "vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt.")
+        with open(rdp.CAN_GPS_PAIRS_OVERRIDE_PATH, "w") as f:
+            json.dump({f"{i}.log": "" for i in logs}, f)
+
+        # dlg: GPS-Speed zur wahren Zeit, um GPS_SPEED_LAG_S verspaetet, ohne CAN-Voreilung
+        true_start = datetime.strptime("2026-09-19 235409", "%Y-%m-%d %H%M%S").replace(tzinfo=rdp.LOCAL_TZ).timestamp() + offset
+        dlg_name = datetime.fromtimestamp(true_start - 60, rdp.LOCAL_TZ).strftime("%Y-%m-%d %H%M%S")
+        con = sqlite3.connect(os.path.join(tmp, f"{dlg_name}.dlg"))
+        con.execute("CREATE TABLE PidMetadataEntry (UniqueId varchar, PidName varchar)")
+        con.execute("CREATE TABLE PidDataEntry (UniqueId varchar, Time bigint, Value float)")
+        con.execute("INSERT INTO PidMetadataEntry VALUES ('g', 'GPS-Geschwindigkeit')")
+        con.executemany("INSERT INTO PidDataEntry VALUES ('g', ?, ?)", [
+            (int((true_start + i + rdp.GPS_SPEED_LAG_S + 0.3) * 10**7) + rdp.DOTNET_EPOCH_TICKS,
+             float(v * rdp.CAN_TO_GPS_SPEED)) for i, v in enumerate(speed)])
+        con.commit()
+        con.close()
+
+        errors = []
+        new_ids, messages = rdp.fix_can_log_clocks(list(logs), errors)
+        assert errors == [], errors
+        assert new_ids == ["candump-2026-09-26_120235", "candump-2026-09-26_121826"], new_ids
+        assert "vom selben Boot uebernommen" in messages[1]
+        for new_id in new_ids:
+            assert os.path.exists(os.path.join(tmp, f"{new_id}.log"))
+            assert os.path.exists(os.path.join(tmp, rdp._clockstate_name(new_id)))
+        assert not os.path.exists(os.path.join(tmp, "candump-2026-09-19_235409.log"))
+        assert len(ssh_cmds) == 2 and "sudo mv candump-2026-09-19_235409.log.gz candump-2026-09-26_120235.log.gz" in ssh_cmds[0]
+        with open(rdp.CAN_GPS_PAIRS_OVERRIDE_PATH) as f:
+            assert sorted(json.load(f)) == [f"{i}.log" for i in new_ids]
+    finally:
+        rdp.CAN_DIR, rdp.RAW_DIR, rdp.CAN_GPS_PAIRS_OVERRIDE_PATH, rdp.subprocess.run = orig
         shutil.rmtree(tmp, ignore_errors=True)
 
 

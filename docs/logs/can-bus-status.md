@@ -3792,3 +3792,58 @@ passiert, von Hand nachgezogen).
   DBC-Kommentare, `build_datalake.py`-Kommentar und `status_gui.py` (Sternchen an "Vorne Links/Rechts"
   entfernt) nachgezogen; das Kivy-Dash hatte die Zuordnung VL/VR schon so. `status_gui.py` und DBC
   auf den Pi kopiert, md5 identisch.
+
+## Automatische Uhrkorrektur in der Pipeline (2026-09-26 spätabends)
+
+Nutzer: die Handkorrektur vom Fahrtag (Speed-Kreuzkorrelation gegen dlg, Umbenennen lokal + Pi,
+`can_gps_pairs.json`, Datalake) soll die Pipeline selbst versuchen.
+
+**Umgesetzt in `scripts/run_daily_pipeline.py`**, neuer Schritt `fix_can_log_clocks()` direkt
+nach `sync_can_logs_from_pi()` (die dlg sind zu dem Zeitpunkt schon per rclone geholt):
+- Nur neue Logs mit Marker `korrigiert`; gruppiert nach dem Anker im Marker ("auf gespeicherte
+  …") = ein Pi-Boot = ein gemeinsamer Offset.
+- `VehicleSpeed` (0x202 Byte2-3, direkt aus dem `.log`, 1-Hz-Mittel, ×0,968 wegen der ~3 %
+  Voreilung gegen GPS) gegen `GPS-Geschwindigkeit` aller dlg ab einem Tag vor dem Pi-Datum
+  (.NET-Ticks = UTC). Brute Force über alle Sekunden-Lags ≥ -120 s.
+- Ein Lag zählt nur mit Überlappung ≥ min(300 GPS-Punkte, 50 % der CAN-Log-Sekunden), aber nie
+  unter 60 Punkten, und GPS-Speed-Streuung ≥ 5 km/h in der Überlappung (Stillstand passt sonst auf
+  jeden Offset).
+- Eindeutig = bester Lag mit RMSE ≤ 5 km/h und kein weiterer Lag unter der Schwelle, der mehr als
+  30 s davon entfernt liegt. Logs eines Boots müssen sich auf ±5 s einig sein; Logs ohne eigenen
+  Treffer (z.B. stehend) übernehmen den Offset ihres Boots.
+- Treffer → Umbenennen erst auf dem Pi (`sudo mv`, bricht ab, wenn der Zielname existiert; ohne
+  Pi-Erfolg lokal nichts ändern, sonst holte der nächste Sync das Log erneut), dann lokal `.log`,
+  `.log.gz`, `_decoded.csv`, `clockstate-*`, dann `can_gps_pairs.json` (neu gepaart). Alle
+  folgenden Schritte (Datalake, Kurven-/Schaltanalysen) laufen schon mit dem neuen Namen. Im
+  Report steht ein `info`-Befund `can_clock_fixed` mit Offset, dlg, Punktzahl und RMSE.
+- Kein Treffer → die bisherige clockstate-Warnung, ergänzt um den Grund ("kein eindeutiger
+  dlg-Treffer" bzw. "Logs desselben Boots uneinig").
+
+**Gegen die Fahrtag-Logs geprüft** (Logs unter den alten Namen in ein Scratch-Verzeichnis
+verlinkt, Pi-Aufrufe abgefangen):
+
+| altes Log | Boot | Ergebnis | Referenz (KnockRetard) | Speed-RMSE / Punkte |
+|---|---|---|---|---|
+| `…19_235203` | A | Warnung | 12:00:29 | - |
+| `…19_235409` | A | Warnung | 12:02:35 | bester Lag 6,4 km/h, nur 150 Punkte (dlg 121414 ist 156 s lang) |
+| `…20_002313` | B | 13:04:39 | 13:04:40 | 3,4 / 1365 |
+| `…20_004532` | C | 13:58:55 | 13:58:55 | 3,3 / 1255 |
+| `…20_010853` | C | 14:22:16 | 14:22:16 | eigener Treffer gegen dlg 142514 (3,4 / 2778), gleicher Offset |
+| `…20_020042` | D | Warnung | ~15:40 geschätzt | bester Lag 19,8 km/h |
+| `…20_023215`, `…20_031203` | E | Warnung | keine dlg | beste Lags 9,4-9,5 km/h gegen dlg 121414 |
+
+Die Fehltreffer der Abendfahrten (9,4 km/h mit 150 Punkten gegen das kurze 121414) sind der Grund,
+warum Boot A nicht automatisch geht: bei 150 Punkten liegt der echte Treffer (6,4) zu nah an den
+falschen. Mit der Überlappungsregel (50 % der CAN-Sekunden) fallen beide raus.
+
+**Genauigkeit:** Die GPS-Geschwindigkeit des Handys hängt 0,8-2,7 s nach (Feinsuche mit 0,1 s gegen
+die KnockRetard-Referenz). Die Pipeline zieht pauschal 1 s ab (`GPS_SPEED_LAG_S`), das Ergebnis
+liegt damit auf ±1 s (2 von 3 Treffern exakt). Für die bitgenaue Zuordnung bleibt KnockRetard der
+Weg; in die Pipeline eingebaut ist das noch nicht.
+
+Laufzeit ~1 min für sechs Logs. Test: `test_fix_can_log_clocks_renames_whole_boot_group` in
+`scripts/test_run_daily_pipeline.py` (synthetischer Boot mit einem fahrenden und einem stehenden
+Log, dlg mit verzögerter GPS-Spur).
+
+**Grenze:** Ein CAN-Log wird nur in dem Lauf geprüft, der es vom Pi holt. Kommt die dlg erst
+später über Google Drive, bleibt es bei der Warnung und der Handkorrektur.

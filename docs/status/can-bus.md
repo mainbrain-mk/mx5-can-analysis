@@ -619,6 +619,11 @@ OBD/CAN-Referenz gesucht werden muss):
   gewinnt der Dateiname. Vorher war ein umbenanntes Log im Datalake **weiterhin falsch
   datiert** – die beiden 09-14-Logs standen dort einen Tag lang unter dem alten
   13.09.-Zeitstempel.
+  **Seit 2026-09-26** versucht `run_daily_pipeline.py` (`fix_can_log_clocks()`) bei neuen
+  Logs mit Marker `korrigiert` den Offset selbst: VehicleSpeed gegen dlg-GPS-Speed, Boot-Gruppen
+  gemeinsam, bei eindeutigem Treffer Umbenennung lokal + Pi (±1 s genau), sonst Warnung. Am
+  Fahrtag hätte das 3 von 6 Logs automatisch korrigiert; kurze dlg (<300 GPS-Punkte) reichen
+  nicht. Siehe Logbuch "Automatische Uhrkorrektur in der Pipeline".
 
 ### Nächste Schritte
 - **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die
