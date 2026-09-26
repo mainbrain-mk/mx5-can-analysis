@@ -41,7 +41,7 @@ Spalte "Test" verweist auf Teil C.
 | `BCM_SupplyVoltage` | 0x43F 19\|10 | 0,016 V/LSB | r=0,998, konstant 0,68 V unter PCM/DCDC | **bestätigt** | C1 |
 | `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 1/512 V/LSB | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
 | `BattSensor_Temp_maybe` | 0x45A Byte3 | raw − 40 °C | Kaltstarts r=0,966; in der Fahrt fast konstant | _maybe | C1 |
-| `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **5025 Schritte je Liter** (0,199 ml; 26.09. gegen den Bordcomputer, vorher ≈7,0 Schritte/g aus MAF/Lambda) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt (getankte Liter als absolute Probe offen) |
+| `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **4834 Schritte je echtem Liter** (0,207 ml; Voll-bis-Voll 16.→26.09.: 34,4 l getankt gegen 33,09 l Bordcomputer; der Bordcomputer selbst rechnet mit 5025 Schritten/l, zeigt also 4 % zu wenig) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt, absolut kalibriert |
 | `Travel_distance_related` | 0x420 Byte1 | **0,1992 m/Schritt** (26.09. gegen ODO-Inkremente, 5 Logs; die 0,209 kamen aus dem ~5 % zu hohen VehicleSpeed) | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |
 | `AmbientTemp` (korrigiert) | 0x420 Byte7 | ≈0,35·raw − 6,3 °C | alte Formel war konstant 25,8 °C; Kaltstarts r=0,987 | Formel _maybe | C1 |
 | `RCM_Temperature_maybe` | 0x075 Byte6 | raw − 103 °C | Kaltstarts r=0,980, steigt 10–24 K je Fahrt | _maybe | C1 |
@@ -72,7 +72,13 @@ in keinem Log je gesetzt, tot), `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0 
 | `PassengerSeatEmpty_maybe` / `PassengerSeatPending_maybe` | 0x340 Bit 28 / Bit 30 (Byte3-High-Nibble: 0xB leer, 0x6 besetzt + Klassifizierung, 0x2 bestätigt) | Flags | Beifahrer setzt sich 12:11:33 (1 s nach Tür zu), Gurt 12:11:40, Bestätigung (+ Bit 16) genau 60 s später; Zustand "besetzt, nicht angeschnallt" damit gesehen | ein Ereignis + ein Zündungsstart, _maybe (C12 weitgehend erledigt) |
 | `EmergencyStopSignal_maybe` | 0x09A Bit 61 | Flag | Notbremssignal (Warnblinker 0,3-s-Takt) nach der zweiten Vollbremsung 12:16:17-12:16:19; nicht bei der ersten (Ende bei 24 km/h) | ein Ereignis, _maybe (C7) |
 
-Trip-Kilometerstand selbst: auf dem HS-CAN nicht gefunden (Suche über alle Felder, 26.09.).
+Trip-Kilometerstand und Restreichweite: auf dem HS-CAN nicht gefunden (Suche über alle Felder, 26.09.;
+für die Reichweite gezielt nach einem Feld 33 km → mehrere 100 km beim Tanken - nur Zufallstreffer).
+
+**Tankinhalt in Litern (26.09.):** `Fuel_Tank` (0x09E) gegen die über den Tank 16.→26.09. verbrauchten
+Liter (Bordcomputer × 1,04): Liter ≈ 4,0 + 1,10 · roh (66 Stützpunkte, Rest 0,5 roh), voll ≈ 46 l,
+Sättigung bei roh 36,2 (erste ~2,3 l nach dem Tanken), Anzeige 0 bei ~9 l (roh ~4,6). Der Sockel von
+~4 l fehlte in der bisherigen Formel FLI % = 2,486 · roh.
 
 ## B. Offene Werte mit beobachtetem Verhalten
 

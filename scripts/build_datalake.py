@@ -321,9 +321,10 @@ CAN_SIGNAL_MAP = {
     "LambdaMeasured_OBD": ("LambdaMeasured_CAN", ""),
     "FuelLevel_OBD": ("FuelLevel_CAN", "%"),
 }
-# Byte2 von 0x420: 5025 Schritte je Liter laut Bordcomputer (26.09., zwei Logs 5024/5026, vorher
-# 1800/256 = 7,03 Schritte/g aus OBD-MAF/Lambda +-10 %), bei 0,745 kg/l ~6,75 Schritte/g.
-FUEL_COUNTS_PER_G = 5025.0 / 745.0
+# Byte2 von 0x420: 5025 Schritte je Bordcomputer-Liter (26.09., zwei Logs 5024/5026); der Bordcomputer
+# zaehlt aber 4,0 % zu wenig (Voll-bis-Voll 16.09.->26.09.: 34,4 l getankt gegen 33,09 l angezeigt),
+# also 4834 Schritte je echtem Liter; bei 0,745 kg/l ~6,49 Schritte/g. Vorher 7,03 aus OBD-MAF/Lambda.
+FUEL_COUNTS_PER_G = 4834.0 / 745.0
 FUEL_RATE_WINDOW_S = 2.0           # Zaehler zaehlt nur ~1 Schritt/s im Leerlauf -> ueber ein Fenster mitteln
 # Init-/Ungueltig-Werte, die sonst als echte Messwerte im Datalake landen (2026-09-26 gesehen:
 # Batterietemperatur 255-40=215, Aussentemperatur Rohwert 0 = -6,3, Spannungen 0 in den ersten Frames).
