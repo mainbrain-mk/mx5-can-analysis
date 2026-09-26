@@ -151,7 +151,9 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
    Bestätigt `HighDecel_maybe` und die Notbremssignal-Logik.
 8. **Tempomat** einmal setzen, +/- tippen, per Bremse abbrechen. Für 0x21F (`CRZ_EVENTS`),
    `CC_SetSpeed`, 0x09D, 0x0FD Bit 4.
-9. **Zusätzliches Polling** (Code-Änderung in `scripts/tpms_poller.py`, am Pi deployen):
+9. **Zusätzliches Polling** (Code in `scripts/tpms_poller.py` und die Offline-Dekoder sind seit
+   26.09. fertig, **nur noch auf den Pi kopieren und den Poller neu starten**, siehe
+   `status/pi-runtime-state.md`):
    PID 0x3C (Katalysatortemperatur B1S1) für 0x4DA; PID 0x34 (gemessenes Lambda, schon als
    unterstützt bekannt); PID 0x2F (Tankfüllstand) als zweite FLI-Referenz. Alle drei stehen in
    `data/can/probe-20260916-081915.csv` als unterstützt.
