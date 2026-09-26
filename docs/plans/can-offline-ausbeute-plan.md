@@ -114,3 +114,24 @@ angefragt), DID-Sweep, MS-CAN.
 0 → 1 → 6 (schnelle Gewinne, parallel machbar) → 2 → 3 → 4 → 5 → 7.
 Ergebnisse wie üblich datiert ins Logbuch `docs/logs/can-bus-status.md`, Stand in
 `docs/status/can-bus.md` nachziehen.
+
+---
+
+# Ergebnis der Abarbeitung (2026-09-26)
+
+Ergebnisse gesammelt in [`status/can-open-fields.md`](../status/can-open-fields.md), Herleitung im
+Logbuch ("Offline-Ausbeute…"). Referenzlog: 1311 -> 1124 unbelegte variierende Bits.
+
+| Schritt | Stand | Ergebnis |
+|---|---|---|
+| 0 Rest-Budget | erledigt | `can_open_fields.py`; 221 offene Felder in >= 14 Logs |
+| 1 Rückwärtsgang | erledigt | 0x445 Bit 7 `ReverseGear`, bestätigt (99,7 %) |
+| 2 synthetische Anker | erledigt | `can_anchor_sweep.py` (~80 Anker): Spannungen 0x08A/0x43F/0x45A, Temperaturen 0x075/0x45A; Zähler mit variabler Rate: Kraftstoff- und Wegzähler 0x420 |
+| 3 natürliche Experimente | erledigt | `can_natural_events.py` + neu `can_rare_bits.py`: TCS-Eingriff 0x211, starke Verzögerung, i-stop (97 Stopps), Bremsschalter, Tür, Kaltlauf-Leuchte |
+| 4 Multiplex/Zeitverhalten | teilweise | 0x45B und 0x3D2 als Multiplex erkannt; Taktanalyse nicht gemacht (kein Bedarf aufgetaucht) |
+| 5 Zwischen-Log-Konstanten | indirekt | über die Kaltstart-Methode (Werte beim Start gegen Ansaugluft) für Außen-, Batterie-, RCM-Temperatur |
+| 6 Bekanntes verwerten | teilweise | 19 neue Datalake-Kanäle + `FuelRate_CAN`; Schleppmoment nach Rekuperation, Bremsmodell bei ABS und WOT-Schwelle mit PID 0x44 noch offen |
+| 7 Frontkamera | erledigt | Tempolimit, Spurkrümmung, Querversatz; übrige Kamerafelder im Katalog |
+
+Nicht geplant, aber gefunden: `AmbientTemp` war falsch dekodiert (konstant 25,8 °C);
+`DSC_Status` ist eine Kontrollleuchte.

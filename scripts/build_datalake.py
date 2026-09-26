@@ -141,7 +141,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
 # Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
 # der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
                         "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
@@ -280,7 +280,32 @@ CAN_SIGNAL_MAP = {
     "Tire2_Temp_maybe": ("TireTemp_CAN_Tire2", "°C"),
     "Tire3_Temp_maybe": ("TireTemp_CAN_Tire3", "°C"),
     "Tire4_Temp_maybe": ("TireTemp_CAN_Tire4", "°C"),
+    # Offline-Ausbeute 2026-09-26 (docs/plans/can-offline-ausbeute-plan.md, Herleitungen in
+    # docs/logs/can-bus-status.md und in den CM_-Kommentaren der DBC). "_maybe" = Deutung/Skala
+    # noch nicht am Fahrzeug bestaetigt, siehe docs/status/can-open-fields.md.
+    "BatteryVoltage_OBD": ("BatteryVoltage_CAN", "V"),
+    "DCDC_Voltage": ("SystemVoltage_CAN", "V"),
+    "iELOOP_CapVoltage_maybe": ("iELOOP_CapVoltage_CAN", "V"),
+    "DCDC_State_maybe": ("DCDC_State_CAN", ""),
+    "BattSensor_Temp_maybe": ("BatteryTemp_CAN", "°C"),
+    "AmbientTemp": ("AmbientTemp_CAN", "°C"),
+    "SteeringRate_Abs_maybe": ("SteeringRateAbs_CAN", "deg/s"),
+    "TCS_Active_maybe": ("TCS_Active_CAN", ""),
+    "TCS_RequestActive_maybe": ("TCS_RequestActive_CAN", ""),
+    "TCS_TorqueRequest_maybe": ("TCS_TorqueRequest_CAN_raw", ""),
+    "HighDecel_maybe": ("HighDecel_CAN", ""),
+    "DSC_Indicator_maybe": ("DSC_Indicator_CAN", ""),
+    "ReverseGear": ("ReverseGear_CAN", ""),
+    "BrakeSwitch_PCM": ("BrakeSwitch_CAN", ""),
+    "EngineRunning": ("EngineRunning_CAN", ""),
+    "iStop_EngineStopped": ("iStop_Stopped_CAN", ""),
+    "TSR_SpeedLimit": ("SpeedLimitSign_CAN", "km/h"),
+    "LaneCurvature_maybe": ("LaneCurvature_CAN", "1/km"),
+    # FuelConsumption_Counter wird nicht roh uebernommen, sondern in ingest_can() zu
+    # FuelRate_CAN (g/s) differenziert - siehe _derive_fuel_rate().
+    "FuelConsumption_Counter": ("FuelRate_CAN", "g/s"),
 }
+FUEL_COUNTS_PER_G = 1800.0   # ~0,75 uL je Schritt, gegen OBD-MAF/Lambda kalibriert (+-10 %)
 GPX_NS = {"g": "http://www.topografix.com/GPX/1/0"}
 TICKS_OFFSET = 621355968000000000  # .NET-Ticks -> Unix-Referenz
 
@@ -595,6 +620,24 @@ def _derive_gear_status(raw_decoded):
     return m[["t", "signal", "value"]]
 
 
+def _derive_fuel_rate(decoded):
+    """FuelConsumption_Counter (0x420, umlaufender 16-Bit-Zaehler der Einspritzmenge) ->
+    Kraftstoffstrom in g/s. Zuwachs mod 65536 je Frame durch dt; einzelne Spruenge > 5000
+    Schritte (in 3 Logs beobachtet) sind ungueltig und werden verworfen."""
+    sel = decoded["signal"] == "FuelConsumption_Counter"
+    c = decoded[sel].sort_values("t")
+    if len(c) < 2:
+        return decoded[~sel]
+    raw = pd.to_numeric(c["value"], errors="coerce").to_numpy()
+    t = c["t"].to_numpy()
+    inc = np.diff(raw) % 65536
+    dt = np.diff(t)
+    ok = (inc <= 5000) & (dt > 0) & (dt < 1.0)
+    rate = pd.DataFrame({"t": t[1:][ok], "signal": "FuelConsumption_Counter",
+                         "value": inc[ok] / dt[ok] / FUEL_COUNTS_PER_G})
+    return pd.concat([decoded[~sel], rate], ignore_index=True)
+
+
 def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     """CAN-Log in den Datalake einlesen. Nutzt die von can_log_parser.py bereits
     erzeugte *_decoded.csv (Long-Format t/can_id/message/signal/value) statt
@@ -632,6 +675,7 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
         {"OFF": 0, "ACC": 1, "ON": 2, "START": 3, "Off": 0, "On": 1})
     decoded["value"] = pd.to_numeric(decoded["value"], errors="coerce")
     decoded = decoded.dropna(subset=["value"])
+    decoded = _derive_fuel_rate(decoded)
     # WheelSpeed_1..4 (HS_ABS): raw 0xFFFF ("Sensor ungueltig", klassischer CAN-
     # Sentinelwert) dekodiert nach der DBC-Formel (raw*0.01-100) zu genau 555,35
     # km/h - physikalisch unmoeglich. Selten (<0,02% der Samples in diesem Log),
