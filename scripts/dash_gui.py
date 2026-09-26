@@ -75,10 +75,13 @@ LIMITER_BLINK_HZ = 8
 # (dann ohnehin ~0) die Drosselklappe ETC_ACT in Gruen - also das, was der
 # Tempomat gerade "gibt". Sobald der Fahrer selbst Gas gibt (APP ueber
 # CRUISE_APP_MAX) oder der Tempomat aus ist, wieder APP in Normalfarbe.
-# Tempomat-Zustand: 0x165 CC_Mode_Related (357), schon per DBC im Snapshot. Roh 149 =
-# Tempomat regelt bzw. uebersteuert (bleibt beim Gasgeben an), 141 = aus/bereit, 302 =
-# Bremse/Stand; CC_SetSpeed bleibt dagegen nach dem Abbrechen gespeichert. Belegt an
-# candump 2026-09-26_184447 (Tempomat bei ~42 und ~52 km/h) und 2026-09-19_163755.
+# Tempomat-Zustand: bevorzugt 0x0FD Bit 61 (CruiseActive_Inv, 50 Hz, 0 = regelt; deckt
+# sich zu 99,98 % mit CC_Mode_Related == 149, belegt 26.09. an 60 Tempomat-Laeufen).
+# Fehlt das Signal (aeltere DBC auf dem Pi), gilt weiter 0x165 CC_Mode_Related (357):
+# Roh 149 = regelt bzw. uebersteuert (bleibt beim Gasgeben an), 141 = aus/bereit, 182/302/310 =
+# Bremse; CC_SetSpeed bleibt dagegen nach dem Abbrechen gespeichert.
+CRUISE_FLAG_CAN_ID = 253
+CRUISE_FLAG_SIGNAL = "CruiseActive_Inv"
 CRUISE_CAN_ID = 357
 CRUISE_SIGNAL = "CC_Mode_Related"
 CRUISE_ACTIVE_RAW = 149
@@ -143,6 +146,13 @@ def _is_limiter_active(rpm, app, etc):
     if rpm is None or app is None or etc is None:
         return False
     return rpm > LIMITER_RPM_MIN and app >= LIMITER_APP_MIN and etc < LIMITER_ETC_MAX
+
+
+def _cruise_active(flag, mode):
+    """Tempomat regelt: 0x0FD-Flag (0 = regelt), sonst Rueckfall auf 0x165 == 149."""
+    if flag is not None:
+        return flag == 0
+    return mode == CRUISE_ACTIVE_RAW
 
 
 def _gas_card_source(app, etc, cruise_active):
@@ -752,7 +762,8 @@ class DriveScreen(Screen):
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
 
-        cruise_active = c.get(CRUISE_CAN_ID, CRUISE_SIGNAL) == CRUISE_ACTIVE_RAW
+        cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
+                                      c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))
         self.gas_card.set_value(*_gas_card_source(app, etc, cruise_active))
         self.brake_card.set_value(c.get(120, "_BrakePedalPercent_derived"))
         self.lambda_card.set_value(

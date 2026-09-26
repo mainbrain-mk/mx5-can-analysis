@@ -252,6 +252,14 @@ def test_gas_card_shows_throttle_in_green_only_while_cruise_holds_the_pedal():
     assert dash_gui._gas_card_source(0.4, None, True) == (0.4, dash_gui.TEXT)     # ETC-Poll stale
 
 
+def test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165():
+    assert dash_gui._cruise_active(0, 141) is True     # Flag gewinnt (0 = regelt)
+    assert dash_gui._cruise_active(1, 149) is False
+    assert dash_gui._cruise_active(None, 149) is True  # alte DBC: Rueckfall
+    assert dash_gui._cruise_active(None, 141) is False
+    assert dash_gui._cruise_active(None, None) is False
+
+
 def test_metric_card_set_value_applies_color_and_resets_to_dim_on_none():
     card = dash_gui.MetricCard("GASPEDAL", unit="%", bar_color=dash_gui.GREEN)
     card.set_value(23.0, dash_gui.GREEN)
@@ -280,5 +288,6 @@ if __name__ == "__main__":
     test_limiter_active_needs_all_three_conditions()
     test_limiter_blink_toggles_over_time()
     test_gas_card_shows_throttle_in_green_only_while_cruise_holds_the_pedal()
+    test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165()
     test_metric_card_set_value_applies_color_and_resets_to_dim_on_none()
     print("ok")

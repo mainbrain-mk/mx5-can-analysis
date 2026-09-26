@@ -58,8 +58,12 @@ Gaspedal-Kachel…" und "Tempomat-Zustand gefunden…").
    ~52 und ~42 km/h) und `2026-09-19_163755` (bis 187 km/h). `CC_SetSpeed` bleibt dagegen nach dem
    Abbrechen gespeichert. Das opendbc-Bit `0x21F` Byte2 Bit0 existiert beim ND nicht (immer 0).
    Kein Backend-Zweig nötig: `0x165` liegt per DBC im Snapshot.
-3. **Nicht geklärt:** ob 149 auch "Tempomat an, aber noch nicht gesetzt" abdeckt (in den Logs nie
-   beobachtet: 149 kam immer erst mit dem Setzen).
+   **Seit 26.09. nachts** nutzt der Dash bevorzugt `0x0FD` Bit 61 (`CruiseActive_Inv`, 0 = regelt, 50 Hz)
+   und fällt auf `0x165 == 149` zurück, wenn das Signal fehlt (`_cruise_active`). Noch nicht auf dem Pi.
+3. **Geklärt (26.09. nachts, Logbuch "Tempomat-Tests…"):** 149 kommt nur nach SET (60/60 Starts
+   mit dem SET-Puls auf `0x09D` Byte0 Bit5); der Hauptschalter allein ergibt 141. Es gibt
+   außerdem ein 50-Hz-Flag `0x0FD` Bit 61 (0 = regelt, `CruiseActive_Inv`, deckungsgleich mit 149)
+   und die Tastenpulse `CRU_CON_SW1` (SET/CANCEL/RES). Enden: Bremse, CANCEL-Taste oder Kupplung.
 
 <details>
 <summary>Vorheriger Stand (2026-09-26, Offline-Ausbeute)</summary>

@@ -4276,3 +4276,102 @@ startet 11.09., am 06.09. nur Handy-`.dlg`). Stattdessen:
   `CC_SetSpeed` beim Beenden zusätzlich auf 0 gesetzt, vermutlich Hauptschalter aus; nicht geprüft.
   **Für den Dash ändert sich nichts:** 141 = keine grüne Anzeige, egal was `CC_SetSpeed` sagt.
 
+
+## Tempomat-Tests, Spur-Linien, Außentemperatur und i-stop-Uhr aus den Logs vom 26.09. (2026-09-26 nachts)
+
+Anlass: Nutzer meldet vier Beobachtungen zu `status/can-open-fields.md` und will wissen, was von
+den Tests sonst noch in den heutigen Logs steckt. Datenbasis: die 8 CAN-Logs `…_120029` bis
+`…_184447` (Filenamen = Ortszeit).
+
+### AmbientTemp: 20 °C in der letzten Fahrt
+
+Nutzer las in der letzten Fahrt (`…184447`, Byte7 73-81) 20 °C am Kombiinstrument ab. Die
+DBC-Formel 0,35·raw − 6,3 gibt dafür 19,3-22,1 °C, 0,25·raw dagegen 18,3-20,3 - **ein
+Ankerpunkt trennt die Steigung nicht**. Zusatz: Byte7 im Minutenmedian bei > 90 km/h (89 Fenster,
+alle Logs seit 11.09.) gegen die Stundentemperatur der Open-Meteo-Station (Berlin-Nord):
+T = 0,215·raw + 0,9, r = 0,85, RMSE 1,6 K; wegen Regressionsverdünnung liegt die wahre Steigung
+bei 0,22-0,30. Die Wetterstation zeigte 18-19 °C, das Kombiinstrument 20 (warmer Asphalt, üblich).
+Formel bleibt, Größenordnung ist bestätigt, für die Skala fehlt ein zweiter Anzeigewert bei
+deutlich anderer Temperatur (< 10 °C).
+
+### Tempomat: Tasten, Regelflag, Enden (Test C8)
+
+Das Bit-Übergangsverfahren (jede Botschaft/jedes Bit, dessen Übergänge in ±0,5 s um die 55
+Tempomat-Segmente ≥ 10 s liegen, gegen die Zufallsrate) findet drei Bits mit 55/55 Treffern:
+
+- **`0x0FD` Bit 61** (Byte7 Bit5, 50 Hz): 0, solange `CC_Mode_Related` (0x165) 149 ist. Über 33
+  Logs 356.029 Frames beide gleichzeitig, 61 Frames Flag 1 bei 149. Schneller als 0x165, in der DBC
+  als `CruiseActive_Inv`.
+- **`0x09D`** (Botschaft mit `CRU_CON_SW1`, 10 Hz): Lenkrad-Tastenpulse, Byte2 ist die invertierte
+  Kopie von Byte0. Byte0 Bit5 = **SET/-** (60 von 60 Tempomat-Starts), Bit0 = **CANCEL** (26 von 60
+  Enden, `CC_Mode_Related` 149 → 141 zeitgleich), Bit3 = **RES/+** (Sollgeschwindigkeit 45 → 46 →
+  48 → 49 bei einzelnen Tippern). Das sind die bisher offenen „0x09D Bits 17/20/22" (Byte2).
+  Byte1 Bit5 pulst beim ersten Hauptschalterdruck nach Zündung EIN (129 → 141, 4 Ereignisse,
+  `CruiseMainSwitch_maybe`); 129 = Hauptschalter aus, 141 = ein/bereit.
+- **Enden aller 60 Segmente erklärt:** Bremse 17, CANCEL-Taste 26, Kupplung 17 (Kupplungsweg > 20
+  raw am Ende, alle 17 „sonstigen"). 149 gibt es nie ohne SET.
+
+**Der B96-Fall (Nutzerbericht, 120-150 km/h, Bremse, Auflaufen, wieder Gas):** ist in `…_120235`
+das Fenster 12:18:50-12:21:14. Ablauf: SET bei 132 (12:18:50), Gas + SET bei 146 (12:19:46), Bremse
+12:19:51 bei 145 km/h (149 → 182 → 302 → 141) - Tempo fällt in 4 s auf 130 -, Gas, SET bei 149
+(12:20:01), wieder Bremse 12:20:07 (149 → 127 km/h in 6 s), SET bei 131 (12:20:11), danach 63 s Tempomat mit konstanten
+131 km/h (VehicleSpeed; ~127 GPS, das Auto war vor dir), 12:21:14 **CANCEL-Taste** (nicht Bremse)
+und sofort Vollgas bis 200 km/h. Das passt zu „Auto war weg, wieder beschleunigt", nur dass das
+Ende mit der Taste geschah. Die Bremsenden bei 120-150 km/h heute sind genau zwei: 12:19:51 und
+15:01:26 (`…142216`, 120 km/h). Wert 182 (statt 302/310) beim Bremsen steht nur bei hohem Tempo.
+
+**Kamera-Abstand (0x244):** blieb bei dem ganzen Auflaufen auf dem Basismuster
+(`64 F0 64 F0 64 F0 64 F0`), die Frontkamera meldet auf dem Bus keinen Vorausfahrzeug-Abstand.
+Die einzige Abweichung heute: 12:26:28, 18 s bei ~70 km/h in `…120235` (Byte4 113-115 langsam
+steigend, Byte5/7 identisch und schnell fallend, Byte6 zählt 44 → 4 in 3 s herunter) - nur ein
+Kandidat, Nutzer fragen, was da vor dem Auto war.
+
+### LaneOffset: die Linien-Anfahrten (Test C10)
+
+Nur in `…120235` gibt es bei > 100 km/h Ausschläge von |Line1| ≥ 70 in nennenswerter Zahl (elf in
+3,5 min, 12:18:44-12:22:16); in allen anderen Logs heute keine (dort v < 100 km/h) außer 8 verstreuten
+in `…142216`. Sie liegen bei ±71…±97 - erwartet für „Rad auf der Linie" sind bei 3,35 m Spur und
+1,73 m Fahrzeug ±80 (Skala 1 cm/LSB passt also). Bei TSR 120 (12:19:23-12:20:04):
++77 (12:19:23), +81 (12:19:33), +71 (12:20:04), bei TSR 100 danach −85 (12:20:32), +81
+(12:20:42), −71 (12:20:50), −96 (12:21:07); davor −97 (12:18:44) beim Auffahren. Vorzeichen laut
+DBC-Kommentar: nach links negativ. „Erst links, dann rechts" passt zu 12:20:32/12:20:42 und zu
+12:18:44/12:19:23; eindeutig lässt es sich nicht zuordnen (auch die Kurve mit +7° Lenkwinkel
+12:20:42-12:21:12 verschiebt den Wert). Scharfe Spitzen bis −175 und +233 (12:18:45, 12:19:42,
+12:20:06, 12:20:27, 12:21:24, 12:21:57): vier fallen mit Gasgeben/Bremsen zusammen (Nickartefakt
+der Kamera vermutet), zwei (12:20:27, 12:21:57) ohne erkennbaren Auslöser; als Linienberührung
+gedeutet passen sie nicht (zurück nach wenigen Zehntelsekunden). Ein unabhängiger Skalenbeleg aus dem Gyro-integrierten Seitenversatz
+scheiterte (r = 0,03 über 289 Fenster, Gyrodrift zu groß).
+
+### 0x4D4 Byte1 ist nicht die i-stop-Uhr
+
+66 automatische Stopps ≥ 20 s in allen Logs (längste 123 s und 119 s am 17.09. 131635, 92 s am
+16.09.): alle sechs Bytes von 0x4D4 bleiben während des Stopps konstant. Byte1 springt teils 1-3
+s nach dem Ende um ein paar Stufen, in einem Stopp nach Motorstart 0 → 4 → 3. Alle Bytes
+korrelieren mit Fahrzeit und Strecke (r 0,4-0,8), nicht mit Stillstand oder Stoppdauer. Heute
+war der längste Stopp 43 s (`…135855`), ein 2,5-min-Stopp kam in den Logs nicht vor. Die Uhr im
+Infotainment rechnet das CMU vermutlich selbst aus `iStop_EngineStopped` (0x130).
+
+### Was sonst von den Tests in den Logs steckt
+
+C2 (Rückwärtsgang), C3 (Bordcomputer/Durchschnittsverbrauch, 14:23 Tanken), C7 (zwei
+Vollbremsungen), C9 (Zusatz-PIDs), C12 (Gurte) waren bereits ausgewertet. Neu: C8 (Tempomat,
+siehe oben), C10 teilweise. Nicht in den Logs: C1-Lastsprünge (kein Sprung im Batteriestrom
+`BattSensor_Current_raw_maybe` ≥ 25 Schritte bei stehendem Fahrzeug mit laufendem Motor in
+keinem der 8 Logs; die Zündung-EIN-Phasen vor dem Motorstart, 106 s in `…120029`, 190 s in
+`…120235`, 68 s in `…142216`, sind C12/C2), C4/C5/C11/C13 (Anzeigen fotografieren, i-stop-Leuchte,
+Wartungsanzeige, Steigungsschild): am Bus nicht erkennbar, Nutzer müsste sagen, ob er sie
+gemacht hat.
+
+### Nachtrag: Dash-Trigger auf `0x0FD` Bit 61 umgestellt; Ort des 0x244-Ereignisses (2026-09-26 nachts)
+
+- `dash_gui.py`: `_cruise_active(flag, mode)` nimmt `CruiseActive_Inv` (0x0FD Bit 61, 0 = regelt),
+  bei fehlendem Signal (alte DBC) `CC_Mode_Related == 149`. `0x0FD` war schon im Backend-Filter
+  (`MT_Gear_Actual`), also keine Backend-Änderung. Test `test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165`;
+  die Kivy-Tests laufen in dieser Sitzung nicht (GLX-Fehler), die reine Logik wurde separat geprüft.
+  **Nicht deployt** (dash_gui.py + DBC zusammen, siehe `status/pi-runtime-state.md`).
+- **Position 12:26:28 (0x244-Abweichung):** kein GPS vorhanden - das Handy-`.dlg` fehlt von 12:16:50 bis
+  13:03:27. Koppelnavigation aus dem letzten GPS-Punkt (12:16:50, 52,7450 N / 13,1988 E, Kurs 112°) mit
+  CAN-Geschwindigkeit (×0,971) und Gierrate, Gyro-Bias über die Schlussbedingung (Logende ≈ Start des dlg
+  130327, 52,5916 N / 13,2833 E) angepasst: **etwa 52,604 N / 13,256 E, Kurs ~120° (ESE)**, Unsicherheit
+  ~1-2 km (Restabstand am Logende 0,7 km, Validierung über 40 s: 69 m). Bias-Empfindlichkeit: ±0,05°/s
+  verschiebt den Punkt um ~5 km.
