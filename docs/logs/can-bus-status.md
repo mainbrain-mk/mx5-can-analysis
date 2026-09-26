@@ -3939,3 +3939,203 @@ TPMS alle 120 s. Tests lokal grün (`test_dash_gui.py` scheitert lokal auch ohne
 fehlenden GL-Kontext), auf dem Pi `test_dash_gui.py`/`test_can_backend.py` grün. Deployt,
 `can_backend.py`/`dash_gui.py` auf dem Pi neu gestartet (20:24), Backup in `backup-2026-09-26c/`.
 Ältere Logs behalten ihre PID-0x42/0x2F-Werte (`can_log_parser.py` dekodiert sie weiter).
+
+## Offene Fragen vom Fahrtag 26.09. geklärt: Rückwärtsgang-Test, langer Limiter-Aufenthalt, Einmal-Befunde, C9, VehicleSpeed (2026-09-26 spätabends)
+
+Nutzer: vor dem Losfahren die Rückwärtsgang-Routine im Stand gemacht (Test C2); im letzten Log
+(`_184447`) den Motor bewusst etwas länger im Limiter gehalten. Dazu die übrigen offenen Punkte des
+Fahrtags. Skripte nur im Scratchpad (Auswertungen auf `can_offline_lab.py`), keine Codeänderung.
+
+### 1. Rückwärtsgang im Stand (C2): bestätigt, Quellenkette gefunden
+
+`candump-2026-09-26_120235`, Zündung ein, Motor aus: `ReverseGear` (0x445 Bit 7) dreimal gesetzt,
+64,78-70,87 / 73,27-83,47 / 90,21-97,47 s (12:03:40-12:04:12), wie im Testplan (3×). Die Kupplung
+war nur beim ersten Mal durchgehend getreten (Motor aus, geht auch ohne). Bit-Abgleich aller Frames
+im Fenster gegen `ReverseGear` und danach über alle Logs (42 Rückwärts-Episoden, jede 1:1):
+
+| Quelle | Bit | Einlegen relativ zu 0x445 (Median) | Auslegen | außerhalb R |
+|---|---|---|---|---|
+| PCM 0x165 | Bit 24 + Bit 25 (Byte3 0x03) | −0,56 s | gleichzeitig | nur die Vorlaufzeit |
+| IC 0x09F | Bit 0 | −0,53 s | −0,03 s | dto. |
+| IC 0x477 | Bit 17 (Bit 16 invers, aber nicht exklusiv) | −0,39 s | +0,10 s | dto. |
+| 0x445 | Bit 7 `ReverseGear` | 0 | 0 | – |
+
+Der Rückfahrschalter kommt also im PCM an (0x165), das Kombiinstrument spiegelt ihn, 0x445
+entprellt das Einlegen um ~0,5 s. `Reverse_Flag_maybe` (0x09F Bit 7, nie gesetzt) sitzt vermutlich
+nur an der falschen Bitposition der Quell-DBC: das echte Bit ist 0x09F Bit 0.
+Kein eigenes DBC-Signal für 0x165 eingetragen, weil es `CC_Mode_Related2` (31|8) überlappen würde
+(strict-Laden); nur als `CM_` dokumentiert.
+
+- `MT_Gear_Select` springt beim Einlegen auf 1 (InGear), `MT_Gear_Position` bleibt 19 (wie N/1.).
+- `MT_Gear_Actual` ist im Rückwärtsgang immer 0, auch mit eingekuppelter Kupplung und rollend.
+  **Die 7 ist kein Rückwärtsgang:** sie steht in jedem Log für ~2 s direkt nach Zündung EIN
+  (28 Logs, nie bei `ReverseGear`=1), ist also ein Initialisierungswert. Die Deutung vom
+  12.09. (7 = R bei eingekuppelter Kupplung) ist widerlegt.
+- 0x165 Byte4 Bit 39-37 zeigt die Gangnummer 1-6 wie `MT_Gear_Actual` (in R die 6) - Duplikat,
+  nicht eingetragen.
+- **0x21D** (Absender HS_FSC2, Frontkamera) hat mit dem Rückwärtsgang nichts zu tun: während der
+  ganzen Routine konstant `7f3fff000000ffff` (Ungültig-Muster), die seltenen anderen Werte
+  treten meist bei stehendem Motor auf und nie mit R zusammen. Byte0-2 kodieren dabei einen Wert
+  dreifach (B1 = B0 − 0x40, B2 = 4·B1 + 3). Offen, aber aus C2 herausgenommen.
+
+Weitere Rückwärts-Episoden am 26.09. (Rangieren mit laufendem Motor): 120235 1743 s, 130440 9 s,
+135855 3 s, 154000 1865 s, 180459 369 s, 184447 11/30/403 s.
+
+### 2. Langer Limiter-Aufenthalt (`_184447`, 2. Gang): Momentrampe auf null, gehalten bis zum Gaswegnehmen
+
+Ablauf (APP durchgehend 100 %):
+
+| t [s] | Drehzahl | Moment 0x167 | Drosselklappe (PID 0x11) | Lambda soll | FuelCut |
+|---|---|---|---|---|---|
+| 235,0 | 6987 | 79 % | 91,8 % | 0,9 | 0 |
+| 235,38 | 7284 | **Beginn Rampe** (≤ 73 %) | 91,8 % | 0,9 | 0 |
+| 235,6 | 7349 | 52 % | 86 % → 30 % | 0,8 | 0 |
+| 235,9 | 7455 (Max.) | 19 % | 28 % | 0,8 | 0 |
+| 236,1-237,8 | 7395 → 7177 | 6,6 % | 22-27 % | 0,8 | 0 |
+| 237,9 | 7195 | Fahrer geht vom Gas | | | danach 1 |
+
+- **Kein harter Kraftstoff-Cut:** `FuelCut` bleibt die ganzen 2,5 s bei 0, gemessenes Lambda
+  0,845 bei 0,846 Soll in dieser Phase (die Einspritzung läuft, fett).
+- **Kein Drehzahlregler:** das Moment läuft auf ~6,6 % (≈ Reibung, netto null) und bleibt dort.
+  Das Auto verzögert am Luftwiderstand (102 → 98 km/h), die Drehzahl fällt auf 7177/min, also
+  110 unter den Rampenbeginn und 280 unter das Maximum, **ohne dass die ECU wieder Moment
+  freigibt**. Der Eingriff ist gehalten (Latch oder Hysterese > 280/min), bis der Fahrer das Pedal
+  loslässt; kein Pendeln an einer Grenze.
+- Die Drosselklappen-PID zeigt den Eingriff 0,14-0,40 s (Median 0,25 s) **nach** dem
+  Broadcast-Moment 0x167 (100 Hz), das Moment ist der schnellere Indikator. Das Dash erkennt über
+  ETC < 90 % (siehe 20.09.); auf `ActualEnginePercentTorque` umzustellen würde ~0,2 s früher
+  blinken, nicht umgesetzt.
+- KnockRetard 0, keine TCS-Bits, keine Radschlupf-Auffälligkeit.
+
+**Vergleich aller Eingriffe vom 19. und 26.09.** (Beginn = Moment fällt ≥ 6 % unter den
+Volllastwert bei 6700-7000/min, APP ≥ 99 %; Anfahr-/Schaltsequenzen ausgenommen):
+
+| Gang | n | Drehzahl bei Rampenbeginn | Zeit über 7000 bis dahin | Anstieg | Rampe 79 → 15 % | Max. Drehzahl |
+|---|---|---|---|---|---|---|
+| 2 | 8 | 7184-7366 (Median 7262) | 0,22-0,39 s | 780-913 /min/s | 0,54-0,84 s | 7410-7458 |
+| 3 | 2 | 7152 / 7160 | 0,39 / 0,47 s | 373 /min/s | 0,92 / 1,36 s | 7286 / 7306 |
+
+- Im 3. Gang nähert sich die Drehzahl wegen der langsameren Rampe einem Plateau (7250-7300),
+  das wie Regelung aussieht; der lange Aufenthalt im 2. Gang zeigt, dass es keine ist.
+- Die Rampe ist zeitgesteuert, die Steilheit gangabhängig (2. Gang 75-120 %/s, 3. Gang 47-70 %/s).
+- Der **Auslöser bleibt offen**:
+  - Die Beginndrehzahl ist im 2. Gang ~100/min höher als im 3.
+  - Die Zeit über 7000/min ist im 2. Gang kürzer.
+  - Keine der beiden Größen ist über die Gänge konstant.
+  - Öl 78-102 °C, Kühlwasser 83-90 °C und Ansaugluft 16-37 °C zeigen keinen Zusammenhang mit der
+    Beginndrehzahl im 2. Gang.
+- **Korrektur zum 20.09.:** der Kontrollzug "Gang 4, 7297/min ohne Eingriff" (233436, 360 s) lief
+  bei vollem Pedal nur bis 7137/min; die 7420 danach sind das Hochdrehen beim Auskuppeln nach dem
+  Gaswegnehmen. Er liegt damit unter allen Beginndrehzahlen und widerlegt nichts.
+- Für die Trennung von Drehzahl und Zeit fehlen weiterhin Vollgaszüge im 3. und 4. Gang bis
+  in die Begrenzung (im 4. Gang gibt es noch keinen Eingriff).
+
+### 3. Einmal-Befunde gegen alle Logs
+
+- **`EmergencyStopSignal_maybe` (0x09A Bit 61):**
+  - 4 Episoden in allen Logs: die 3 Notbremssignale vom 15.09. (171047: 1881,9 / 1888,0 /
+    1963,5 s) und das vom 26.09.
+  - Jede beginnt im selben Frame wie das Schnellblinken (`Turn`=3 bei `HAZ_SW`=0) und endet
+    mit ihm; beim manuellen Warnblinker (12.09.) ist das Bit nie gesetzt. **Als Flag bestätigt**,
+    der Name bleibt aus Kompatibilität.
+  - Auslösebedingung unklar: allen vier ging `HighDecel_maybe` voraus (3 mit ABS, 1 ohne bei
+    −0,86 g). 11 andere HighDecel-Episoden (17-211 km/h, bis −0,95 g) lösten keins aus, auch die
+    erste Vollbremsung vom 26.09. mit ABS nicht.
+- **`HighDecel_maybe`:** 16 Episoden in 6 Logs. Die Verzögerung beim Einschalten
+  (`Longi_Acc_Corr`) liegt bei 0,46-0,84 g, Median 0,60 g. Die höheren Werte (0,73-0,84 g, darunter
+  die Vollbremsungen vom 26.09.) gehören zu steilen Bremsanstiegen, bei denen das Flag hinterherläuft.
+  Die Schwelle bleibt also ~0,55-0,6 g, die "~0,75 g" vom Fahrtag waren Anstiegsverzug.
+  Unabhängig von v (17-211 km/h).
+- **Beifahrer-Belegungscode 0x340 Byte3-High-Nibble** (42 Logs mit 0x340):
+  - Nach Zündung EIN läuft immer dieselbe Initfolge: 0x0 (3 s), dann 0x1/0x2/0x3 mit Bit 16 = 1
+    für 2 s, dann der Endzustand.
+  - Besetzt: 0x6 → nach **exakt 60,0 s** 0x2 + Bit 16, in allen 14 Fällen mit vollständigem Verlauf.
+  - Leer: 0xB (Gurt offen) bzw. 0x9 (Gurt gesteckt ohne Insasse; so sind die Solofahrten
+    geloggt, z. B. 18.09. 090404 "Gurt um den Pi").
+  - Deutung als Kontrollleuchten: Bit 30 = PASSENGER AIRBAG ON (60 s nach Belegung), Bit 31 = OFF
+    (dauerhaft bei leerem Sitz), Bit 16 danach = Airbag scharf, Bit 28 = leer (in allen Logs
+    konsistent). Die Leuchten am Auto sind noch nicht angesehen.
+  - 7 Ein-/Ausstiege passen zu den Türereignissen (u. a. 18.09. 093544: B→6 bei 5,1 s, 2→B bei
+    763,7 s; 18.09. 170350: B→6 bei 122,6 s).
+- **`DriverSeatbelt_Buckled` (0x340 Bit 27):** in keinem der 312 928 Frames bei > 20 km/h offen.
+  Das Einstecken liegt 2,6-225 s nach Zündung, das Lösen am Fahrtende bzw. beim Tankstopp. Plausibel.
+
+### 4. C9: gemessenes Lambda und Kat-Temperatur
+
+`LambdaMeasured_CAN` (PID 0x34, alle 10 s) gegen das nächste `LambdaCommanded_CAN`-Sample
+(≤ 0,2 s) in 7 Logs vom 26.09.:
+
+| Zustand | n | Ist (Median) | Soll (Median) | Ist − Soll: Median (P10…P90) |
+|---|---|---|---|---|
+| Volllast (APP ≥ 90) | 12 | 0,874 | 0,874 | −0,003 (−0,018…+0,004) |
+| Teillast | 424 | 0,990 | 0,992 | +0,001 (−0,030…+0,058) |
+| Leerlauf/Rollen | 342 | 0,991 | 0,992 | 0,000 (−0,021…+0,026) |
+| Schub (FuelCut) | 118 | 2,000 | 2,000 | 0,000 |
+
+- Die Volllast-Anfettung (0,83-0,96) wird auf 0,02 genau getroffen.
+- In Teillast pendelt der Ist-Wert im geschlossenen Regelkreis um 1 (72 % innerhalb ±0,03),
+  ohne systematische Abweichung.
+- Im Schub stehen beide auf 2,0 (Anschlag der Sonde bzw. der Kodierung).
+- Größere Abweichungen sind Übergänge (Schubeintritt, Gasstoß) mit dem 10-s-Raster.
+
+`CatalystTemp_CAN`: 358-898 °C in den Fahrten (Maximum 120235 auf der Autobahn, ~12:22).
+
+- Anstieg unter Last (> 40 % Moment, kein Schub): Median +133 K/min.
+- In Schubphasen (> 80 % des Intervalls): −26 K/min.
+- Korrelation Anstieg ↔ mittleres Moment im Intervall r = 0,47 (876 Intervalle).
+- Ein Broadcast-Gegenstück gibt es nicht (Suche 26.09. abends: bestes Byte r = 0,66, und das
+  ist Geschwindigkeit); der Kanal geht nur über das Polling.
+
+### 5. `VehicleSpeed` liest 2,9 % zu hoch - betrifft das ganze Fahrleistungsmodell
+
+GPS-Geschwindigkeit / `VehicleSpeed` (dlg, OBD PID 0x0D, beide > 40 km/h, GPS-Verzug 0-3 s
+ausgeglichen) über **70 dlg-Logs** vom August und September: **Median 0,971** (IQR 0,970-0,972),
+August und September gleich. Der CAN-Wert 0x202 ist derselbe (0,966-0,970 an drei Logs vom
+26.09.). Der Tacho-/ECU-Wert rechnet also mit einem ~3 % zu großen Abrollumfang; bei 205/40 R17
+mit abgefahrenen Semi-Slicks plausibel.
+
+Alle Modellskripte nehmen `VehicleSpeed` als wahre Geschwindigkeit, keines nutzt GPS:
+`drivetrain_model_validation.py`, `top_speed_validation.py`, `partial_load_model.py`,
+`precise_vmax_validation_2026_09_12.py`, `coastdown_analysis.py`, `braking_model.py`,
+`corner_speed_model.py` und die CAN-Kurvenauswertung. `r_dyn` = 0,2985 m wurde über
+Drehzahl/`VehicleSpeed` "bestätigt" (Fehler 0,4-0,7 %). Das zeigt nur, dass der ECU-Wert mit
+diesem Radius rechnet.
+
+Wirkung (k = 0,971):
+
+| Größe | im `VehicleSpeed`-Rahmen | wahr |
+|---|---|---|
+| Geschwindigkeiten, Vmax, Strecken | +3,0 % | z. B. 236 → 229 km/h |
+| gemessene Längsbeschleunigung/Verzögerung | +3,0 % | −0,91 → −0,88 g |
+| Querbeschleunigung aus v·Gierrate | +3,0 % | |
+| μ bzw. a_lat aus v²/R (Kurvenmodell) | +6,1 % (k⁻²) | μ-Band 1,0-1,3 → 0,94-1,23 |
+| r_dyn | 0,2985 m | **≈ 0,290 m** |
+| CdA aus Ausrollversuch (Rahmenfehler) | CdA_fit = k · CdA_wahr | 0,647 → ~0,666 |
+| Crr aus Ausrollversuch | Crr_fit = Crr_wahr / k | 0,013 → ~0,0126 |
+| η bei festem Momentkennfeld | η_fit = η_wahr / k² | 0,93 → ~0,88 |
+
+- Innerhalb des Modells ist das weitgehend konsistent: Gangerkennung, Drehzahl ↔ v und relative
+  Vergleiche Modell/Messung laufen alle im selben Rahmen. Die Parameter η/CdA sind ohnehin nur
+  "gekoppelt plausibilisiert" und haben den Faktor aufgenommen.
+- **Schief wird es, wo absolute Größen herauskommen oder mit echter Geometrie gemischt wird:**
+  - Vmax-, 0-100- und Brems-g-Angaben liegen ~3 % zu hoch.
+  - Der μ-Wert aus dem Kurvenmodell liegt ~6 % zu hoch.
+  - Die Rundenzeitsimulation am Spreewaldring rechnet Modellkräfte aus dem v-Rahmen auf echten
+    Metern der Streckengeometrie.
+
+**Vorschlag, nicht umgesetzt** (validiertes Modell, Entscheidung beim Nutzer):
+- Eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle (Lade-Helfer für `VehicleSpeed`)
+  einführen.
+- Danach r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen und die
+  Validierungen (Gang 4, Vmax-Plateaus, Ausrollen, μ-Band) neu laufen lassen.
+- Bis dahin absolute Angaben mit 0,971 (Geschwindigkeit, Beschleunigung) bzw. 0,943 (μ)
+  umrechnen.
+
+### Sonst geändert
+
+- DBC nur Kommentare:
+  - `ReverseGear`, `Reverse_Flag_maybe`, `MT_Gear_Actual` und `CC_Mode_Related2`: Rückfahrschalter.
+  - `EmergencyStopSignal_maybe`, `HighDecel_maybe`, `PassengerSeatEmpty_maybe` und
+    `PassengerSeatPending_maybe`: Nachträge.
+- Keine neuen Signale, also kein Neudekodieren und kein Datalake-Lauf nötig.
+- DBC auf den Pi kopiert (md5 identisch).

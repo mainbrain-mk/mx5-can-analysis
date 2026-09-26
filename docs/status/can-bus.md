@@ -31,6 +31,17 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
    Druck). Beifahrermasse 75 kg ist gewogen. Tankbeleg 34,4 l, siehe Logbuch.
 6. **Blaue Shiftlights** waren echte ECU-Eingriffe (Drosselklappe schließt bei vollem Pedal,
    7121-7417/min, 0,2-0,8 s vor dem Schalten).
+7. **Offene Fragen geklärt (spätabends):**
+   - **Rückwärtsgang-Test C2** bestätigt `ReverseGear`. Die Quelle ist der
+     PCM-Rückfahrschalter 0x165 Bit 24/25; `MT_Gear_Actual`=7 ist nur ein Initwert, 0x21D ist
+     nicht beteiligt.
+   - **Langer Limiter-Aufenthalt:** eine Momentrampe auf ~0, gehalten bis zum Gaswegnehmen.
+     Kein Drehzahlregler und kein Kraftstoff-Cut; der Auslöser bleibt offen.
+   - `EmergencyStopSignal_maybe` und der Beifahrer-Belegungscode sind über alle Logs bestätigt,
+     die `HighDecel_maybe`-Schwelle liegt bei ~0,6 g.
+   - C9: gemessenes Lambda folgt dem Soll ohne Versatz.
+   - **`VehicleSpeed` liest 2,9 % zu hoch** (70 dlg-Logs, GPS/VS = 0,971). Das betrifft
+     absolute Werte des Fahrleistungsmodells, siehe `status/performance-model.md`.
 
 <details>
 <summary>Vorheriger Stand (2026-09-26, Offline-Ausbeute)</summary>
@@ -256,8 +267,8 @@ vertrauen, Details im Logbuch unten.
 
 - **Antrieb/Motor:** EngineRPM✓ (rpm), APP_Accelerator_Pedal_Position✓ (%, Gaspedal),
   CoolantTemp✓ (°C), IAT_Sensor_No1✓ (°C), MAP_Manifold_absolute_pressure_sensor (kPa,
-  Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-7, Gang, Reverse=7 noch nicht
-  zuverlässig bestätigt), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
+  Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-6, Gang aus Drehzahl/v; 0 auch
+  im Rückwärtsgang, 7 = Initwert ~2 s nach Zündung EIN), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
   Getriebe-Rohsignale), Clutch_Pedal_Position_raw✓ (0-199 roh, **kalibriert:**
   `CPP_PER_MZ% ≈ 0,4665·raw+0,56`, sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
   2026-09-14 über alle 4 Logs mit OBD-Traffic bestätigt, r=0,999), Fuel_Tank✓ (roh 0x09E,
@@ -543,7 +554,13 @@ OBD/CAN-Referenz gesucht werden muss):
   **Klopfen ausgeschlossen** (`KnockRetard_CAN` bleibt bei allen 5 Events im Nahe-Null-Band).
   **Radschlupf/DSC-Traktionseingriff ebenfalls ausgeschlossen** (Radgeschwindigkeits-Spread
   ≤2,3 km/h, unter dem 4,5-km/h-Rauschboden; `ABS_Active_CAN`/`DSC_Status_CAN` durchgehend 0).
-  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 2-4 nötig)** — auffällig ist die Gangabhängigkeit der
+  **Mechanik seit 26.09. spätabends klar** (langer Aufenthalt im 2. Gang, 2,5 s): das Moment
+  (0x167) läuft in 0,5-0,8 s (2. Gang) bzw. 0,9-1,4 s (3. Gang) auf ~0 und bleibt dort bis zum
+  Gaswegnehmen, auch als die Drehzahl 280/min unter das Maximum fällt. Das ist kein Drehzahlregler
+  und kein Kraftstoff-Cut (`FuelCut` 0, Lambda 0,85). Beginn im 2. Gang 7184-7366/min (n=8),
+  im 3. Gang ~7155/min. Das Moment zeigt den Eingriff ~0,25 s vor der Drosselklappen-PID
+  (Logbuch "Offene Fragen vom Fahrtag 26.09. geklärt").
+  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 3-4 bis in die Begrenzung nötig)** — auffällig ist die Gangabhängigkeit der
   Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
   festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:
   RPM>7000 & `APP`≥99% & `ETC_ACT`<90 → Shiftlights blinken blau, 8 Hz), deployt auf dem Pi.
@@ -555,7 +572,8 @@ OBD/CAN-Referenz gesucht werden muss):
   geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
 - ~~Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung~~ – **GELÖST 2026-09-26:** das Rückwärtsgang-Signal ist 0x445 Bit 7 (`ReverseGear`);
-  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`.
+  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`. Fahrzeugtest C2
+  am 26.09. bestätigt; Quelle ist der PCM-Rückfahrschalter 0x165 Bit 24/25 (~0,5 s vor 0x445).
 - **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
   Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
   angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
