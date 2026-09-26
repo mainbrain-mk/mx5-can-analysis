@@ -5874,3 +5874,72 @@ _duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/d
           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 _duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
 
+
+## build_datalake.py: Laufzeitoptimierung (2026-09-26)
+
+Anlass: voller Bau zuletzt ~380 s (Messung 15.09., seither mehr Logs), und
+`SCHEMA_VERSION` wurde vom 20. bis 26.09. siebenmal erhoeht (1 -> 8) - jedes Mal
+wegen einer reinen CAN-Aenderung, aber jedes Mal mit Re-Ingest ALLER Logs inkl.
+aller .dlg/CSVs. Die Laufzeit steckt fast nur in der Konvertierung pro Zeile
+(pandas-Objektstrings <-> DuckDB), nicht in der Datenbank selbst.
+
+Umgesetzt (alles in `scripts/build_datalake.py`, keine Schema-Aenderung):
+
+1. **`SCHEMA_VERSIONS` pro Quellformat** (`dlg`/`csv`/`can`, CAN+GPS zaehlt als
+   `can`). Alle starten bei "8", die Umstellung selbst loest also keinen
+   Re-Ingest aus. Ab jetzt nur das Format hochzaehlen, dessen Pfad sich
+   geaendert hat - eine CAN-Mapping-Aenderung liest nur noch CAN-Logs neu ein.
+2. **INSERT** ueber `_insert_measurements()`: log_id/source_file/source_format
+   als SQL-Parameter, channel/channel_original/unit als Ganzzahl-Code +
+   Nachschlagetabelle, per JOIN in DuckDB aufgeloest. Synthetisch je 5 Mio
+   Messwerte: 9,3 s -> 2,6 s (mit installiertem pyarrow 20,4 s -> ~2,4 s).
+   **Fallstrick gefunden:** ein Hash-JOIN gibt die Zeilen bei paralleler
+   Ausfuehrung in beliebiger Reihenfolge aus (nachgemessen: schon ab 300k Zeilen
+   bei 8 Threads). Etliche Leser-Skripte fragen Zeitreihen OHNE `ORDER BY` ab
+   und verlassen sich auf die Einfuege-Reihenfolge - daher `ORDER BY` auf die
+   Zeilennummer (kostet ~0,2 s je 5 Mio), per Test abgesichert.
+3. **`ingest_dlg()`** ohne JOIN/ORDER BY in SQLite: Metadaten als Dict,
+   Kanalnamen als Categorical, Sortierung per stabilem argsort. 3 Mio Zeilen:
+   7,6 s -> 3,8 s.
+4. **CAN-Pfad**: `_decoded.csv` mit `usecols` + Categoricals (4,6 -> 2,2 s je
+   5 Mio Zeilen), `_derive_gear_status()` vektorisiert (2,3 s -> 0,08 s je
+   Fahrstunde), Kanal/Einheit per Dict statt Lambda, Sentinel-Filter in einem
+   Durchgang.
+5. **Zeitmessung**: jede Zeile "lade (...)" bekommt `N Messwerte | lesen Xs |
+   schreiben Ys`, am Ende Summen je Format, zusaetzlich `runtime_s` und
+   `ingest_timing` in `results/datalake_build_summary.json`.
+6. **`--verify`**: liest alle als unveraendert geltenden Logs neu ein (DB
+   read-only, nur TEMP-Tabelle) und vergleicht pro (Log, Kanal) die komplette
+   Zeitreihe in Einfuege-Reihenfolge mit der DB, plus den logs-Eintrag. Dient
+   als Nachweis nach Ingest-Aenderungen und findet vergessene
+   SCHEMA_VERSIONS-Erhoehungen. Exit-Code 1 bei Abweichung.
+
+Nachweis alt = neu (synthetischer Bestand mit allen Pfaden: 2 dlg mit
+unsortierten Zeiten/Gleichstaenden/fehlenden Metadaten/NULL-Werten, 2 CSVs mit
+Doppelspalten, bar/ft, ungemappter Spalte, ohne StartTime; 3 CAN-Logs mit
+HS_IC-Tachospeed, Enum-Strings, Sentinels, 555,35-Radspeed, Kraftstoffzaehler,
+Gangframes, GPX, leerer Session; alter Code = Git-Stand vor der Aenderung):
+- 3,2 Mio bzw. 9,3 Mio Messwerte, 148 Kanal-Zeitreihen: **0 Abweichungen**,
+  auch die kanaluebergreifende Gesamt-Reihenfolge je Log ist identisch,
+  logs-Tabelle identisch; mit und ohne pyarrow.
+- neuer `--verify` auf der vom alten Code gebauten DB: alle identisch; neuer
+  inkrementeller Lauf darauf liest nichts neu ein (ausser der leeren Session,
+  die nie einen logs-Eintrag bekommt, siehe Kommentar in `_build_can_target()`).
+- voller Bau synthetisch: 23,9 s -> 7,8 s (mit pyarrow) bzw. 45,5 s -> 20,3 s
+  (ohne pyarrow, 3-fache Menge). Echte Zahlen stehen ab dem naechsten Lauf in
+  der Ausgabe/Summary.
+
+**TODO auf dem echten Datalake:** einmal `python scripts/build_datalake.py
+--verify` laufen lassen (dauert wie ein --full-Lauf, schreibt nichts). Erwartet:
+alle identisch.
+
+Offen/bewusst nicht gemacht:
+- Im CAN-Pfad bleiben die teuersten Schritte die String->Zahl-Umwandlung der
+  gemischten `value`-Spalte (~40 % der CAN-Lesezeit) und `to_timedelta` (~15 %).
+  Letzteres liesse sich beschleunigen, aber nicht garantiert bitgleich zu den
+  bestehenden Zeitstempeln - daher nicht angefasst.
+- Innerhalb eines Logs nach (channel, t) sortiert einfuegen (Lesezugriff je
+  Kanal ~2,6x schneller) - erst nach Pruefung der Leser ohne ORDER BY, die
+  mehrere Kanaele auf einmal lesen.
+- DuckDBs `sqlite`-Extension fuer .dlg (ganz ohne pandas) - hier nicht
+  testbar (Extension-Download gesperrt).
