@@ -109,7 +109,13 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x3D0/0x3D1, 0x4F2 Byte2 | seltene Zustandswechsel | HUD/CMU-Einstellungen | – |
 | 0x21D | 50 Hz, Bytes ändern sich selten, Episoden im Stand bei Kupplung | Rangier-/Einparkzustand? | C2 |
 | 0x4FE | 10 Hz, opendbc `MILAGE_MAYBE` u. a., zählerartig | Kilometer-/Zeitzähler | – |
+| 0x45B (Multiplex, Byte0 = Seite 1-5) | nur Seite 1 Byte2 (0-255, z. B. 61 → 243 über eine Fahrt) und Seite 2 Byte3/4 (147-255 bzw. 161-255) variieren; Korrelationen wechseln das Vorzeichen zwischen Logs | Bordcomputer-/Wartungswerte? | C3, C11 |
 | 0x09B Bit 2 | ~10-s-Episoden alle 50–100 s (11–29 % der Zeit), v. a. im Stand; im Leerlauf sinkt dabei `BattSensor_Current_raw_maybe` in 6/6 Logs um ~100 Schritte (mehr Entladung) und die Spannung leicht | großer el. Verbraucher, vermutlich Kühlerlüfter | C1: Lüfter hören/sehen, Zeit notieren |
+
+### Karosserie / Insassen
+| Feld | Verhalten | Hypothese | Test |
+|---|---|---|---|
+| 0x340 Bits 26/28/29/31, 0x344 Bits 6/7, 0x09F Bit 40 | je Log konstant, teilen die Logs in zwei Gruppen zu 14 (Pendelfahrten morgens vs. Mittags-/Nachmittags-/Wochenendfahrten); wechseln innerhalb eines Logs nur im Stand bei offener Fahrertür bzw. kurz nach Zündung AUS oder Verdeckbewegung. opendbc nennt 0x340 `SEATBELT` | Beifahrer-Belegung/-Gurt bzw. Airbag-Abschaltanzeige | C12 |
 
 ### Fahrwerk / sonstige
 | Feld | Verhalten | Hypothese | Test |
@@ -155,6 +161,10 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
 
 11. **Wartungsanzeige** im MZD-Menü (Einstellungen > Fahrzeug > Wartung) ablesen: Restdistanz
     gegen `Service_DistanceRemaining_maybe` (0x3D1).
+
+12. **Beifahrer/Gurte:** im Stand nacheinander Fahrergurt, Beifahrersitz belegen (Tasche ab
+    ~ 10 kg genügt oft nicht, besser Person), Beifahrergurt stecken - jeweils Uhrzeit notieren.
+    Für 0x340/0x344/0x09F Bit 40.
 
 Aus dem vorherigen Stand weiterhin offen (siehe `status/can-bus.md`): Auslöser des
 ECU-Soft-Limiters (Vollgaszüge Gang 2-4), TPMS-Vorderachs-Zuordnung.

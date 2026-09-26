@@ -128,7 +128,7 @@ Logbuch ("Offline-Ausbeute…"). Referenzlog: 1311 -> 1124 unbelegte variierende
 | 1 Rückwärtsgang | erledigt | 0x445 Bit 7 `ReverseGear`, bestätigt (99,7 %) |
 | 2 synthetische Anker | erledigt | `can_anchor_sweep.py` (~80 Anker): Spannungen 0x08A/0x43F/0x45A, Temperaturen 0x075/0x45A; Zähler mit variabler Rate: Kraftstoff- und Wegzähler 0x420 |
 | 3 natürliche Experimente | erledigt | `can_natural_events.py` + neu `can_rare_bits.py`: TCS-Eingriff 0x211, starke Verzögerung, i-stop (97 Stopps), Bremsschalter, Tür, Kaltlauf-Leuchte |
-| 4 Multiplex/Zeitverhalten | teilweise | 0x45B und 0x3D2 als Multiplex erkannt; Taktanalyse nicht gemacht (kein Bedarf aufgetaucht) |
+| 4 Multiplex/Zeitverhalten | erledigt | 0x45B, 0x3D2 als Multiplex erkannt; 99 von 101 IDs streng periodisch, nichts ereignisgetrieben |
 | 5 Zwischen-Log-Konstanten | indirekt | über die Kaltstart-Methode (Werte beim Start gegen Ansaugluft) für Außen-, Batterie-, RCM-Temperatur |
 | 6 Bekanntes verwerten | teilweise | 19 neue Datalake-Kanäle + `FuelRate_CAN`; Schleppmoment nach Rekuperation, Bremsmodell bei ABS und WOT-Schwelle mit PID 0x44 noch offen |
 | 7 Frontkamera | erledigt | Tempolimit, Spurkrümmung, Querversatz; übrige Kamerafelder im Katalog |

@@ -3010,3 +3010,14 @@ abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
   (|Steigung| 0,0065 gegen 0,0057 g) -> keine Berganfahrhilfe; 0x4D4 gegen i-stop-Zeit,
   Rekuperations-/Leerlauf-/Schubanteil und gleitende Mittel: Vorzeichen wechseln zwischen Logs,
   offline nicht zu klären.
+- **Taktanalyse (Plan-Schritt 4):** 99 von 101 Broadcast-IDs sind streng periodisch (< 5 % der
+  Abstände weichen um mehr als 50 % vom Median ab); nur 0x3D2 (CMU-Tabelle, Schübe) und 0x046
+  (nur in einem Log) nicht. Kein Hinweis auf ereignisgetriebene Botschaften.
+- **`SteeringRate_Abs_maybe` gegen EPS-DID 0x3301 (`STEER_SPD_EPS`):** r=0,985-0,993 in 4 Logs,
+  EPS_raw = 0,241-0,247 * CAN-Wert; bei 4 deg/s je EPS-Schritt wäre die CAN-Skala 0,49 statt 0,5.
+- **Zwischen-Log-Konstanten (Plan-Schritt 5):** 19 Bits sind je Log konstant, aber zwischen Logs
+  verschieden. Außer Temperatur-/Countdown-Oberbits bilden 0x340 Bits 26/28/29/31, 0x344 Bits 6/7
+  und 0x09F Bit 40 zwei Log-Gruppen zu je 14 (Pendelfahrten morgens vs. Mittag/Nachmittag/
+  Wochenende). Innerhalb eines Logs wechseln sie nur im Stand bei offener Fahrertür bzw. nach
+  Zündung AUS/Verdeckbewegung (093544: 5,1 s, 763,7 s, 2775,1 s). Hypothese Beifahrer-/Gurtstatus
+  (opendbc: 0x340 `SEATBELT`), offline nicht entscheidbar -> Test C12 im Katalog.
