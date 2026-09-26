@@ -12,7 +12,16 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from can_backend import kill_processes
+from can_backend import (CRUISE_FLAG_CAN_ID, NEEDED_CAN_IDS, extract_cruise_active,
+                         kill_processes)
+
+
+def test_extract_cruise_active_reads_byte2_bit0():
+    """opendbc CRZ_EVENTS CRUISE_ACTIVE_CAR_MOVING = 16|1@0+ -> Byte2 Bit0."""
+    assert extract_cruise_active(bytes([0, 0, 0x01, 0, 0, 0, 0, 0])) == 1
+    assert extract_cruise_active(bytes([0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])) == 0
+    assert extract_cruise_active(bytes([0, 0])) is None  # abgeschnittener Frame
+    assert CRUISE_FLAG_CAN_ID in NEEDED_CAN_IDS  # sonst filtert SocketCAN die Botschaft weg
 
 
 def test_kill_processes_terminates_matching_process():

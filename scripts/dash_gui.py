@@ -71,6 +71,16 @@ LIMITER_RPM_MIN = 7000
 LIMITER_APP_MIN = 99  # APP ist float, exakt 100 kommt selten an
 LIMITER_ETC_MAX = 90
 LIMITER_BLINK_HZ = 8
+# Tempomat-Anzeige in der GASPEDAL-Kachel (Nutzerwunsch 2026-09-26): regelt der
+# Tempomat und der Fahrer tritt nicht selbst aufs Gas, zeigt die Kachel statt APP
+# (dann ohnehin ~0) die Drosselklappe ETC_ACT in Gruen - also das, was der
+# Tempomat gerade "gibt". Sobald der Fahrer selbst Gas gibt (APP ueber
+# CRUISE_APP_MAX) oder der Tempomat aus ist, wieder APP in Normalfarbe.
+# Flag-Quelle: can_backend.py CRUISE_FLAG_* (0x21F Byte2 Bit0 nach opendbc,
+# noch unverifiziert - siehe Kommentar dort).
+CRUISE_FLAG_CAN_ID = 0x21F
+CRUISE_FLAG_SIGNAL = "_CruiseActive_maybe_derived"
+CRUISE_APP_MAX = 2.0  # APP ist float und liegt losgelassen nicht exakt bei 0
 DRIVE_STEER_VMAX = 60
 CLUTCH_ACTIVE_RAW = 15  # roh, vor der /1.99-Prozent-Umrechnung - gleiche
                         # Schwelle/Konvention wie can_traction_circle.py und
@@ -131,6 +141,16 @@ def _is_limiter_active(rpm, app, etc):
     if rpm is None or app is None or etc is None:
         return False
     return rpm > LIMITER_RPM_MIN and app >= LIMITER_APP_MIN and etc < LIMITER_ETC_MAX
+
+
+def _gas_card_source(app, etc, cruise_active):
+    """(Wert, Textfarbe) fuer die GASPEDAL-Kachel: Drosselklappe in Gruen, solange
+    der Tempomat regelt und das Pedal losgelassen ist, sonst APP in Normalfarbe.
+    Fehlt die Drosselklappe (OBD-Poll aelter als LIVE_STALE_S), faellt die Kachel
+    auch bei aktivem Tempomat auf APP zurueck statt einen Strich zu zeigen."""
+    if cruise_active and etc is not None and (app is None or app <= CRUISE_APP_MAX):
+        return etc, GREEN
+    return app, TEXT
 
 
 def _blink_on(t=None, hz=LIMITER_BLINK_HZ):
@@ -269,7 +289,7 @@ class MetricCard(Panel):
             self.bar = FillBar(color=bar_color, size_hint_y=None, height=8)
             self.add_widget(self.bar)
 
-    def set_value(self, value):
+    def set_value(self, value, color=TEXT):
         if value is None:
             self.value_label.text = "–"
             self.value_label.color = TEXT_DIM
@@ -277,7 +297,7 @@ class MetricCard(Panel):
                 self.bar.frac = 0.0
             return
         self.value_label.text = self.value_fmt.format(value) + self.unit
-        self.value_label.color = TEXT
+        self.value_label.color = color
         if self.bar is not None:
             self.bar.frac = max(0.0, min(1.0, value / self.bar_max))
 
@@ -685,9 +705,9 @@ class DriveScreen(Screen):
     def refresh(self, *_args):
         c = self.client
         rpm = self.get_rpm()
-        limiter_active = _is_limiter_active(
-            rpm, c.get(514, "APP_Accelerator_Pedal_Position"),
-            c.get(OIL_RESPONSE_KEY, "_ThrottlePosition_pct_derived"))
+        app = c.get(514, "APP_Accelerator_Pedal_Position")
+        etc = c.get(OIL_RESPONSE_KEY, "_ThrottlePosition_pct_derived")
+        limiter_active = _is_limiter_active(rpm, app, etc)
         self.shiftlights.update(rpm, limiter_active)
         self.rpm_bar.update(rpm)
 
@@ -712,7 +732,8 @@ class DriveScreen(Screen):
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
 
-        self.gas_card.set_value(c.get(514, "APP_Accelerator_Pedal_Position"))
+        cruise_active = bool(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL))
+        self.gas_card.set_value(*_gas_card_source(app, etc, cruise_active))
         self.brake_card.set_value(c.get(120, "_BrakePedalPercent_derived"))
         self.lambda_card.set_value(
             c.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S))
