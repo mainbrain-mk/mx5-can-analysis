@@ -32,6 +32,10 @@ DETREND_S = 20.0
 HIT_R = 0.8
 MIN_UNIQUE = 3
 WHEELBASE_M, TRACK_M = 2.31, 1.50
+# Langsame Anker: nur Spearman roh werten. Trendbereinigt erzeugen sie am Zuendungs-/Motorstart
+# einen Sprung, der mit jedem Feld korreliert, das beim Start den Wert wechselt (Artefakt).
+SLOW = {"coolant", "iat", "ambient", "fuel_level", "baro", "oiltemp", "batteryvoltage", "fuel_cum",
+        "dist_cum", "t_since_start", "t_engine_on", "trip_avg_speed", "trip_avg_cons", "coolant_rate"}
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
@@ -180,7 +184,7 @@ def _detrend(x, n):
     return x - _smooth(x, n)
 
 
-def correlate(F, A):
+def correlate(F, A, names=None):
     """F: (n x f), A: (n x a) -> (r_spearman, r_detrended) je (f x a).
 
     Die Raenge von F werden einmal ueber alle Zeilen gebildet (nicht je Anker-Maske neu) -
@@ -195,7 +199,7 @@ def correlate(F, A):
             continue
         res_s[:, a] = _corr(Fr[m], rankdata(A[m, a]))
         ad = _detrend(np.where(m, A[:, a], np.nanmean(A[:, a])), int(DETREND_S * HZ))[m]
-        if np.std(ad) > 0:
+        if np.std(ad) > 0 and not (names and names[a] in SLOW):
             res_d[:, a] = _corr(Fd[m], ad)
     return res_s, res_d
 
@@ -218,7 +222,7 @@ def analyze_log(path, own):
     F = np.column_stack([lab.on_grid(t, raw, g) for _, _, t, raw in cands])
     # Log-Anfang vor dem ersten Frame jeder Botschaft abschneiden
     valid = np.isfinite(F).all(axis=1)
-    rs, rd = correlate(F[valid], Am[valid])
+    rs, rd = correlate(F[valid], Am[valid], names)
     rows = []
     log = os.path.basename(path)[8:25]
     for i, (cid, name, _, _) in enumerate(cands):

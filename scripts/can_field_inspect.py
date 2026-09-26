@@ -42,7 +42,7 @@ def inspect(specs, logs=LOGS, top=6):
                 continue
             x = lab.on_grid(t, raw, g)
             m = np.isfinite(x)
-            rs, rd = correlate(x[m][:, None], Am[m])
+            rs, rd = correlate(x[m][:, None], Am[m], names)
             for a, an in enumerate(names):
                 res.append((spec, log[8:], an, rs[0, a], rd[0, a]))
     df = pd.DataFrame(res, columns=["field", "log", "anchor", "r_spear", "r_detr"])
