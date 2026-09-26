@@ -76,10 +76,13 @@ LIMITER_BLINK_HZ = 8
 # (dann ohnehin ~0) die Drosselklappe ETC_ACT in Gruen - also das, was der
 # Tempomat gerade "gibt". Sobald der Fahrer selbst Gas gibt (APP ueber
 # CRUISE_APP_MAX) oder der Tempomat aus ist, wieder APP in Normalfarbe.
-# Flag-Quelle: can_backend.py CRUISE_FLAG_* (0x21F Byte2 Bit0 nach opendbc,
-# noch unverifiziert - siehe Kommentar dort).
-CRUISE_FLAG_CAN_ID = 0x21F
-CRUISE_FLAG_SIGNAL = "_CruiseActive_maybe_derived"
+# Tempomat-Zustand: 0x165 CC_Mode_Related (357), schon per DBC im Snapshot. Roh 149 =
+# Tempomat regelt bzw. uebersteuert (bleibt beim Gasgeben an), 141 = aus/bereit, 302 =
+# Bremse/Stand; CC_SetSpeed bleibt dagegen nach dem Abbrechen gespeichert. Belegt an
+# candump 2026-09-26_184447 (Tempomat bei ~42 und ~52 km/h) und 2026-09-19_163755.
+CRUISE_CAN_ID = 357
+CRUISE_SIGNAL = "CC_Mode_Related"
+CRUISE_ACTIVE_RAW = 149
 CRUISE_APP_MAX = 2.0  # APP ist float und liegt losgelassen nicht exakt bei 0
 DRIVE_STEER_VMAX = 60
 CLUTCH_ACTIVE_RAW = 15  # roh, vor der /1.99-Prozent-Umrechnung - gleiche
@@ -732,7 +735,7 @@ class DriveScreen(Screen):
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
 
-        cruise_active = bool(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL))
+        cruise_active = c.get(CRUISE_CAN_ID, CRUISE_SIGNAL) == CRUISE_ACTIVE_RAW
         self.gas_card.set_value(*_gas_card_source(app, etc, cruise_active))
         self.brake_card.set_value(c.get(120, "_BrakePedalPercent_derived"))
         self.lambda_card.set_value(

@@ -3651,3 +3651,34 @@ auf dem Tempomat-Log laufen lassen. Bestätigt sich Byte2 Bit0 → Signal als
 `CRUISE_FLAG_BIT` anpassen; ist `0x165 CC_Mode_Related*` besser → `CRUISE_FLAG_*` in
 `dash_gui.py` auf `(357, "CC_Mode_Related2")` umstellen (Wert kommt dann als Choice-String
 `"ON"`/`"OFF"`, `bool()` reicht nicht mehr).
+
+## Tempomat-Zustand gefunden: `0x165 CC_Mode_Related == 149` (2026-09-26)
+
+Ergänzt den Abschnitt "Tempomat-Anzeige in der Gaspedal-Kachel" oben; dessen Kandidat
+(`0x21F` Byte2 Bit0) ist widerlegt. Ein Log vom 06.09. gibt es als CAN nicht (CAN-Logging
+startet 11.09., am 06.09. nur Handy-`.dlg`). Stattdessen:
+
+- **`candump-2026-09-19_163755`, `--window 562 645`** (Logbuch: APP=0 bei 187 km/h, Nutzer hält
+  Tempomat für sehr wahrscheinlich): `0x21F` Byte2 ist in allen 52.226 Frames **konstant 0** →
+  das opendbc-Bit gibt es beim ND nicht. Die Bit-Tabelle des Skripts blieb unbrauchbar (Byte0/1
+  sind ein stufenweise springender Wert, "Fahrer gibt Gas" hat nur 2 s).
+- **`candump-2026-09-26_184447`** (Nutzer: Tempomat in den letzten Minuten bei ~42 km/h):
+  `CC_SetSpeed` (0x165) steigt bei t=179 s auf 55 und bei t=318 s auf 45, jeweils bei losgelassenem
+  Pedal und 51,5 bzw. 41,7 km/h. `0x21F` Byte0-1 (big-endian, `0,005·raw − 0,5`, opendbc
+  `CRZ_SPEED`) zeigt exakt diese echte Geschwindigkeit im Setzmoment, `CC_SetSpeed` die
+  Tacho-Anzeige (~4 % höher). **Beide bleiben nach dem Abbrechen gespeichert** — sie sagen "Soll
+  gesetzt", nicht "regelt".
+- **`CC_Mode_Related`** (0x165, 9 Bit) hat die Werte 141 (aus/bereit), **149**, 302 (Bremse/Stand),
+  selten 129/174. Das Skript hatte es nur auf "≠ 0" geprüft und als konstant verworfen. 149-Segmente
+  beginnen in beiden Logs genau dort, wo sich `CC_SetSpeed` ändert (26.09.: 179–218 s bei 51,9 km/h,
+  318,5–349,5 s bei 42,2 km/h mit `APP` = 0; 19.09.: u.a. 564,5–655,5 s bei 187 km/h), und enden
+  beim Abbrechen (Wert fällt auf 141, Soll bleibt gespeichert). `APP` ist in fast allen Segmenten
+  durchgehend 0; bei Übersteuern durch Gasgeben (19.09. 155–217 s, 318–340 s) bleibt 149 stehen.
+- **Umsetzung:** `dash_gui.py` liest `c.get(357, "CC_Mode_Related") == 149`; `0x165` ist per DBC
+  ohnehin im Snapshot (`decode_choices=True` liefert für 141/149/302 Ints, nur 0/1 wären
+  "OFF"/"ON"). Die Roh-Extraktion von `0x21F` in `can_backend.py` samt Test ist entfernt, das
+  Backend ist damit wieder identisch mit dem Pi-Stand. DBC: nur CM_-Kommentare zu `CC_Mode_Related`
+  und `CC_SetSpeed` ergänzt, keine Signaländerung.
+- **Offen:** ob 149 auch "Tempomat an, noch nicht gesetzt" abdeckt (nie beobachtet), und die
+  Bedeutung der Bits von 141/149/302 im Einzelnen (149 = 0x95, 141 = 0x8D).
+
