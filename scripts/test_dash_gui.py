@@ -242,6 +242,28 @@ def test_gear_display_keeps_last_gear_while_clutch_pressed():
     assert screen.gear_value.text == "R"
 
 
+def test_gas_card_shows_throttle_in_green_only_while_cruise_holds_the_pedal():
+    """Tempomat regelt + Pedal losgelassen -> Drosselklappe in Gruen; sobald der
+    Fahrer selbst Gas gibt oder der Tempomat aus ist -> APP in Normalfarbe."""
+    assert dash_gui._gas_card_source(0.4, 23.0, True) == (23.0, dash_gui.GREEN)
+    assert dash_gui._gas_card_source(None, 23.0, True) == (23.0, dash_gui.GREEN)  # APP stale
+    assert dash_gui._gas_card_source(35.0, 40.0, True) == (35.0, dash_gui.TEXT)   # Fahrer gibt Gas
+    assert dash_gui._gas_card_source(0.4, 23.0, False) == (0.4, dash_gui.TEXT)    # Tempomat aus
+    assert dash_gui._gas_card_source(0.4, None, True) == (0.4, dash_gui.TEXT)     # ETC-Poll stale
+
+
+def test_metric_card_set_value_applies_color_and_resets_to_dim_on_none():
+    card = dash_gui.MetricCard("GASPEDAL", unit="%", bar_color=dash_gui.GREEN)
+    card.set_value(23.0, dash_gui.GREEN)
+    assert card.value_label.text == "23%"
+    assert tuple(card.value_label.color) == dash_gui.GREEN
+    card.set_value(40.0)
+    assert tuple(card.value_label.color) == dash_gui.TEXT
+    card.set_value(None)
+    assert card.value_label.text == "–"
+    assert tuple(card.value_label.color) == dash_gui.TEXT_DIM
+
+
 if __name__ == "__main__":
     if dash_gui is None:
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
@@ -257,4 +279,6 @@ if __name__ == "__main__":
     test_shiftlight_colors_cover_the_narrow_orange_zone()
     test_limiter_active_needs_all_three_conditions()
     test_limiter_blink_toggles_over_time()
+    test_gas_card_shows_throttle_in_green_only_while_cruise_holds_the_pedal()
+    test_metric_card_set_value_applies_color_and_resets_to_dim_on_none()
     print("ok")

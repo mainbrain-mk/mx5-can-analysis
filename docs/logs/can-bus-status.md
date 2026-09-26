@@ -4180,3 +4180,99 @@ Tests in `test_dash_gui.py` (Funktion + Halten beim Schalten), auf dem Pi grün,
 identisch (Backup `backup-2026-09-26d/`), `can_backend.py` und `dash_gui.py` um 21:01 neu
 gestartet. Live-Prüfung bei der nächsten Fahrt.
 
+## Tempomat-Anzeige in der Gaspedal-Kachel des Dash (2026-09-26, Nutzerwunsch)
+
+**Anlass:** Nutzer will, dass die GASPEDAL-Kachel im Renncockpit bei aktivem Tempomat statt
+der (dann ohnehin ~0 %) Pedalstellung die Drosselklappe zeigt - in **grüner Schrift** als
+Kennzeichnung. Sobald der Tempomat aus ist oder der Fahrer selbst Gas gibt, wieder `APP` in
+Normalfarbe.
+
+**Umsetzung (`dash_gui.py`, `can_backend.py`):**
+- `_gas_card_source(app, etc, cruise_active)` liefert `(Wert, Farbe)` für die Kachel:
+  Tempomat-Flag gesetzt UND `APP` ≤ `CRUISE_APP_MAX` (2 %, `APP` liegt losgelassen nicht
+  exakt bei 0) → `ETC_ACT` (`_ThrottlePosition_pct_derived`, OBD-PID 0x11 aus dem schnellen
+  `tpms_poller`-Poll) in `GREEN`; sonst `APP` in `TEXT`. Fehlt die Drosselklappe (Poll
+  älter als `LIVE_STALE_S`), fällt die Kachel auch bei aktivem Tempomat auf `APP` zurück
+  statt einen Strich zu zeigen. `MetricCard.set_value()` nimmt dafür jetzt eine optionale
+  Textfarbe.
+- **Das eigentliche Problem: wir haben kein verifiziertes "Tempomat regelt"-Signal.**
+  Kandidaten aus Fremdquellen, alle noch nie gegen ein eigenes Log geprüft:
+  - opendbc `mazda_2017` (`data/can/external/`): `0x21F CRZ_EVENTS` (Sender PCM),
+    `CRUISE_ACTIVE_CAR_MOVING` = 16|1@0+ = **Byte2 Bit0**, `CRZ_SPEED` = Byte0-1. `0x21F`
+    ist bei uns eine komplett leere `HS_PCM`-Botschaft (siehe Deep-Search-Plan). Da der
+    Tempomat beim ND vom PCM geregelt wird, ist das der plausibelste Kandidat.
+  - opendbc `0x21C CRZ_CTRL`, `CRZ_ACTIVE` = Byte0 Bit3 - kommt vom FSC/MRCC-Modul; ohne
+    Radar-Tempomat beim ND vermutlich nicht gesetzt.
+  - berumiya-Upstream in unserer DBC: `0x165` `CC_Mode_Related`/`CC_Mode_Related2`
+    (VAL 0=OFF/1=ON) und `CC_SetSpeed`.
+- Gewählt: **`0x21F` Byte2 Bit0**, roh in `can_backend.py` extrahiert
+  (`extract_cruise_active`, Snapshot-Key `543:_CruiseActive_maybe_derived`, `0x21F` neu in
+  `NEEDED_CAN_IDS`). **Bewusst NICHT in die DBC übernommen** (Regel aus
+  `data/can/external/README.md`: erst gegen eigene Logs prüfen). Fehlermodi sind gutartig:
+  Flag nie gesetzt → Kachel zeigt wie bisher `APP`; Flag bedeutet "Tempomat bereit" statt
+  "regelt" → bei losgelassenem Pedal steht die Drosselklappe in Grün, was inhaltlich weiter
+  stimmt.
+- **Prüfwerkzeug `scripts/can_cruise_flag_check.py`** (neu): teilt ein Log anhand der
+  Fahrsituation in "Tempomat plausibel" (Pedal los, >40 km/h, Drosselklappe/Last trotzdem
+  offen), "Schubbetrieb" (Pedal los, Last aus) und "Fahrer gibt Gas" und gibt für jeden
+  Kandidaten - sowie für **alle 64 Bits von `0x21F`** - den Anteil gesetzter Zeit je
+  Situation aus. Ein brauchbares Flag ist in der ersten Spalte ~100 %, sonst ~0 %.
+  `--window t0 t1` für eine sicher bekannte Tempomat-Phase. Gegen ein synthetisches Log
+  (Byte2 Bit0 nur in der Tempomat-Phase gesetzt) verifiziert; **gegen ein echtes Log noch
+  offen** - Kandidat: der letzte Log vom 06.09.2026 (5 Tempomat-Kurven bei 92-94 km/h, siehe
+  `projekt-stand.md` "Kurvendetektion für schnelle Großradius-Kurven").
+
+**Tests:** `test_dash_gui.py` (+2: Quellen-/Farbwahl, `MetricCard`-Farbe),
+`test_can_backend.py` (+1: Bit-Extraktion, `0x21F` im SocketCAN-Filter). Alle 14 unter
+Xvfb grün. **Noch nicht auf den Pi deployt** (`dash_gui.py` + `can_backend.py` müssen
+zusammen, siehe `status/pi-runtime-state.md`).
+
+**Nächster Schritt:** `python scripts/can_cruise_flag_check.py data/can/candump-2026-09-06_<…>.log`
+auf dem Tempomat-Log laufen lassen. Bestätigt sich Byte2 Bit0 → Signal als
+`CruiseActive` in `MX5ND_6thGenMazda_HSCAN_extended.dbc` eintragen (mit CM_-Herleitung) und
+`can_backend.py` auf den DBC-Decode umstellen; ist es ein anderes Bit → `CRUISE_FLAG_BYTE`/
+`CRUISE_FLAG_BIT` anpassen; ist `0x165 CC_Mode_Related*` besser → `CRUISE_FLAG_*` in
+`dash_gui.py` auf `(357, "CC_Mode_Related2")` umstellen (Wert kommt dann als Choice-String
+`"ON"`/`"OFF"`, `bool()` reicht nicht mehr).
+
+## Tempomat-Zustand gefunden: `0x165 CC_Mode_Related == 149` (2026-09-26)
+
+Ergänzt den Abschnitt "Tempomat-Anzeige in der Gaspedal-Kachel" oben; dessen Kandidat
+(`0x21F` Byte2 Bit0) ist widerlegt. Ein Log vom 06.09. gibt es als CAN nicht (CAN-Logging
+startet 11.09., am 06.09. nur Handy-`.dlg`). Stattdessen:
+
+- **`candump-2026-09-19_163755`, `--window 562 645`** (Logbuch: APP=0 bei 187 km/h, Nutzer hält
+  Tempomat für sehr wahrscheinlich): `0x21F` Byte2 ist in allen 52.226 Frames **konstant 0** →
+  das opendbc-Bit gibt es beim ND nicht. Die Bit-Tabelle des Skripts blieb unbrauchbar (Byte0/1
+  sind ein stufenweise springender Wert, "Fahrer gibt Gas" hat nur 2 s).
+- **`candump-2026-09-26_184447`** (Nutzer: Tempomat in den letzten Minuten bei ~42 km/h):
+  `CC_SetSpeed` (0x165) steigt bei t=179 s auf 55 und bei t=318 s auf 45, jeweils bei losgelassenem
+  Pedal und 51,5 bzw. 41,7 km/h. `0x21F` Byte0-1 (big-endian, `0,005·raw − 0,5`, opendbc
+  `CRZ_SPEED`) zeigt exakt diese echte Geschwindigkeit im Setzmoment, `CC_SetSpeed` die
+  Tacho-Anzeige (~4 % höher). **Beide bleiben nach dem Abbrechen gespeichert** — sie sagen "Soll
+  gesetzt", nicht "regelt".
+- **`CC_Mode_Related`** (0x165, 9 Bit) hat die Werte 141 (aus/bereit), **149**, 302 (Bremse/Stand),
+  selten 129/174. Das Skript hatte es nur auf "≠ 0" geprüft und als konstant verworfen. 149-Segmente
+  beginnen in beiden Logs genau dort, wo sich `CC_SetSpeed` ändert (26.09.: 179–218 s bei 51,9 km/h,
+  318,5–349,5 s bei 42,2 km/h mit `APP` = 0; 19.09.: u.a. 564,5–655,5 s bei 187 km/h), und enden
+  beim Abbrechen (Wert fällt auf 141, Soll bleibt gespeichert). `APP` ist in fast allen Segmenten
+  durchgehend 0; bei Übersteuern durch Gasgeben (19.09. 155–217 s, 318–340 s) bleibt 149 stehen.
+- **Umsetzung:** `dash_gui.py` liest `c.get(357, "CC_Mode_Related") == 149`; `0x165` ist per DBC
+  ohnehin im Snapshot (`decode_choices=True` liefert für 141/149/302 Ints, nur 0/1 wären
+  "OFF"/"ON"). Die Roh-Extraktion von `0x21F` in `can_backend.py` samt Test ist entfernt, das
+  Backend ist damit wieder identisch mit dem Pi-Stand. DBC: nur CM_-Kommentare zu `CC_Mode_Related`
+  und `CC_SetSpeed` ergänzt, keine Signaländerung.
+- **Offen:** ob 149 auch "Tempomat an, noch nicht gesetzt" abdeckt (nie beobachtet), und die
+  Bedeutung der Bits von 141/149/302 im Einzelnen (149 = 0x95, 141 = 0x8D).
+- **Verhalten nach dem Beenden (Nutzer hat heute Vormittag mit der Bremse beendet; ~50
+  149-Segmente in `candump-2026-09-26_130440` bis `_154000` ausgewertet):** Beim Abbrechen fällt
+  `CC_Mode_Related` von 149 auf 141 (bei Bremse zeitweise über 302, dann 141), `CC_SetSpeed`
+  bleibt **unverändert gespeichert** (z. B. 65/60/57/61/43 km/h Tacho), das Tempo rollt danach
+  frei aus (~2-4 km/h pro Sekunde), `APP` ist zunächst 0. Innerhalb eines 149-Segments ist
+  `BrakeSwitch_PCM` nie gesetzt. Segmente enden sowohl mit Bremse (Ende 302/310, `BrakeSwitch`=1)
+  als auch ohne (direkt 141, Auslöser aus dem Bus nicht erkennbar: Tempomat-Taste, Kupplung o. ä.).
+  Bei Übersteuern durch Gasgeben (`APP` bis 90 %) bleibt 149 stehen, dann zeigt der Dash wegen
+  `APP` > 2 % korrekt `APP` statt der Drosselklappe. Einmal (`154000`, ~98 s) wurde
+  `CC_SetSpeed` beim Beenden zusätzlich auf 0 gesetzt, vermutlich Hauptschalter aus; nicht geprüft.
+  **Für den Dash ändert sich nichts:** 141 = keine grüne Anzeige, egal was `CC_SetSpeed` sagt.
+
