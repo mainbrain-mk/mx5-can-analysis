@@ -130,6 +130,12 @@ def anchors(fr, obd, g):
     A["inst_cons"] = np.where(v > 5, fuel / 745 * 3600 / np.clip(v, 5, None) * 100, np.nan)
     A["inst_cons_lph"] = fuel / 745 * 3600
     A["coolant_rate"] = _ddt(A["coolant"], n=300)
+    # geglaettete Varianten (2026-09-26): die Steigung in 0x49C wurde erst mit 5-s-Glaettung
+    # sichtbar, weil die ungeglaettete Referenz fuer eine langsame Groesse zu verrauscht ist
+    A["slope_5s"] = _smooth(lon - dvdt, 50)
+    A["yaw_dev_2s"] = _smooth(A["yaw_dev"], 20)
+    A["curvature_2s"] = _smooth(A["curvature"], 20)
+    A["slip_rear_front_1s"] = _smooth(A["slip_rear_front"], 10)
     return A
 
 

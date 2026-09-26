@@ -3042,3 +3042,12 @@ abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
 - **Bug unterwegs:** der neue PID-0x34-Dekoder bekam den Rohwert als float (`>>` schlug fehl) und
   brach `can_log_parser.py` für Logs mit 0x34-Antworten (Einmal-Erhebung 15./16.09.) ab - behoben
   (`int(r)`), betroffene Logs neu dekodiert.
+- **Zweiter Sweep** mit geglätteten abgeleiteten Ankern (Steigung 5 s, Gierabweichung, Krümmung,
+  Schlupf) und roher Rangkorrelation für alle Anker: keine neuen unbelegten Felder über der
+  Schwelle (nur bekannte 0x200 Byte4-5 und schwache 0x4FA Byte2-3 r~0,65, Kamera-Bytes ~0,7 gegen v).
+- **Datalake** neu gebaut (Schema 5, danach die zwei vom 0x34-Bug betroffenen Logs nachdekodiert und
+  inkrementell nachgezogen): `FuelRate_CAN` Mittel 0,83 g/s, max 10,3 g/s; `AmbientTemp_CAN`
+  10,5-33,6 °C; `BatteryTemp_CAN` 13-35 °C; keine Init-Werte mehr.
+- Hinweis für Test C9: die Handy-App hat PID 0x3C (Katalysatortemperatur) in den .dlg-Logs vom
+  20.-25.08. schon abgefragt (300-900 °C); zeitgleich mit einem CAN-Log gibt es aber nur 20 Samples
+  (12.09. 211851, konstant ~370 °C) - zu wenig, um 0x4DA offline zu prüfen.
