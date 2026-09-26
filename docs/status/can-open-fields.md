@@ -196,4 +196,4 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
     `RoadIncline_maybe` (0x49C) muss den Schildwert zeigen.
 
 Aus dem vorherigen Stand weiterhin offen (siehe `status/can-bus.md`): Auslöser des
-ECU-Soft-Limiters (Vollgaszüge Gang 2-4), TPMS-Vorderachs-Zuordnung.
+ECU-Soft-Limiters (Vollgaszüge Gang 2-4). TPMS-Vorderachs-Zuordnung am 26.09. geklärt (Tire1 VL, Tire2 VR).

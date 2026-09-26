@@ -3767,3 +3767,28 @@ passiert, von Hand nachgezogen).
   am 15.09. und 19.09. kaum mit `LateralAcc_CAN` (r = -0,42…+0,04, Streuung 0,2-0,27 m/s²), die
   `AccelerationWithGravity*`-Kanäle dagegen mit r = 0,88-0,98. Betrifft die dlg-basierte
   Kurven-/Grip-Auswertung grundsätzlich - separat zu prüfen.
+
+### Nachtrag: Nutzerangaben zum Fahrtag (2026-09-26 abends)
+
+- **Beifahrermasse 75 kg ist gewogen**, nicht geschätzt - die Massen der heutigen Fahrten
+  (1243,1/1241,1/1239,8/1263,5 kg) bleiben, nur die Notizen in `data/log_mass_overrides.json` und
+  der Kommentar an `PASSENGER_MASS_KG` angepasst.
+- **Startzeiten** `_154000`, `_180459`, `_184447`: vom Nutzer als ungefähr richtig bestätigt, bleiben.
+- **Getankt 34,4 l** (Rechnung). Tankgeber vorher ~16,9 % (PID 0x2F, Median der letzten 2 min vor
+  dem Abstellen, schwappend), nachher 90,6 % (PID 0x2F; `Fuel_Tank` 36,2 roh ≈ 90,0 % - beide Quellen
+  einig). Δ 73,7 % für 34,4 l entspräche 46,7 l Skalenendwert statt 45 l Tankinhalt; war der Tank
+  randvoll, lag der wahre Stand vorher bei 45 - 34,4 = 10,6 l (23,6 %) statt 16,9 % - die Anzeige
+  geht bei niedrigem Stand und nach oben (Einfüllstutzen) nicht linear. Für den Kraftstoffzähler
+  ist das noch **keine absolute Kalibrierung** (dafür bräuchte es Voll-bis-Voll). Referenzstand
+  dafür: seit dem Tanken bis zum Ende von `_184447` laut Bordcomputer 5,95 l/100km über ~88 km
+  (ODO 170 387 → 170 475) = **~5,2 l**. Wird beim nächsten Mal wieder bis zum Abschalten getankt,
+  ergibt getankte Menge gegen Bordcomputer-Liter (Pi loggt `AvgFuelConsumption_CAN` bis kurz vor dem
+  Tanken) die absolute Einheit des Zählers.
+- **TPMS-Vorderachse geklärt:** Nutzer hat den Reifen **vorne rechts** mit etwas weniger Druck
+  gefüllt. Auf 20 °C normierter Druck (ideales Gas, Absolutdruck), Differenz Tire1 − Tire2 je Tag
+  (Median aller Abfragen): 14.09. 0,024 · 15.09. 0,024 · 16.09. 0,026 · 17.09. 0,028 · 18.09. 0,027 ·
+  19.09. 0,029 · **26.09. 0,085 bar** (69 Abfragen). Tire2 ist also relativ um ~0,06 bar gesunken →
+  **Tire1 = vorne links, Tire2 = vorne rechts** (Tire3/4 = hinten links/rechts waren schon bestätigt).
+  DBC-Kommentare, `build_datalake.py`-Kommentar und `status_gui.py` (Sternchen an "Vorne Links/Rechts"
+  entfernt) nachgezogen; das Kivy-Dash hatte die Zuordnung VL/VR schon so. `status_gui.py` und DBC
+  auf den Pi kopiert, md5 identisch.

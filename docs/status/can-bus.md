@@ -25,7 +25,9 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
 4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 = 5025 Schritte je Anzeige-Liter (0,199 ml,
    zwei Logs), Wegzähler 0x420 Byte1 = 0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
    `VehicleSpeed` liegt ~3 % über GPS.
-5. **Blaue Shiftlights** waren echte ECU-Eingriffe (Drosselklappe schließt bei vollem Pedal,
+5. **TPMS vorne geklärt:** Tire1 = vorne links, Tire2 = vorne rechts (Nutzer füllte VR mit weniger
+   Druck). Beifahrermasse 75 kg ist gewogen. Tankbeleg 34,4 l, siehe Logbuch.
+6. **Blaue Shiftlights** waren echte ECU-Eingriffe (Drosselklappe schließt bei vollem Pedal,
    7121-7417/min, 0,2-0,8 s vor dem Schalten).
 
 <details>
@@ -394,7 +396,7 @@ vertrauen, Details im Logbuch unten.
   19.09. war es NICHT, siehe Stand 2026-09-26 abends) (Handy sendet selbst durchgehend ~16-17
   Requests/s auf anderen Headern; eigene Zusatzlast nur ~0,005% der Busauslastung, siehe
   Logbuch). Werte erscheinen zusätzlich in vier GUI-Bildschirmecken (`TpmsCornersPanel` in
-  `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; Tire1/Tire2=Vorderachse,
+  `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; **Tire1=Vorne Links, Tire2=Vorne Rechts seit 26.09. bestätigt** (Nutzer füllte VR mit weniger Druck, normierte Differenz Tire1−Tire2 0,027 → 0,085 bar); vorher: Tire1/Tire2=Vorderachse,
   Reihenfolge weiterhin offen (im GUI mit "*" markiert). Temperatur-PIDs (0x2A0A-0D) nur vom
   Nutzer per OBD getestet, noch nicht per CAN bestätigt. **Erste echte Auswertung
   (2026-09-14, `scripts/tpms_log_decode.py`, 2 Fahrten):** physikalisch plausibel (Druck
@@ -602,7 +604,7 @@ OBD/CAN-Referenz gesucht werden muss):
   OBD-Traffic-reichen Log erneut prüfen.
 - Wischer-Test (Testplan-Punkt) strukturell dekodierbar seit dem LIGHT-Bit-Fix, aber inhaltlich
   noch nicht ausgewertet.
-- TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet.
+- ~~TPMS-Vorderachsen-Zuordnung~~ – erledigt 26.09.: Tire1 = vorne links, Tire2 = vorne rechts.
 - Pi-GUI-Gauge-Lag-Fix (2026-09-14) deployt, aber noch nicht bei einer echten Fahrt live
   verifiziert.
 - ~~`SteeringAngle_related_3` braucht eine nichtlineare Umrechnung~~ – **erledigt/verworfen
@@ -629,7 +631,7 @@ OBD/CAN-Referenz gesucht werden muss):
    direkt bei der Handlung drücken; fehlende Punkte (Blinker/Licht/Wischer, Tür links) ergänzen.
 2. Fahrmanöver aus Testplan-Abschnitt C: mehrere Vollbremsungen (Rollover-Test), Schaltvorgänge
    in verschiedenen Drehzahlbereichen, Kurven beidseitig.
-3. Vorderachsen-Zuordnung TPMS (Tire1/Tire2) per gezieltem Luftablass-Test klären.
+3. ~~Vorderachsen-Zuordnung TPMS~~ – erledigt 26.09. (Tire1 VL, Tire2 VR).
 4. Sobald weitere CAN-Logs mit begleitendem GPS-Track vorliegen: Paar in `CAN_GPS_PAIRS`
    (`scripts/build_datalake.py`) ergänzen und neu bauen.
 5. Perspektivisch: verifizierte CAN-Signale weiter ins Fahrleistungsmodell einspeisen, für die

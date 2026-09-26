@@ -126,14 +126,14 @@ PEDAL_GAUGES = [
 
 # TPMS-Ecken: Reifendruck/-temperatur an der Bildschirmposition der Radposition
 # (oben=vorne, unten=hinten). Tire3=Hinten-Links/Tire4=Hinten-Rechts sind per
-# Y-Splitter-Log BESTAETIGT (siehe docs/logs/can-bus-status.md), Tire1/Tire2=Vorderachse
-# sind nur VERMUTET (uebliches VL-VR-HL-HR-Nummerierungsschema) - daher "*" im Label.
+# Y-Splitter-Log BESTAETIGT (siehe docs/logs/can-bus-status.md), Tire1=Vorne-Links/
+# Tire2=Vorne-Rechts seit 2026-09-26 ebenfalls bestaetigt (Druckaenderung nur vorne rechts).
 TPMS_CAN_ID = 0x728
 TPMS_STALE_S = 200  # Poller fragt nur alle 120s ab (siehe session_logger.py) - grosszuegiger als LIVE_STALE_S
 TPMS_CORNERS = [
-    {"label": "Vorne Links *", "pressure_sig": "Tire1_Pressure", "temp_sig": "Tire1_Temp_maybe",
+    {"label": "Vorne Links", "pressure_sig": "Tire1_Pressure", "temp_sig": "Tire1_Temp_maybe",
      "relx": 0.0, "rely": 0.0, "anchor": "nw", "x": 14, "y": 10},
-    {"label": "Vorne Rechts *", "pressure_sig": "Tire2_Pressure", "temp_sig": "Tire2_Temp_maybe",
+    {"label": "Vorne Rechts", "pressure_sig": "Tire2_Pressure", "temp_sig": "Tire2_Temp_maybe",
      "relx": 1.0, "rely": 0.0, "anchor": "ne", "x": -14, "y": 10},
     {"label": "Hinten Links", "pressure_sig": "Tire3_Pressure", "temp_sig": "Tire3_Temp_maybe",
      "relx": 0.0, "rely": 1.0, "anchor": "sw", "x": 14, "y": -10},

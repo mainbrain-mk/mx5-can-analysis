@@ -252,9 +252,9 @@ CAN_SIGNAL_MAP = {
     # bereits korrekt skaliert (Druck in bar, Temp mit -50 Offset trotz
     # "_maybe"-Suffix, gegen den Y-Splitter-Log gegen OBD-Referenzwerte
     # bestaetigt). Tire3=hinten links/Tire4=hinten rechts bestaetigt (siehe
-    # Memory), Tire1/Tire2=Vorderachse aber Reihenfolge NOCH NICHT bestaetigt -
-    # deshalb bei der Rohnummerierung 1-4 belassen statt VL/VR/HL/HR zu
-    # erfinden. Nur in Logs vorhanden, in denen der Pi beim Fahren lief
+    # Memory), Tire1=vorne links/Tire2=vorne rechts seit 2026-09-26 bestaetigt
+    # (Nutzer fuellte VR mit weniger Druck, temperaturbereinigte Differenz
+    # Tire1-Tire2 sprang von 0,027 auf 0,085 bar). Kanalnamen bleiben 1-4. Nur in Logs vorhanden, in denen der Pi beim Fahren lief
     # (seit 2026-09-11, sporadisch je nach Session).
     "Tire1_Pressure": ("TirePressure_CAN_Tire1", "bar"),
     "Tire2_Pressure": ("TirePressure_CAN_Tire2", "bar"),
