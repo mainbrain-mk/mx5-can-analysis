@@ -79,6 +79,34 @@ def parse_candump(path):
     return pd.DataFrame(rows, columns=["t", "can_id", "data"])
 
 
+def passenger_occupied_seconds(can_log_path, settle_s=80.0, gap_s=60.0):
+    """Zeitaufgeloeste Beifahrer-Belegung aus 0x340 Bit16 (PassengerSeatOccupied_maybe,
+    Herleitung/offene Punkte siehe DBC-Kommentar bei BO_832 HS_RCM und
+    docs/logs/can-bus-status.md 2026-09-20). Ein candump-File kann mehrere Zuendungszyklen
+    enthalten (z.B. candump-2026-09-11_201950.log, zwei Fahrten mit 18,8h Standzeit dazwischen)
+    - Sessions werden deshalb an Luecken > gap_s neu gestartet. Je Session werden die ersten
+    settle_s Sekunden (Anlauf-/Kalibrierphase des Sensors, siehe DBC-Kommentar) ignoriert.
+    Rueckgabe: (belegt_s, gesamt_s) - beide 0.0, falls die Botschaft im Log fehlt."""
+    df = parse_candump(can_log_path)
+    sub = df[df["can_id"] == 0x340].sort_values("t").reset_index(drop=True)
+    if sub.empty:
+        return 0.0, 0.0
+    session_id = (sub["t"].diff().fillna(0) > gap_s).cumsum()
+    occupied_s, total_s = 0.0, 0.0
+    for _, part in sub.groupby(session_id):
+        part = part.reset_index(drop=True)
+        toff = part["t"] - part["t"].iloc[0]
+        win = part[toff >= settle_s].reset_index(drop=True)
+        if len(win) < 2:
+            continue
+        occupied = win["data"].apply(lambda d: d[2] & 1)
+        dt = win["t"].diff().shift(-1)
+        dt.iloc[-1] = dt.iloc[:-1].median()
+        occupied_s += float(dt[occupied == 1].sum())
+        total_s += float(dt.sum())
+    return occupied_s, total_s
+
+
 # OBD-Kanaele, die NICHT als CAN-Botschaft gebroadcastet werden, sondern nur als Antwort auf
 # eine Diagnoseanfrage im Log stehen (Y-Splitter-Kabel bzw. unser eigener tpms_poller.py).
 # Sie durchlaufen nicht die DBC, werden aber hier in dasselbe Long-Format gebracht, damit

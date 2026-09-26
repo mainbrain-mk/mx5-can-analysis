@@ -38,12 +38,21 @@ Aufruf:
     .venv/bin/python scripts/can_field_segmentation.py --self-test
     .venv/bin/python scripts/can_field_segmentation.py --log data/can/candump-....log
     .venv/bin/python scripts/can_field_segmentation.py --log ... --id 0x415
-    .venv/bin/python scripts/can_field_segmentation.py            # alle reichhaltigen Logs
+    .venv/bin/python scripts/can_field_segmentation.py            # alle reichhaltigen Logs,
+                                                                    # parallel ueber CPU-1 Kerne
+    .venv/bin/python scripts/can_field_segmentation.py --jobs 1    # alter serieller Modus
+
+2026-09-20: Logs sind voneinander unabhaengig (nur am Ende per pd.concat zusammengefuehrt) -
+ProcessPoolExecutor uebernimmt das jetzt per Default parallel (--jobs, Default CPU-Kerne minus
+1). parse_candump() bleibt trotzdem der groesste Einzelposten pro Log (bei 32 Logs, --correlate:
+mehrere Kernminuten seriell) - eine Vektorisierung dort waere der naechste, groessere Hebel,
+noch nicht umgesetzt.
 """
 import argparse
 import glob
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -285,6 +294,14 @@ def self_test():
     print("self-test ok")
 
 
+def _analyze_log_worker(path, only_id, correlate):
+    """Top-Level-Wrapper fuer ProcessPoolExecutor (muss picklebar/importierbar sein).
+    Laedt die DBC im Worker-Prozess neu statt sie zu picklen - load_db() kostet nur ~0,05s,
+    das ist billiger und robuster als ein cantools-Database-Objekt zu serialisieren."""
+    db = load_db("hscan")
+    return analyze_log(path, db, only_id, correlate=correlate)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", action="append")
@@ -293,6 +310,9 @@ def main():
                     help="nur Logs ab dieser Dateigroesse")
     ap.add_argument("--correlate", action="store_true",
                     help="gefundene Felder zusaetzlich gegen die validierten Anker korrelieren")
+    ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1),
+                    help="parallele Prozesse ueber die Logs (Default: CPU-Kerne minus 1, "
+                         "je ein Kern frei fuer System/IDE). --jobs 1 = alter serieller Modus.")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -303,9 +323,16 @@ def main():
     only_id = int(args.id, 0) if args.id else None
     logs = args.log or [p for p in sorted(glob.glob("data/can/candump-*.log"))
                         if os.path.getsize(p) >= args.min_bytes]
-    our_db = load_db("hscan")
+    jobs = max(1, min(args.jobs, len(logs)))
 
-    frames = [analyze_log(p, our_db, only_id, correlate=args.correlate) for p in logs]
+    if jobs > 1:
+        print(f"  ({jobs} parallele Prozesse ueber {len(logs)} Logs)")
+        with ProcessPoolExecutor(max_workers=jobs) as pool:
+            frames = list(pool.map(_analyze_log_worker, logs,
+                                    [only_id] * len(logs), [args.correlate] * len(logs)))
+    else:
+        our_db = load_db("hscan")
+        frames = [analyze_log(p, our_db, only_id, correlate=args.correlate) for p in logs]
     df = pd.concat([f for f in frames if len(f)], ignore_index=True)
     os.makedirs("results", exist_ok=True)
     df.to_csv(OUT_CSV, index=False)

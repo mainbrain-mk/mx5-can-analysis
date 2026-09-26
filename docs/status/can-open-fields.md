@@ -54,7 +54,7 @@ Spalte "Test" verweist auf Teil C.
 | `LaneOffset_Line1/2_maybe` | 0x242 3\|10, 9\|10 | raw − 686, ≈1 cm/LSB | Sägezahn bei 233 Spurwechseln, Sprung 335 ≈ Spurbreite | _maybe (Skala) | C10 |
 | `CAM581_Curvature2_raw_maybe`, `CAM581_LineDiff_raw_maybe` | 0x245 Byte4, Byte0 | roh | r=0,88 gegen Spurkrümmung bzw. Versatzdifferenz | _maybe | C10 |
 | `RoadIncline_maybe` | 0x49C 63\|7 | (raw − 32) % | r=0,82–0,96 gegen abgeleitete Steigung in 16/19 Logs, ~1 % je Stufe, + = bergauf | _maybe (Skala) | C13 |
-| `Service_DistanceRemaining_maybe` | 0x3D1 47\|14 | km | zählt 0,95/km herunter, über alle Logs lückenlos stetig (4008 → 3437 km) | _maybe (Deutung) | C11 |
+| `DistanceToService_related` | 0x3D1 47\|14 | km | zählt 0,95/km (integrierte v) bzw. exakt 1/km (Kilometerstand) herunter, über alle Logs lückenlos (4008 → 3437 km); parallel am 20./21.09. zweimal unabhängig gefunden (`raw = 173764 − ODO`), beim Merge vereinheitlicht | **bestätigt** | C11 |
 | `BatteryVoltage_OBD` (PID 0x42) | Diagnose | /1000 V | Standard-PID, pollt `tpms_poller.py` seit 16.09. | bestätigt | – |
 
 **Korrigierte Fehldeutungen:** `AmbientTemp` (war konstant 25,8 °C), `DSC_Status` (ist eine
@@ -110,14 +110,14 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x3D2 | Multiplex (Byte0 = Seite 80–82/104–107), 16-Bit-Wertepaare | Verbrauchshistorie oder Navigation | C4 |
 | 0x3D0/0x3D1, 0x4F2 Byte2 | seltene Zustandswechsel | HUD/CMU-Einstellungen | – |
 | 0x21D | 50 Hz, Bytes ändern sich selten, Episoden im Stand bei Kupplung | Rangier-/Einparkzustand? | C2 |
-| 0x4FE | 10 Hz Tabellenübertragung: Byte0 (0-4) + Byte1 = 10-Bit-Adresse, +1 je 0,3 s, durchläuft ~1280 Einträge; Byte2-7 sechs Werte je Adresse (oft identisch, z. B. 50/90/100/127/190). opendbc `MILAGE_MAYBE` passt nicht | Verlaufsdaten (Verbrauchs-/Eco-Historie) von IC/CMU | C4 (Eco-Anzeige mit Zeitstempel fotografieren) |
+| 0x4FE | 10 Hz: Byte0-1 = `IgnitionTick_related` (11-Bit-Tick, 0,300 s, ab Zündung, Parallelsitzung 21.09.) - hier zunächst als Tabellenadresse gedeutet; Byte2-7 sechs Werte je Adresse (oft identisch, z. B. 50/90/100/127/190). opendbc `MILAGE_MAYBE` passt nicht | Verlaufsdaten (Verbrauchs-/Eco-Historie) von IC/CMU | C4 (Eco-Anzeige mit Zeitstempel fotografieren) |
 | 0x45B (Multiplex, Byte0 = Seite 1-5) | nur Seite 1 Byte2 (0-255, z. B. 61 → 243 über eine Fahrt) und Seite 2 Byte3/4 (147-255 bzw. 161-255) variieren; Korrelationen wechseln das Vorzeichen zwischen Logs | Bordcomputer-/Wartungswerte? | C3, C11 |
 | 0x09B Bit 2 | ~10-s-Episoden alle 50–100 s (11–29 % der Zeit), v. a. im Stand; im Leerlauf sinkt dabei `BattSensor_Current_raw_maybe` in 6/6 Logs um ~100 Schritte (mehr Entladung) und die Spannung leicht | großer el. Verbraucher, vermutlich Kühlerlüfter | C1: Lüfter hören/sehen, Zeit notieren |
 
 ### Karosserie / Insassen
 | Feld | Verhalten | Hypothese | Test |
 |---|---|---|---|
-| 0x340 Bits 26/28/29/31, 0x344 Bits 6/7, 0x09F Bit 40 | je Log konstant, teilen die Logs in zwei Gruppen zu 14 (Pendelfahrten morgens vs. Mittags-/Nachmittags-/Wochenendfahrten); wechseln innerhalb eines Logs nur im Stand bei offener Fahrertür bzw. kurz nach Zündung AUS oder Verdeckbewegung. opendbc nennt 0x340 `SEATBELT` | Beifahrer-Belegung/-Gurt bzw. Airbag-Abschaltanzeige | C12 |
+| 0x340 Bits 26/28/29/31, 0x344 Bits 6/7, 0x09F Bit 40 | je Log konstant, zwei Log-Gruppen zu 14; Wechsel im Stand bei offener Tür (093544: 763,7 s) | **weitgehend geklärt durch die Parallelsitzung vom 20.09.:** 0x340 Bit 26 = `PassengerSeatbelt_Buckled`, Bit 16 + Byte3-High-Nibble = `PassengerSeatOccupied_maybe` (Beifahrer aussteigen bei 763,66 s - deckungsgleich). 0x344 Bits 6/7 und 0x09F Bit 40 laufen mit und sind vermutlich Echos (Airbag-Abschaltanzeige) | C12 (Zustand "besetzt, nicht angeschnallt") |
 
 ### Fahrwerk / sonstige
 | Feld | Verhalten | Hypothese | Test |
@@ -164,7 +164,7 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
     `LaneOffset_*`, 0x244, 0x246.
 
 11. **Wartungsanzeige** im MZD-Menü (Einstellungen > Fahrzeug > Wartung) ablesen: Restdistanz
-    gegen `Service_DistanceRemaining_maybe` (0x3D1).
+    gegen `DistanceToService_related` (0x3D1).
 
 12. **Beifahrer/Gurte:** im Stand nacheinander Fahrergurt, Beifahrersitz belegen (Tasche ab
     ~ 10 kg genügt oft nicht, besser Person), Beifahrergurt stecken - jeweils Uhrzeit notieren.

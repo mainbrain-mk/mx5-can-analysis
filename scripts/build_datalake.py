@@ -141,7 +141,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
 # Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
 # der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
                         "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
@@ -265,6 +265,13 @@ CAN_SIGNAL_MAP = {
     # (0x0FD) - beide sind fuer Brems- bzw. Schleppmomentanalysen direkt relevant.
     "ABS_Active": ("ABS_Active_CAN", ""),
     "FuelCut": ("FuelCut_CAN", ""),
+    # Beifahrer-Gurtschloss/-Belegung (0x340 HS_RCM, 2026-09-20). Buckled ist der
+    # bestaetigte Gurtschloss-Schalter; Occupied_maybe der vermutete, vom Gurt
+    # unabhaengige Gewichts-/Belegungscode (Herleitung + offene Punkte: DBC-
+    # Kommentar bei BO_832 sowie docs/logs/can-bus-status.md 2026-09-20). Fuer die
+    # 75kg-Beifahrer-Massenkorrektur siehe run_daily_pipeline.py::compute_mass().
+    "PassengerSeatbelt_Buckled": ("PassengerSeatbelt_Buckled_CAN", ""),
+    "PassengerSeatOccupied_maybe": ("PassengerSeatOccupied_CAN", ""),
     # OBD-Kanaele (kein DBC-Signal, sondern Diagnose-Antworten - siehe OBD_CHANNELS in
     # can_log_parser.py). OilTemp_OBD ist der wichtigste: die Motoroeltemperatur wird nicht
     # gebroadcastet, seit 2026-09-15 pollt tpms_poller.py sie alle 10s selbst. Aeltere Logs

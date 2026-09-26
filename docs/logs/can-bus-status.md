@@ -2601,6 +2601,551 @@ neu gestartet (überlebt das Ende der SSH-Session). Log zeigt sauberen Neustart 
 application main loop"), vom Nutzer bei der nächsten Sichtprüfung als "perfekt umgesetzt"
 bestätigt. `can_backend.py` blieb unangetastet (keine Änderung daran).
 
+## Vollständiges Feld-Clustering über alle Rohlogs (2026-09-20)
+
+Auf Nutzerwunsch `scripts/can_field_segmentation.py` (READ-Algorithmus, referenzfrei) über
+**alle 32 Rohlogs ≥2MB** laufen lassen (statt wie bisher nur stichprobenartig einzelne Logs) und
+JEDE der 151 in der erweiterten DBC referenzierten Botschaften in drei Eimer sortiert: **bereits
+bekannt** (44 Botschaften, mind. 1 DBC-Signal deckt einen Teil ab), **statisch & unbelegt** (92
+Botschaften, in jedem Log konstant, kein Hebel ohne Referenzereignis) und **dynamisch &
+unbelegt** (74 Botschaften, davon 36 komplett unbelegte `BO_` und 38 mit Restbytes neben schon
+bekannten Signalen). 34 Botschaften sind bekannte OBD2/UDS-Diagnoseheader (Protokoll, keine
+Broadcast-Nutzdaten) und wurden aus der Wertung genommen. 43 Botschaften kamen in keinem
+ausgewerteten Log mit ≥200 Frames vor (davon 41 OBD2-Header ohne Verkehr plus 2 echte
+Bus-IDs — u.a. die MRCC-Spurhalte-Gruppe 0x361-0x366 und die TPMS-Antwort 0x728, letztere
+erwartbar wegen ihres 120s-Poll-Intervalls).
+
+Ergebnis kuratiert und committet in
+[`data/can/can_field_clustering_2026-09-20.md`](../../data/can/can_field_clustering_2026-09-20.md)
+(volle Tabellen aller drei Cluster inkl. Bit-Lagen, Wertebereichen und Log-Robustheit je
+Kandidatenfeld) — die Rohdaten (`results/can_field_segmentation*.csv`) bleiben wie üblich
+lokal/nicht im Repo, per Skript jederzeit reproduzierbar (~25s für das größte Log).
+
+**Bemerkenswerte Cross-Referenzen zu offenen Punkten aus `docs/status/can-bus.md`:**
+- `0x086` (EPAS, Lenkwinkel) — das dort als "Byte4-5 bleibt unidentifiziert" vermerkte Feld hat
+  jetzt konkrete Kandidaten: ein über alle 32 Logs robustes 8-Bit-Feld bei Bit 50 (Wert 0-255)
+  sowie zwei 4-Bit-Zähler bei Bit 17 und Bit 46.
+- `0x0FD` (u.a. `FuelCut`/MAP/Gang) — mehrere robuste FLAG-Kandidaten (Bit 14, 23, 46, 58) und ein
+  3-Bit-Feld (Bit 20, Wert 0-7), naheliegend für den vermuteten `TM_GEST`-Bitmask-Kandidaten.
+- `0x340`/`0x08A`/`0x45A` (HS_RCM, HS_DCDC, HS_BCMM) sind komplett unbelegte Botschaften mit
+  mehreren über 25+/32 Logs robusten, mehrbittigen PHYSICAL-Feldern — aussichtsreichste
+  Kandidaten für einen künftigen `--correlate`-Lauf gegen die vorhandenen validierten Anker.
+
+Kein neues Signal in dieser Session final identifiziert (reine Bestandsaufnahme/Priorisierung),
+aber die Grundlage für die nächsten gezielten `can_bitsearch.py`/`can_re_toolkit.py`-Läufe.
+
+## Cluster-C-Kandidaten gegen den bekannten Fahrtverlauf geraten + validiert (2026-09-20)
+
+Direkte Folgesession zum obigen Feld-Clustering: `scripts/can_byte_search.py::ANCHOR_SIGNALS`/
+`KNOWN_DIDS`/`KNOWN_MODE1_PIDS` um alle seit dem letzten Ausbau (2026-09-15) gefundenen Signale
+erweitert (`ABS_Active`, `DSC_Status`, `MT_Gear_Actual`, `FuelCut`, `AmbientTemp`,
+`SteeringAngle_EPAS`, `YawRate_related`, `KnockRetard`-DID) sowie fünf neue **abgeleitete
+Ereignis-Anker** in `extract_anchors()` ergänzt (`PROXY_gear_shift`, `PROXY_standstill`,
+`PROXY_braking`, `PROXY_wot_active`, `PROXY_limiter_active`) — letzterer reproduziert
+`dash_gui.py::_is_limiter_active()`s Schwellwerte direkt auf den rohen Log-Ankern und wurde
+gegen die beiden vom ECU-Soft-Limiter-Fund bekannten ("ECU-Soft-Limiter…") Logs verifiziert:
+schlägt exakt dort an (0,56% bzw. 0,15% der Frames), Null in allen anderen Stichproben-Logs.
+
+**Wichtiger Fund dabei:** die Mode-1-PID 0x11 (Drosselklappenstellung, seit 2026-09-19 von
+`tpms_poller.py` selbst in JEDEM Log gepollt, `raw*100/255` -> `_ThrottlePosition_pct_derived`)
+fehlte bisher komplett in `can_byte_search.py::KNOWN_MODE1_PIDS` — nur der seltene Mode-22-DID
+`0x093C` (nur bei aktivem Phone-Y-Splitter) war als "ETC_ACT"-Anker bekannt. Jetzt ergänzt.
+
+**`--correlate`-Batch-Lauf über alle 32 Logs** (`can_field_segmentation.py --correlate`,
+Ergebnis wie ueblich in `results/can_field_segmentation_consolidated.csv`, nicht im Repo):
+205 Kandidatenfelder mit mindestens einem Anker-Treffer, davon 119 mit `hit_logs>=2` UND
+`r_min>=0.6`. Die Selbstkonsistenz-Probe fiel positiv aus: alle bereits bekannten Signale
+(WheelSpeed, VehicleSpeed, EngineRPM, YawRate, SteeringAngle_EPAS, ...) finden sich unter den
+Top-Treffern mit r≈1,0 gegen sich selbst wieder — die Pipeline misst, was sie messen soll.
+
+**Zwei Kandidaten stichprobenartig nach der vollen Methodik geprüft (can_bitsearch.py + manuelle
+Cross-Log-Regression, NICHT nur der Fenster-r aus dem Batch-Lauf):**
+
+1. **`0x0FD` Bit 20+3 (Wert 0-7) vs. `MT_Gear_Actual`, r=1,000 über 21/25 Logs — KORREKTUR
+   2026-09-20 (Folgesession): war KEIN Falschpositiv, sondern schlicht `MT_Gear_Actual` selbst,
+   nur mit falscher Coverage-Zuordnung.** Die ursprüngliche Gegenprobe unten verglich das
+   Kandidatenfeld gegen eine per Hand aus der DBC-Bitnummer "19|3@0+" abgeleitete Referenz an
+   Bit 17-19 — das war falsch. `MT_Gear_Actual`s TATSÄCHLICH von cantools dekodierte Bits sind
+   **20-22**, exakt identisch mit dem "neuen" Kandidatenfeld. Ursache: ein echter Bug in
+   `can_opendbc_crosscheck.py::signal_bit_indices()` (siehe eigener Abschnitt unten,
+   "Bit-Indizierungs-Bug…") — die Funktion gab bei nicht byte-ausgerichteten Signalen die
+   rohen DBC-eigenen Bitnummern zurück, statt sie in die sequenzielle 0-63-MSB-first-Zählung
+   umzurechnen, die `can_field_segmentation.py`s eigene Bit-Matrix nutzt. Dadurch hielt
+   `our_bit_owner()` `MT_Gear_Actual`s wahre Bits (20-22) faelschlich fuer "unbelegt" und listete
+   sie im Feld-Clustering als neuen Cluster-C-Kandidaten - der `--correlate`-Lauf fand dann
+   folgerichtig eine perfekte Korrelation, weil es buchstaeblich dasselbe Signal war. **Die
+   damalige "Ganz-Log-Gegenprobe zeigt r≈0,0006"-Beobachtung war real, bezog sich aber auf den
+   FALSCHEN Referenzbereich (Bit 17-19, ein anderes, zufaelliges Datenfeld) und ist damit
+   hinfaellig.** Kein neuer TM_GEST-Fund, aber auch keine Widerlegung der TM_GEST-Hypothese -
+   die steht weiterhin offen, jetzt mit korrekter Bit-Buchhaltung erneut zu pruefen.
+2. **`0x200` Bit 32-47 (16 Bit, Byte 4-5) vs. `ActualEnginePercentTorque` (0x167) — BESTÄTIGT,
+   real aber noch nicht kalibriert.** Ganz-Log-Regression über 4 unabhängige Logs: r=0,62-0,82,
+   Steigung 2,4-3,8 pro %-Punkt, Offset ~32738-32757 (alle vier klar von 0 verschieden, aber
+   nicht identisch - kein sauberer linearer Fit, eher eine reale aber nichtlineare/RPM-
+   modulierte Beziehung, ähnlich wie `EngineLoad_related_maybe` im selben Byte-Bereich der
+   Botschaft, aber nachweislich ein ANDERES Feld, Bits 32-47 statt 0-15, keine Überlappung).
+   Als `EngineTorque_related_maybe` (0x200, Bits 39|16@0+ motorola) in die Master-DBC
+   eingetragen, Rohwert-Durchreichung ohne Formel (wie `EngineRPM_related_3_maybe`) - Skala/
+   Einheit/genaue physikalische Bedeutung bleiben offen für eine künftige Session.
+3. **`0x200` Bit 16-31 (16 Bit, Byte 2-3)** — beim Nachprüfen der Nachbar-Botschaft auffällig
+   negativ mit `EngineRPM` korreliert (r=-0,50 bis -0,55 über 2 Logs), NICHT mit Drehmoment.
+   Nicht in die DBC übernommen (zu wenig geprüft), aber als offener Kandidat vermerkt.
+4. **`0x082` Bit 49+9 (Wert 0-419) vs. `OBD_STEER_SPD_EPS` — BESTÄTIGT.** Ganz-Log-Regression
+   über alle 4 Logs mit dieser DID: r=0,978-0,995, Steigung konstant ≈2,0-2,05, Offset ≈0-0,25
+   in JEDEM der 4 Logs (deutlich saubererer, konsistenterer Fit als der Drehmoment-Kandidat
+   oben) - praktisch `feld = 2·STEER_SPD_EPS_raw`. Die längere Alternative (Bit 49+15) ist ein
+   Over-Wide-Read (Parsimonie-Regel: 9 Bit gewinnt). Physikalisch plausibel: Lenkrad-Drehrate
+   direkt neben dem bekannten `Steering_Wheel_Absolute_Angle` in derselben SSU-Botschaft (0x082,
+   HS_SSU) - vermutlich eine SSU-eigene, feiner aufgelöste Zweitmessung derselben Größe wie das
+   EPS-Modul. Physikalische Einheit weiterhin offen (auch `STEER_SPD_EPS` selbst hat noch kein
+   bestätigtes deg/s, siehe `docs/logs/can-bus-status.md` Zeile zu "EPS DID 0x3301"). Als
+   `SteeringWheelSpeed_related` (0x082, Bit 54|9@0+ motorola) in die Master-DBC eingetragen,
+   Rohwert-Durchreichung ohne Formel.
+
+### Bit-Indizierungs-Bug in `signal_bit_indices()` gefunden und behoben (2026-09-20)
+
+Beim Verifizieren von Fund 1 oben fiel auf: `can_opendbc_crosscheck.py::signal_bit_indices()`
+(zentraler Helfer für JEDE "covered"-Prüfung im Projekt - genutzt von
+`can_field_segmentation.py`, `can_event_bit_diff.py`, `can_find_native_counterpart.py` und
+`can_opendbc_crosscheck.py` selbst) gab für big-endian-Signale, die NICHT eine volle
+Byte-/Mehrbyte-Spanne belegen, die falschen Bitnummern zurück. Die Funktion reichte die
+DBC-eigene (Motorola-)Bitnummerierung unverändert durch, obwohl sie als "sequenzielle
+0-63-MSB-first-Nummerierung" (dieselbe Konvention wie `can_field_segmentation.py`s
+`np.unpackbits`-Bit-Matrix) deklariert und genutzt wurde - beide Zählweisen sind innerhalb eines
+Bytes GESPIEGELT zueinander und stimmen nur zufällig überein, wenn ein Signal genau ein
+vollständiges Byte (oder ein volles Vielfaches davon) belegt.
+
+**Belegt per direktem cantools-Dekodier-Test gegen echte Logs** (nicht nur Bit-Rechnung): z.B.
+`MT_Gear_Actual` (DBC `19|3@0+`) dekodiert TATSÄCHLICH Bit 20-22, die alte Funktion meldete
+17-19; `MT_Gear_Recommend` (`13|3@0+`) dekodiert 10-12, gemeldet wurden 11-13. Volle Bytes/
+Bytepaare (MAP, `EngineLoad_related_maybe`, `BrakePressure`, `YawRate_related`, ...) waren NICHT
+betroffen (Zufallsübereinstimmung bei Byte-Ausrichtung). **Tragweite:** jede `_maybe`/`_related`-
+Einstufung und jede "covered"-Markierung im Feld-Clustering vom 2026-09-20 (voriger Abschnitt)
+für ein NICHT byte-ausgerichtetes Sub-Byte-Signal (die meisten Flags/kleinen Enums der DBC) kann
+betroffen sein - sowohl falsch als "unbelegt" gemeldete bereits bekannte Bits (wie hier bei
+`MT_Gear_Actual`) als auch umgekehrt faelschlich als "belegt" ausgeschlossene, tatsaechlich
+unbekannte Bits an der vom Bug angenommenen (falschen) Stelle.
+
+**Fix:** `signal_bit_indices()` rechnet die DBC-Traversierung jetzt bitweise in die sequenzielle
+Nummer zurueck (`seq = 8*(dbc//8) + (7 - dbc%8)`, dieselbe Formel ist ihre eigene Umkehrung).
+Gegen 7 unabhaengige Ground-Truth-Faelle verifiziert (volles Byte, volles Bytepaar, 2
+Bytegrenzen-kreuzende und 2 NICHT kreuzende Sub-Byte-Faelle, je per echtem cantools-Decode
+gegen einen Log geprueft, nicht nur Bit-Arithmetik). Zwei Regressionstests in
+`can_opendbc_crosscheck.py::self_test()` ergaenzt (`MT_Gear_Actual`, `SteeringWheelSpeed_related`).
+
+**Konsequenz fuer die Cluster-B/C-Listen vom Vortag:** `can_field_segmentation.py --correlate`
+mit dem gefixten Helfer erneut über alle 32 Logs laufen lassen (Ergebnis siehe unten/naechster
+Abschnitt) - die Kandidatenliste in `data/can/can_field_clustering_2026-09-20.md` war mit dem
+Bug erstellt und kann vereinzelt falsche Cluster-B/C-Zuordnungen enthalten. Nicht neu
+geschrieben (zu aufwaendig), aber mit einem Warnhinweis versehen.
+
+**Nicht mehr im Detail geprüft** (Zeitgrund) - restliche ~13 Kandidaten aus der
+`hit_logs>=3 & r_min>=0.6`-Priorität, insbesondere `0x4F7`/`0x415` (beide gegen `DSC_Status`,
+DSC/ABS-Statuswort-Umfeld), `0x340` Bit 12 (gegen `AmbientTemp`, Verdacht auf Drift-Artefakt
+trotz bestandener Doppelschwelle) und `0x050` Bit 6/61 (instabiler Anker über die Logs - je Log
+ein anderer Treffer, starkes Zufallskorrelations-Indiz wie einst bei `0x20A`/`0x200`-Byte4-5).
+Volle, jetzt bugfreie Priorisierungsliste nach dem `--correlate`-Rerun reproduzierbar über
+`results/can_field_segmentation_consolidated.csv`, gefiltert auf
+`covered==False & hit_logs>=2 & r_min>=0.6`. **Ergebnis des Reruns:** 79 unbelegte Felder mit
+Anker-Treffer (vorher 86 mit dem Bug) - die Differenz sind genau die durch den Bug erzeugten
+Phantomfunde (`0x0FD`/`0x082`), jetzt korrekt als "covered" ausgeschlossen.
+
+## Suche nach einem Datum/Uhrzeit-Kanal fürs No-RTC-Problem (2026-09-21)
+
+Nutzerfrage: gibt es auf dem HS-CAN-Bus einen Datums-/Uhrzeitkanal, der beim wiederkehrenden
+No-RTC-Problem des Pi (siehe diverse fruehere Eintraege, zuletzt "Viertes No-RTC-Vorkommnis")
+als unabhaengiger Zeitanker helfen koennte? Drei Kandidatenbereiche systematisch geprueft:
+
+1. **`Date`/`Mileage` (0x3D1, HS_CMU_MMmonth)** - bereits vorher bekannt, aber nie auf
+   Tauglichkeit geprueft. `Date` aendert sich tatsaechlich (33->32), aber nur EINMAL in den
+   ganzen 9 Tagen/34 Logs, und zwar mitten am Vormittag des 16.09. - NICHT an einer
+   Kalendertagesgrenze. Kein brauchbares Kalenderdatum.
+2. **Alle 41 UDS-artigen Sub-Felder unter `Central_Config_Index` (0x40A)** erneut geprueft, jetzt
+   mit 34 statt nur 3 Logs (9 Tage statt 1 Tag Spanne): C000_TOTAL_TIME/BF00_IG_ON_Timer sind
+   bestaetigt RELATIVE Zaehler (Betriebszeit/Zuendungsdauer, keine Kalenderzeit). Die restlichen
+   34 Sub-Felder (C103/C104, BF01-BF21 ausser BF00) sind ausnahmslos WEITERHIN komplett konstant
+   ueber alle 34 Logs - kein verstecktes Datum darunter, die 2026-09-12-Einschaetzung
+   ("statische Konfigurationsdaten") haelt.
+3. **Systematischer Cluster-B-Rueckblick:** alle Felder durchsucht, die *innerhalb* jedes Logs
+   konstant sind (Cluster B aus dem Feld-Clustering vom 20.09.), aber *zwischen* Logs mit
+   unterschiedlichem Datum verschiedene Werte zeigen - genau die Signatur eines Tage-/
+   Datumszaehlers. **Fund:** `0x3D1` Bit 40-53 (im 16-Bit-Versuch Bit 40-55) fiel nahezu
+   perfekt monoton mit dem Kalenderdatum.
+
+**Ergebnis von Punkt 3, nach Verifikation KEIN Datum, sondern ein Distanzzaehler:**
+Ganz-Log-Regression gegen `C001_ODO` (0x40A, der bestaetigte Gesamtkilometerstand) ueber ALLE
+34 Logs (85.175 Punkte, 578km Spanne 169749-170327km): **exaktes R²=1,000000**, `raw = 173764 -
+ODO_km` - ein Restkilometer-bis-naechster-Service-Zaehler (naechster Service bei ~173.764 km,
+aktuell ~3.465 km entfernt), KEIN Kalenderdatum. Als `DistanceToService_related` (0x3D1, Bit
+47|14@0+ motorola) in die Master-DBC eingetragen.
+
+**Nebenbefund (echter cantools-Fallstrick):** die urspruenglich gefundene 16-Bit-Variante
+(Bit 40-55) ueberlappte sich in 2 Bit mit dem bestehenden `Date`-Signal (Bit 54-60) - das brachte
+cantools' `decode()` fuer die GESAMTE Botschaft 0x3D1 zum Absturz (`unpacking failed`), sobald
+alle drei sich ueberlappenden Signale (`Mileage`, `Date`, neues Signal) gleichzeitig in der DBC
+standen. `strict=False` beim Laden verhindert das nicht - der Fehler tritt erst beim Dekodieren
+auf. Geloest durch Kuerzung auf 14 Bit (verliert nur die 0,25km-Nachkommastelle, unkritisch) und
+komplettes Entfernen des ohnehin als Muellwert dokumentierten `Mileage`-Signals, das denselben
+Bybereich beanspruchte. **Lehre fuer kuenftige Funde:** vor dem Eintragen eines neuen,
+ueberlappenden Signals immer `msg.decode()` an einem echten Frame testen, nicht nur das isolierte
+neue Signal - `strict=False` schuetzt nur vor Ladefehlern, nicht vor Decodefehlern zur Laufzeit.
+
+**Antwort an den Nutzer:** kein absolutes Kalenderdatum/keine Uhrzeit im passiven HS-CAN-Broadcast
+gefunden. Alle drei durchsuchten Bereiche sind entweder rein relative Zaehler (Betriebszeit),
+statische Konfiguration, oder (der einzige neue, aber verworfene Fund) ein Distanz- statt
+Zeitzaehler. Ein echter Fahrzeug-Kalenderkanal existiert vermutlich nur ueber eine AKTIVE
+UDS-Anfrage an das Kombiinstrument (analog zu `OilTemp`/`KnockRetard`, die ebenfalls nicht
+gebroadcastet werden) - dafuer fehlt bisher ein gezielter DID-Sweep gegen das IC-Modul
+(`uds_did_sweep.py` deckt bisher nur PCM/TPMS ab). Waere ein moeglicher naechster Schritt, falls
+das No-RTC-Problem weiterhin Probleme macht.
+
+## Zweite, systematische Suche nach einem Zaehler/Timestamp fuers No-RTC-Problem (2026-09-21)
+
+Nutzer-Auftrag (eigenstaendig durchzufuehren): ALLE unbekannten Felder aus Cluster C
+systematisch auf etwas durchsuchen, das wie ein Zaehler aussieht - explizit OHNE Annahme
+ueber die Taktrate (koennte schneller als 1Hz sein, exakt 1Hz, oder auch nur einmal pro
+Minute ticken). Der bisherige `is_counter()` in `can_field_segmentation.py` findet nur
+Zaehler, die bei JEDEM Frame um +1 hochzaehlen (an die Sendefrequenz der Botschaft
+gekoppelt) - das haette einen langsamer tickenden Zaehler komplett uebersehen.
+
+**Neues Werkzeug: `scripts/can_find_clock_candidate.py`** - ratenunabhaengige Zaehler-
+Erkennung ueber ALLE unbelegten Felder (nicht nur die schon geclusterten): pro Feld wird
+der Rohwert unwrapped (Rollover bei > halber Bitspannweite als Fortsetzung interpretiert,
+in beide Richtungen probiert), ein Monotonie-Score berechnet, und bei genuegend echten
+Wertwechseln eine Tick-Rate geschaetzt (Wertaenderung/Zeitabstand, unabhaengig von der
+Botschafts-Sendefrequenz). Zusaetzlich ein unabhaengiger Scan auf Werte im plausiblen
+Unix-Epoch-Sekundenbereich (~1,5-2 Mrd, vgl. die candump-eigenen Zeitstempel) fuer breite
+Felder (>=28 Bit) - kein direkter Zufallstreffer gefunden, alle Treffer erklaerbar als
+zufaellige Bytemuster von Botschaften mit mehreren nebeneinanderliegenden kleineren
+Sub-Countern (z.B. 0x217s vier 8-Bit-Radpuls-Zaehler, die als EIN 32-Bit-Wert gelesen
+zufaellig durch den Suchbereich wandern).
+
+**Lauf ueber alle 34 Logs:** 2.905 Zaehler-Kandidat-Log-Paare, 676 eindeutige Felder, davon
+255 mit Zaehlverhalten (Monotonie >=97%) in mindestens 3 Logs. Die allermeisten davon sind
+simple pro-Frame-Sequenzzaehler, deren "Taktrate" exakt der Sendefrequenz ihrer Botschaft
+entspricht (10/50/83/100/500 Hz, "known_signals"-aehnliche `MsgCounter`-Kandidaten) - fuer
+eine Uhr uninteressant, weil an die Botschaft statt an echte Zeit gekoppelt.
+
+**Gefiltert auf "tickt SELTENER als die Botschaft gesendet wird"** (Inkrement-Anteil
+zwischen 0,05% und 60% der Frames) plus strenge Monotonie: nur **2 Kandidaten** bestehen,
+`0x3D1` Bit 61+3 und `0x3D2` Bit 10+3 (beide HS_CMU) - stellten sich bei genauerem Hinsehen
+als **dasselbe Signal** heraus (r=0,9994, ~0,2s Zeitversatz zwischen den zwei Botschaften
+derselben Quelle). Transitionsanalyse zeigt aber: die Abstaende zwischen den Wertwechseln
+sind WILDKOMMEN unregelmaessig (2s bis 194s), und der Zaehler springt 1→2→…→7→1 (ueberspringt
+die 0) - eindeutig KEIN fester Takt, eher ein Ereignis-/Rotationsindex.
+
+**Regularitaets-Nachpruefung** (Variationskoeffizient der Zeitabstaende zwischen reinen
++1-Schritten, robuster als die grobe dv/dt-Rate oben) auf einer breiteren Kandidatenmenge
+ergab einen einzelnen herausragenden Treffer: **`0x4FE` Bit 5+11 (`IgnitionTick_related`,
+neu in die DBC eingetragen)** - Tick-Periode ueber 3 unabhaengige Stichproben-Logs praktisch
+IDENTISCH (0,300038s, Konsistenz-Variationskoeffizient 0,000025!), Tick-zu-Tick-Regelmaessig-
+keit CV=0,049 - mit Abstand der beste aller >600 geprueften Kandidaten. **Aber:** ein
+anschliessender Cross-Log-Persistenz-Check (`scripts/can_clock_persistence_check.py`, neu)
+zeigt: der Zaehler springt bei >80% aller Log-Uebergaenge auf 0 zurueck - er startet bei
+JEDER Zuendung neu bei 0. Ein hochpraeziser Betriebszeit-Tick (deutlich feiner als das
+bekannte `BF00_IG_ON_Timer` mit 1Hz), aber kein persistenter Zeitstempel.
+
+**Persistenz-Check ueber ALLE 255 Kandidaten:** 63 zeigen ueber alle 34 Logs KEINEN
+erkannten Reset - aber bei genauerer Pruefung sind das fast ausnahmslos Felder, die einfach
+die meiste Zeit nahe ihrem Maximalwert "haengen bleiben" (z.B. `0x21D` mehrere Felder,
+konstant bei 63/31/15 - vermutlich Status-Bits, kein Zaehler) oder zwischen einer Handvoll
+fester Werte hin- und herspringen (`0x3D0` Bit 54+9 exemplarisch geprueft: pendelt zwischen
+31/95/458/479/484/486/490 in BEIDE Richtungen, kein monotoner Zaehler). Das bereits bekannte
+`C000_TOTAL_TIME` (0x40A) ist der einzige echte "kein Reset ueber alle 34 Logs"-Fall mit
+substanziellem Wertebereich - **neue Erkenntnis dabei:** es laeuft tatsaechlich OHNE Reset
+durch alle 9 Tage (225.159.427 -> 225.870.478, Skala 0,1s), aber der Zuwachs (71.105s ≈ 19,75h)
+entspricht NICHT der echten Kalenderzeit-Luecke (≈197,5h) - es ist also kumulierte
+Betriebszeit (pausiert bei Motor aus), keine Wanduhr, wie schon 2026-09-12 vermutet, jetzt
+aber ueber 9 Tage statt 3 Logs bestaetigt.
+
+**Ergebnis: kein Kalenderdatum/Zeitstempel gefunden, der die No-RTC-Problematik loesen
+wuerde.** Weder ein reiner Zaehler-Scan (beliebige Taktrate) noch ein direkter Wertebereichs-
+Scan auf Unix-Epoch-aehnliche Zahlen ergaben einen Treffer. Der einzige neue, greifbare Fund
+(`IgnitionTick_related`) ist ein praeziser, aber zuendungsrelativer System-Tick - nuetzlich
+fuer Intra-Log-Zeitbasis-Zwecke, nicht fuer das eigentliche Problem. Die Einschaetzung vom
+Vortag bleibt bestehen: ein echter Kalenderkanal existiert vermutlich nur per aktiver
+UDS-Anfrage ans Kombiinstrument, nicht im passiven Broadcast-Verkehr.
+
+Neue Skripte: `scripts/can_find_clock_candidate.py` (ratenunabhaengige Zaehler-Erkennung +
+Epoch-Wertebereichs-Scan), `scripts/can_clock_persistence_check.py` (Cross-Log-Reset-Check).
+Rohdaten: `results/clock_candidates_raw.csv`, `..._aggregated.csv`, `..._persistence.csv`
+(alle drei nicht im Repo, reproduzierbar).
+
+## Beifahrer-Gurtschloss gefunden: `0x340`/`HS_RCM` Byte3 Bit2 (2026-09-20)
+
+Ausgangspunkt: Nutzer wollte aus den Logs ablesen können, ob der Beifahrersitz belegt war,
+Verdacht auf ein CAN-Signal wegen der Gurt-nicht-eingesteckt-Warnung. `0x340` (832) steht in
+unserer eigenen DBC bereits als leere `BO_ 832 HS_RCM`-Botschaft (Restraint Control Module —
+inhaltlich der richtige Ort für Gurt-/Rückhaltesystem-Signale). Die opendbc-`mazda_2017.dbc`
+(bereits als externe Quelle importiert, siehe Deep-Search-Eintrag 2026-09-15) benennt dieselbe
+ID `SEATBELT` mit u.a. `PASSENGER_SEATBELT` (Bit 26, little-endian) und `DRIVER_SEATBELT`
+(Bit 27) — Namen aus einer Fremd-DBC, laut Methodik nicht blind übernommen, sondern gegen
+eigene Logs geprüft (`can_opendbc_crosscheck.py`: `PASSENGER_SEATBELT` variiert 0/1 in 3 von 10
+geprüften Logs, `DRIVER_SEATBELT` in allen 10 — beide plausibel als Schaltersignale, nicht als
+Zähler).
+
+**Kreuzvalidierung gegen Nutzer-Zeitangaben (Freitag, 18.09.):**
+- `candump-2026-09-18_093544.log`: Nutzer nannte exakt den Ablauf "Beifahrer steigt in der
+  ersten Minute nach Motorstart ein und schnallt sich an, steigt später im Lauf der Fahrt aus
+  (schnallt vorher ab), Log läuft weiter". Bit 26 kippt auf 1 bei **t+35,3s** (Motorstart), auf
+  0 bei **t+745,2s** (12,4 min später) — beides passt exakt zur beschriebenen Zeitstruktur.
+- `candump-2026-09-18_090404.log`: Nutzer hatte den Gurt nur eingesteckt, um einen Pi zu
+  halten, kein echter Insasse ("Sitzbelegungsschalter dürfte nicht aktiv gewesen sein"). Bit 26
+  bleibt hier die ganze Fahrt konstant 1 — konsistent damit, dass es der **mechanische
+  Gurtschloss-Schalter** ist (reagiert aufs Einstecken, nicht auf Gewicht).
+- `candump-2026-09-18_170350.log` + Folgelog `..._171150.log` (vom Nutzer als zusammenhängende
+  Fahrt mit Beifahrer bestätigt): Bit kippt in `170350` bei t+130,3s auf 1 (Beifahrer steigt
+  während der Fahrt zu) und in `171150` bei t+393,7s (kurz vor Logende) wieder auf 0 — zweites,
+  unabhängiges Log, damit nach Projekt-Konvention (2-4 unabhängige Logs) als **bestätigt**
+  eingestuft.
+
+**Wichtige Einschränkung:** Bit 26 ist der Gurtschloss-Schalter, keine (Gewichts-)
+Sitzbelegungserkennung. In allen bisherigen Logs fiel "Beifahrer sitzt" und "Beifahrer
+angeschnallt" zeitlich praktisch zusammen — der Fall "sitzt, aber nicht angeschnallt"
+(genau das Warnungs-Szenario) wurde noch nie beobachtet. Byte 0 derselben Botschaft (opendbc
+`NEW_SIGNAL_1`) wurde als Kandidat geprüft und verworfen: es ändert sich nur kurz nach
+Motorstart (Zündungs-/BCM-Hochlauf), nicht mit Ein-/Ausstieg des Beifahrers. Kein weiteres,
+gering-kardinales Bit in `0x340` zeigt ein Muster, das eher zu einer Gewichtssensorik passt.
+**Offener Punkt (Nutzer will später eine gezielte Testfahrt machen):** Beifahrer sitzt bewusst
+einige Sekunden *ohne* sich anzuschnallen (bis die Gurtwarnung kommt), exakte Zeit notieren,
+danach erneut alle Bits von `0x340` (und ggf. andere leere Botschaften) auf ein zusätzliches,
+vom Gurtschloss unabhängiges Bit absuchen.
+
+DBC ergänzt: `PassengerSeatbelt_Buckled : 26|1@1+ (1,0) [0|1] ""` unter `BO_ 832 HS_RCM`, mit
+Herleitungskommentar. `DRIVER_SEATBELT` (Bit 27) nicht übernommen — Bitlage bei Motorola-
+Byte-Order (`@0`) noch nicht sauber verifiziert (siehe Herleitung oben, out of scope für diese
+Anfrage), nur der bereits bestätigte Kandidat eingetragen.
+
+## Suche nach dem Momentanverbrauch (l/100km, Kombiinstrument) auf dem HS-CAN (2026-09-20)
+
+Nutzerfrage: im Kombiinstrument/MID ist ein Momentanverbrauch (l/100km) sichtbar - trägt ein
+CAN-Byte diesen Wert oder eine Vorstufe davon (Einspritzmenge/Kraftstoffrate)?
+
+**Erster Check: Standard-OBD-Weg ausgeschlossen.** Mode-1-PID `0x5E` ("Engine Fuel Rate",
+SAE J1979, Liter/h) steht zwar seit dem multiframe-Fix vom 15.09. in `obd_from_can.py`s
+`MODE1_PID_LEN` (falls er je auftaucht), wird vom OBD-Fusion-Handy aber in keinem geprüften
+Y-Splitter-Log tatsächlich abgefragt (`candump-2026-09-19_233436`: nur PIDs 0x0D/0x0E/0x10/
+0x11/0x42/0x44 als Mode-1-Antworten, macht 0/113510 Treffer für 0x5E). Ebenso kein
+passender Mode-22-DID im PCM-Traffic (nur die bekannten `0xF42F`=FLI, `0x3EC`=KnockRetard,
+`0x1310`=Öltemp, plus unbekannte Slow-Group-DIDs `0x2A05-0x2A0D`). Damit bestätigt: die
+App-Kanäle "FuelRate"/"InstantFuelEconomy"/"Sofortiger Kraftstoffverbrauch" aus den
+`.dlg`-Exports sind wie in Gruppe C (14.09.) vermutet rein clientseitig aus MAF/Lambda/Speed
+berechnet, kein eigener OBD-Messwert.
+
+**HS-CAN-Sweep mit `can_byte_search.py` gegen 3 unabhängige Y-Splitter-Logs**
+(`candump-2026-09-18_162411`, `candump-2026-09-19_163755`, `candump-2026-09-19_233436`) -
+erstmals mit dem seit 15.09. verfügbaren `OBD_OBD1_MAF`-Anker (echter Luftmassenstrom, g/s)
+im Ankerset; frühere Sweeps vom 14.09. liefen noch ohne ihn. **Kein freies Byte erreicht
+gegen `OBD_OBD1_MAF` die MIN_R=0,6-Doppelschwelle in irgendeinem der 3 Logs.** Die einzigen
+Treffer über der Schwelle sind bereits bekannte/bereits verworfene Signale: `0x086`
+(Lenkwinkel-Duplikat), `0x242` (Querbeschleunigungs-Duplikat), `0x200`/`0x20A` gegen
+`OBD_OBD1_LambdaCommanded` - letzteres ist exakt der schon am 14.09. geprüfte und wegen
+Vorzeichen-/Wrap-Artefakten verworfene Kandidat (DBC-Kommentar `BO_ 522`), hier nur mit dem
+neuen, direkteren Lambda-Anker (statt AFR_MZ) nochmal mit höherem r bestätigt - ändert nichts
+an der damaligen Ablehnung.
+
+**Explorativer Nachlauf ohne Detrend-Schwelle** (nur rohe Pearson/Spearman-Korrelation gegen
+`OBD_OBD1_MAF`, um knapp unter der Doppelschwelle liegende Kandidaten nicht zu verpassen):
+ein Kandidat sticht in allen 3 Logs heraus - **`0x4FA` (HS_PCM) Byte 3**, in derselben
+Botschaft wie das bereits bestätigte `IAT_Sensor_No1` (Byte 4). Feinsuche mit
+`can_bitsearch.py` (Referenz: `OBD1_MAF`-Rohwert/100 nach SAE-Standardformel) bestätigt volles
+Byte 3 als besten Kandidaten in allen 3 Logs, aber **nur mit R²=0,40 / 0,59 / 0,62** (Scale
+≈0,67-0,78 g/s/LSB, Offset ≈14-15 g/s) - deutlich unter der Projekt-Bestätigungsschwelle
+(alle bisher bestätigten Signale: R²>0,9, stabil über Logs). **NICHT in die DBC übernommen,
+zu unsicher** - gleiches Muster wie die verworfenen AFR_MZ-Kandidaten vom 14.09. Denkbare
+Erklärung: eine grob quantisierte 1-Byte-Nebengröße (z.B. gerundete/geglättete Lastanzeige),
+die nur zufällig mit dem MAF-Trend mitläuft, kein echter Luftmassenstrom-Kanal - dafür ist ein
+einzelnes Byte über den beobachteten Bereich (0-180 g/s) ohnehin zu grobauflösend.
+
+**Ergebnis: kein Momentanverbrauch-Kandidat auf dem HS-CAN gefunden.** Bester verfügbarer
+Ersatz bleibt der bereits validierte `MAF(g/s) ≈ 0,00019·(RPM·MAP) - 8,08`
+(R²=0,945, siehe oben) kombiniert mit Lambda - beides nur per Mode-22-Polling verfügbar, kein
+Broadcast-Signal. Plausibelste Erklärung, konsistent mit dem AFR_MZ/ETC_ACT-Befund vom
+14./15.09.: das Kombiinstrument berechnet den Momentanverbrauch intern aus Größen, die es
+direkt vom PCM erhält (z.B. Einspritzzeit), ohne das Ergebnis auf den geteilten HS-CAN-Bus
+zurückzuspiegeln. **Offener Punkt für später:** `0x4FA` Byte 3 bei zukünftigen Logs mit
+größerem MAF-Wertebereich (mehr Volllast-Anteil) im Auge behalten, falls sich die Korrelation
+dort verbessert.
+
+**Nachtrag (Nutzer-Einwand, 2026-09-20 später):** Nutzer widerspricht der Vermutung, das
+Kombiinstrument schätze den Verbrauch aus MAF/Lambda/Speed - er geht davon aus, dass die
+Anzeige aus der tatsächlichen Einspritzmenge berechnet wird und dieser Wert (oder eine
+Vorstufe in Abhängigkeit von Drehzahl/Drosselklappe/MAF/Last) im Rohdatenstrom stecken muss.
+Klarstellung: die "MAF/Lambda/Speed"-Vermutung bezog sich nur auf die Handy-App-Kanäle
+("InstantFuelEconomy" etc., siehe Gruppe C vom 14.09.), nicht auf das Kombiinstrument selbst -
+dafür war "Einspritzzeit" schon die eigene Vermutung. Zwei zusätzliche, gezieltere Prüfungen
+auf denselben Nutzer-Vorschlag hin (RPM/Last/MAF als Treiber):
+
+1. **Dichterer nativer MAF-Proxy statt gepolltem OBD-MAF.** Bisher stützte sich die
+   Ankersuche auf `OBD_OBD1_MAF` (nur ~2000-5500 Samples/Log, durch OBD-Poll-Rate begrenzt).
+   Mit der bereits validierten Formel `MAF(g/s) ≈ 0,000163·(RPM·MAP) - 3,63` (R²=0,90 gegen
+   echtes MAF, siehe oben "Root-Cause-Bug"-Abschnitt) lässt sich ein lückenloser,
+   nativ-getakteter Proxy bauen (RPM@0x202 × MAP@0xFD, beide Broadcast, ~50000-62000
+   Samples/Log statt ~2000-5500). Sweep mit diesem dichteren Anker über dieselben 3 Logs:
+   einziger Treffer über MIN_R=0,6 bleibt `0x200` Byte4-5 (r_detrend 0,68-0,82) - dieselbe
+   bereits bekannte, mehrdeutige Bytespanne, die schon mit `EnginePercentTorque`,
+   `LambdaCommanded` UND `MAP` korreliert (klassische Multikollinearität: alle Lastgrößen
+   laufen im Normalbetrieb zusammen, die Korrelation allein kann nicht zwischen ihnen
+   unterscheiden). Kein neuer, eigenständiger Kandidat.
+2. **Schubabschaltung als Diskriminator.** Bei geschlossenem Gaspedal UND Drehzahl>1200 wird
+   die Einspritzung abgeschaltet (`FuelCut_CAN`, siehe oben), aber der Luftmassenstrom ändert
+   sich dabei NICHT (gleiche Drosselklappenstellung/Drehzahl) - ein echter
+   Einspritzmengen-Kanal MUSS also bei `FuelCut=1` einbrechen, ein reiner Last-/Luft-Proxy
+   NICHT. Test: bei festem Drehzahlband (1400-2000 U/min) und geschlossenem Pedal (APP<3%)
+   Median von `0x200` Byte4-5 und `0x4FA` Byte3 zwischen `FuelCut=0` und `FuelCut=1`
+   verglichen (alle 3 Logs). `0x4FA` Byte3 ist in diesem Band durchgehend 0 (keine Aussage
+   möglich, Signal zu klein/grobaufgelöst in diesem Lastbereich). `0x200` Byte4-5 (BE,
+   Rohwert um 32768 herum - vermutlich ein vorzeichenbehafteter Wert nahe 0) zeigt einen
+   KLEINEN, aber in allen 3 Logs GLEICHSINNIGEN Rückgang bei FuelCut (Median ca. 32793→32741,
+   32796→32742, 32788→32745 - je ~50 Rohwert-Counts) - das ist real und reproduzierbar,
+   aber viel zu klein für einen kompletten Einspritz-Stopp (der Rohwert bricht nicht annähernd
+   ein, er verschiebt sich nur leicht) und passt eher zum bereits bekannten
+   Lambda-Sentinel-Sprung (Soll-Lambda springt bei FuelCut auf ~2,0) als zu einer eigenen
+   Einspritzmengen-Kodierung.
+
+**Aktualisiertes Fazit: weiterhin kein sauberer, eigenständiger Einspritzmengen-/
+Verbrauchs-Kanal auf dem HS-CAN identifizierbar** - auch mit dichterer Referenz und einem
+physikalischen Diskriminator-Test bleibt nur dieselbe mehrdeutige, nicht klar zuordenbare
+Bytespanne (`0x200` Byte4-5) übrig. Das schließt die Existenz eines solchen Kanals nicht aus
+(das PCM könnte ihn broadcasten, ohne dass wir das richtige Byte/Bitfenster getroffen haben,
+oder er könnte in einer noch nie auf Last-Bezug geprüften Botschaft stecken), macht ihn aber
+per passiver Log-Analyse allein nicht auffindbar. **Einzig verlässlicher nächster Schritt:**
+ein aktiver UDS-DID-Sweep am stehenden Fahrzeug (`scripts/uds_did_sweep.py`, muss auf dem Pi
+laufen) gezielt nach einer Einspritzzeit-/"Injection Pulse Width"-DID im PCM-Bereich (z.B.
+`--range F400-F4FF`, analog zum größten bekannten Block am verwandten ND3) - das lieferte erst
+eine belastbare Referenz, gegen die sich ein HS-CAN-Byte dann sauber kalibrieren ließe.
+
+## Kreativ-Runde ohne Testfahrt (2026-09-20, Nutzer: Auto bis übernächsten Montag nicht verfügbar)
+
+Nutzer widerspricht der Einschätzung "wahrscheinlich rein intern berechnet, keine Suche mehr
+sinnvoll" und fordert eine kreativere Auswertung der VORHANDENEN Logs, da er sicher ist, dass
+die Daten (in Abhängigkeit von Drehzahl/Drosselklappe/MAF/Last) im Rohdatenstrom stecken.
+Fünf weitere, unabhängige Ansätze:
+
+1. **Dichter nativer MAF-Proxy (RPM×MAP statt gepolltem OBD-MAF)** und **2. Schubabschaltung
+   als physikalischer Diskriminator** - siehe vorheriger Abschnitt, beide ohne neuen Fund.
+2. **`0x40A` HS_IC_CentralConfig komplett decodiert** (alle 34 BFxx/C0xx-Multiplexer-Werte,
+   nicht nur die 3 bekannten). Ergebnis: bis auf `BF00_IG_ON_Timer`, `C000_TOTAL_TIME` und
+   `C001_ODO` sind ALLE anderen Sub-Felder über das gesamte Log hinweg KONSTANT (n_unique=1)
+   - reine statische Konfig-/Kalibrier-/Teilenummern-Daten, keine Trip-Computer-Werte. Sackgasse.
+3. **Referenzfreie Feld-Segmentierung** (`can_field_segmentation.py --correlate`) über ALLE
+   101 im Log vorkommenden Botschaften (nicht nur DBC-unbelegte Bytes), mit dem nativen
+   MAF-Proxy im Ankerset: 117 stabile unbelegte PHYSICAL/FLAG-Felder gefunden, aber nur 4 mit
+   Anker-Treffer - alles bereits bekannte Kandidaten (0x200 Torque%, 0x242 Querbeschleunigung,
+   0x167 ABS-Proxy). Nichts Neues zu Last/Verbrauch.
+4. **MS-CAN-Architektur geprüft:** zweiter Fahrzeugbus liegt auf OBD-Pin 3/11 (125 kbit),
+   unser Pi/CANable haengt nur an Pin 6/14 (HS-CAN, 500 kbit) - eine dedizierte
+   Verbrauchs-Botschaft dort waere fuer uns unsichtbar. Das vorhandene, nie geladene
+   `MX5ND_6thGenMazda_MSCAN.dbc` (34 Botschaften, nur 6 Signale, reines Geruest) zeigt aber:
+   die meisten `MS_IC_*`-IDs sind Gateway-Spiegelungen derselben HS-CAN-Botschaften (0x78,
+   0x79, 0x202, 0x215 etc.) - nur Klima (`MS_EATC`) und Karosserie (`MS_IC_BCMM`) sind
+   erkennbar MS-CAN-exklusiv. Kein Hinweis, dass Antriebsstrang-/Verbrauchsdaten NUR dort
+   liefen (PCM ist HS-CAN-Knoten) - zweiter Adapter (~30 EUR) bleibt zurückgestellt, siehe
+   bereits vorhandener Abschnitt 8 oben.
+5. **Nutzer-Beobachtung als Fingerabdruck (entscheidender neuer Hebel):** auf Nachfrage
+   bestätigt der Nutzer, dass die Kombiinstrument-Anzeige bei Schubabschaltung/Ausrollen auf
+   0,0 l/100km faellt, ABER sich nur alle paar HUNDERT METER aktualisiert (nicht kontinuierlich,
+   nicht zeitgetaktet) - reagiert bei Kickdown "schlagartig, aber erst bei der naechsten
+   Aktualisierung". Das ist eine fundamental andere Signatur als alles bisher Gesuchte: kein
+   glatter 20-50Hz-Sensorwert, sondern eine TREPPENFUNKTION, die nur alle paar hundert Meter
+   Fahrstrecke springt und dazwischen exakt konstant bleibt. Eigener Distanz-Sprung-Detektor
+   gebaut (Aenderungszeitpunkt jedes Bytes/Byte-Paars gegen aus `VehicleSpeed` integrierte
+   Fahrstrecke statt gegen Zeit geprueft, gesucht: Schrittweite 0.03-1.0 km mit Variationskoeffizient
+   <0.6 über alle Aenderungsereignisse) - über ALLE 101 Botschaften in allen 3 Logs.
+
+   **Fund (kein Verbrauch, aber ein echter, sauberer neuer Kanal): `0x977` (`HS_CMU_MMmonth`)
+   Byte5-6.** Aendert sich in allen 3 Logs mit fast perfekter 1.000-km-Schrittweite
+   (Variationskoeffizient nur 1-2%). Direkter Abgleich gegen den echten Kilometerstand
+   (`C001_ODO`@0x40A) im SELBEN Log: r=-0.9999 UND die Steigung ist in allen 3 Logs EXAKT
+   -4.000 Rohwert-Counts pro gefahrenem km (keine Naeherung, exakte Ganzzahl-Arithmetik) -
+   damit Skala 0.25 km/Count. Der Rohwert FAELLT mit der Fahrt, unabhaengig vom Fahrverhalten
+   (alle 3 Logs exakt dieselbe Steigung trotz unterschiedlicher Fahrprofile) - das schliesst
+   Verbrauchsabhaengigkeit aus (ein Reichweiten-/Verbrauchssignal waere fahrstilabhaengig
+   unterschiedlich stark gefallen). Plausibelste Deutung: **Wartungsintervall-Restkilometer**
+   (aktuell ~3440-3530 km, Botschaftsname "MMmonth" passt zu einer Datums-/Wartungserinnerung).
+   Erklaert nebenbei das jahrelange Raetsel: das alte, alle laengst als "liefert nur
+   Muellwerte" verworfene Signal `Mileage` (Byte4 KOMPLETT + Byte5-6) hatte dieses saubere
+   Feld mit dem benachbarten UNRUHIGEN Byte4 zu einer bedeutungslosen 22-Bit-Zahl
+   zusammengemischt - derselbe Bug-Typ wie beim TM_GEST-Dual-Column-Fall. Das nie verifizierte
+   `Date`-Signal (49|7, ueberlappte bitweise mit dem neuen Fund) wurde mitentfernt. In die
+   DBC uebernommen als `DistanceCountdown_maybe` (Bedeutung Wartungsintervall nicht
+   unabhaengig bestaetigt, nur Bitlage/Skala/Countdown-Verhalten sind harte Fakten).
+
+   **Nachtrag beim Zusammenfuehren mit der No-RTC-Uhr-Suche (2026-09-21, siehe unten):** dort
+   wurde derselbe Kanal unabhaengig ueber eine Ganz-Log-Regression gegen `C001_ODO` gefunden
+   und als `DistanceToService_related` in einer crash-sicheren 14-Bit-Breite (statt 16 Bit)
+   eingetragen, die `Date` NICHT loescht, sondern nur auf den ueberlappungsfreien Bitbereich
+   kuerzt. Beide Funde stimmen in Bitlage/Steigung/Interpretation exakt ueberein - zwei
+   unabhaengige Methoden, dieselbe Antwort. `DistanceCountdown_maybe` existiert als DBC-Signal
+   nicht mehr, `DistanceToService_related` ist der vereinheitlichte Name; `Date` bleibt in der
+   DBC erhalten (siehe dortiger CM_-Kommentar zur Interpretation).
+
+   **Offener Anschlusspunkt:** das ebenfalls in `0x977` liegende, unruhige Byte3-4 (Vielfache
+   von 32, Bereich 0-2000, NICHT monoton) zeigt beim gezielten `can_bitsearch.py`-Lauf gegen
+   RPM/den nativen MAF-Proxy die bisher STAERKSTE Korrelation aller Verbrauchs-Kandidaten
+   (R²=0.33-0.71 gegen MAF, bis 0.71 gegen RPM) - aber die Gewinner-Bitlage wandert zwischen
+   den 3 Logs (Byte3-Bit1 vs. Byte2-Bit0), das klassische Instabilitaets-Muster bereits
+   verworfener Kandidaten (AFR_MZ@0x0FD/0x20A). NICHT in die DBC uebernommen, aber der
+   bisher vielversprechendste Faden - lohnt sich bei neuen Logs erneut zu pruefen, evtl. mit
+   laengerer/mehrerer Datenbasis um die Bitlage zu stabilisieren.
+
+**Fazit der Kreativ-Runde:** kein Durchbruch beim eigentlichen Verbrauchswert, aber ein echter
+neuer, cross-log-bestaetigter Kanal (Wartungsintervall-Countdown) plus ein konkreter,
+statistisch staerkerer (wenn auch noch nicht bestaetigter) Kandidat fuer die naechste Runde
+- beides nur durch den distanz- statt zeitbasierten Such-Ansatz gefunden, den der
+Nutzerhinweis zur Aktualisierungsrate der Anzeige ausgeloest hat.
+
+## Kraftstofffluss aus MAF/Lambda berechnet und gegen Tankanzeige + Tankvorgang validiert (2026-09-20)
+
+Nutzer-Vorschlag: statt nach einem gebroadcasteten Verbrauchswert zu suchen, den
+Kraftstofffluss selbst aus MAF (g/s, echt, Mode-1-PID 0x10) und Lambda (Soll-Wert,
+Mode-1-PID 0x44) berechnen (`fuel_g_s = MAF/(Lambda*14.7)`, mit `FuelCut_CAN` als Override auf
+0 während Schubabschaltung) und gegen die Tankanzeige plausibilisieren.
+
+**Einzelfahrten (3 Logs, wie in der vorherigen Runde):** 5,82 / 8,20 / 8,57 l/100km - alle drei
+Werte liegen genau im erwarteten Bereich für einen ND2 2.0l SkyActiv-G (WLTP-kombiniert
+~6,9-7,9 l/100km).
+
+**Tankvorgang gefunden:** über alle 38 verfügbaren Logs seit dem 11.09. gibt es genau EINEN
+klaren Sprung im rohen `Fuel_Tank`-Byte (0x9E Byte5) - von ~28-31 (candump-2026-09-16_082929,
+ODO 169941) auf 181 (candump-2026-09-16_083214, ODO 169968), ein Sprung von ~150
+Rohwert-Einheiten. Nutzerangabe (mehrfach online bestätigt): nach Aufleuchten der
+Tankwarnung passen nur ca. 36l nach. Das ergibt eine Kalibrierung **0,24 l pro
+Rohwert-Einheit** - auffällig nah an der ohnehin im (nie verifizierten) Original-DBC
+hinterlegten Skala (0,2 l/Count). Löst nebenbei den alten "Rohwert 0-21 zu niedrig für vollen
+Tank"-Verdacht vom 12.09: das war der bereits DBC-skalierte Wert (roh~100*0,2=20), nicht der
+rohe Byte-Wert selbst (der reicht bis ~230, beobachtet bis 181 nach dem Volltanken).
+
+**Kreuzvalidierung ueber den laengsten zusammenhaengenden Abschnitt mit durchgehendem
+Y-Splitter-OBD-Traffic** (10 Logs, 2026-09-18 09:04 bis 2026-09-19 23:34, ODO 170139->170327,
++188 km):
+- **MAF/Lambda-Hochrechnung** (Summe über alle 10 Logs, Tankvorgang liegt NICHT in diesem
+  Fenster): 13,15 l über 185,1 km (eigene Geschwindigkeitsintegration, 1,5% unter der echten
+  ODO-Distanz) -> **7,11 l/100km** (7,00 l/100km bei echter ODO-Distanz).
+- **Tankanzeige** (robuster Median über je 180s am Anfang/Ende, Rohwert-Nullen durch
+  CAN-Aufwach-Transienten rausgefiltert, deutliche Schwapprausch-Streuung std~9-21
+  Rohwert-Einheiten beobachtet): 119 -> 60, Delta 59 Einheiten * 0,24 l/Einheit = 14,16 l ->
+  **7,53 l/100km**.
+- **Beide unabhängigen Methoden (Luftmasse/Lambda-Physik vs. direkte Pegelmessung, kalibriert
+  an einer realen Nutzer-Beobachtung) liegen innerhalb von 0,4-0,5 l/100km (~6-7%)
+  zueinander** - für zwei völlig unabhängige Messprinzipien mit Schwapprauschen auf der einen
+  und Dichte-/Stöchiometrie-Annahmen auf der anderen Seite ein sehr gutes Ergebnis. Beide
+  Werte plausibel für diesen Motor.
+
+**Einordnung fürs Hauptthema (Momentanverbrauch/CAN-Byte-Suche):** validiert die physikalische
+Grundannahme hinter der bisherigen MAF-Proxy-Suche - der native MAF×Lambda-Kraftstofffluss ist
+eine vertrauenswürdige, plausible Referenzgröße. Dass trotzdem kein HS-CAN-Byte gefunden wurde,
+das gut damit korreliert, spricht also eher gegen einen eigenen Broadcast-Kanal als für eine
+falsche Referenz. `fuel_g_s`/`l_100km` selbst ist aber jetzt eine einsatzbereite, validierte
+Rechengröße (nur bei Y-Splitter-Logs verfügbar, da MAF/Lambda gepollt werden) - für künftige
+Verbrauchsanalysen direkt nutzbar, ohne neue Kalibrierarbeit.
+
+**Offene Punkte:** Dichte 750 g/l ist ein Standardwert, nicht fahrzeug-/tankstellenspezifisch
+gemessen; Lambda ist der SOLL- nicht IST-Wert (Abweichung im Transienten dokumentiert, siehe
+oben); Schwapprauschen macht die Tankanzeige-Methode für kurze Fenster unbrauchbar (deshalb
+180s-Median nötig) - für Momentanverbrauch (Sekundenbereich) ist sie ohnehin ungeeignet, nur
+MAF/Lambda liefert die nötige Zeitauflösung.
+
 ## KnockRetard-Vorzeichen: negativ = Zündrücknahme, an drei unabhängigen Indizien (2026-09-25)
 
 Offline-Prüfung an vorhandenen Logs (kein Fahrzeugzugang), Ziel: die seit 20.09. offene Frage,

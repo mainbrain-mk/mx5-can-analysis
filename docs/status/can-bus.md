@@ -234,6 +234,10 @@ vertrauen, Details im Logbuch unten.
   den Standard-PID 0x62 endgültig bestätigt und neu kalibriert – Details unten),
   EngineLoad_related_maybe (0x200,
   ebenfalls 2026-09-14 cross-log bestätigt, gleiche Last-Domäne, kein reines Duplikat),
+  **`EngineTorque_related_maybe` (0x200 Bit 32-47, NEU 2026-09-20)** – über 4 Logs gegen
+  `ActualEnginePercentTorque` bestätigt (r=0,62-0,82, Steigung 2,4-3,8/%-Punkt), aber nicht
+  linear genug für eine Formel – Rohwert-Durchreichung wie `EngineRPM_related_3_maybe`, siehe
+  Logbuch "Cluster-C-Kandidaten gegen den bekannten Fahrtverlauf geraten + validiert".
   **`FuelCut`✓ (0x0FD Byte5 Bit1, NEU 2026-09-15)** – Schubabschaltung; bei Soll-Lambda>1,9
   zu 99% gesetzt, außerhalb des Schubbetriebs zu 0,4%. Relevant fürs Schleppmoment, und zwar
   mit voller Botschaftsrate statt 1-2 Hz OBD-Polling.
@@ -243,6 +247,10 @@ vertrauen, Details im Logbuch unten.
   EngineRPM_related_3_maybe (0x42B, **neu 2026-09-14**, Byte1-2, bisher komplett leere
   Botschaft – korreliert mit EngineRPM aber nur R²=0,44, kein reines Duplikat des
   bekannten "Drehzahl×2"-Signals auf 0x130, Rohwert-Durchreichung ohne Formel).
+  **`IgnitionTick_related` (0x4FE, NEU 2026-09-21)** – gefunden bei der Suche nach einem
+  Zeitstempel fürs No-RTC-Problem: extrem präziser 3,33Hz-System-Tick seit Zündung EIN
+  (Periode über 3 Logs auf 0,000025 Variationskoeffizient identisch), springt aber bei
+  jeder Zündung auf 0 zurück – kein Kalenderzeitstempel, siehe Logbuch.
 - **Fahrdynamik (IMU, RCM):** Longitudinal_Acc_Raw✓ (G), Lateral_Acc_Raw✓ (G), YawRate_Raw✓
   (deg/s) – **2026-09-13: Vorzeichen korrigiert** (DBC nutzt SAE-Konvention +=links, Datalake
   jetzt durchgängig +=Rechtskurve wie der Rest des Projekts, siehe docs/logs/projekt-stand.md
@@ -293,6 +301,10 @@ vertrauen, Details im Logbuch unten.
   Einschränkung: nach Herausrechnen des Winkels bleiben nur r=0,14 gegen die
   Querbeschleunigung – keine unabhängige Querkraftmessung. Keine physikalische Einheit
   kalibrierbar, es gibt im Fahrzeug keinen Referenz-Momentenkanal.
+  **`SteeringWheelSpeed_related` (0x082 Bit 49, NEU 2026-09-20; 2026-09-26 in der DBC durch das feinere `SteeringRate_Abs_maybe` + Vorzeichen `SteeringRate_Dir_maybe` ersetzt, dieselbe Größe, r=0,99 zwischen beiden)** – Lenkraddrehrate direkt
+  neben `Steering_Wheel_Absolute_Angle` in derselben SSU-Botschaft, gegen `STEER_SPD_EPS`
+  (EPS-Modul-DID) über 4 Logs bestätigt (r=0,98-0,995, `≈2,0·raw`) – Rohwert-Durchreichung,
+  physikalische Einheit offen (auch die Referenz-DID selbst ist unkalibriert).
 - **Zündung/Fahrzustand:** KeyState✓/KeyStateInv (OFF/ACC/ON/START), StarterInterLockSW
   (Anlasssperren-Schalter), Parking_Brake (springt bei Zündung ACC/OFF fest auf "Applied",
   nur bei Motor ON aussagekräftig), CC_SetSpeed (km/h, Tempomat-Soll).
@@ -305,9 +317,15 @@ vertrauen, Details im Logbuch unten.
   LDWS_Status1/LDWS_Status2/LDWS_ON_Switch (Spurhalteassistent), SCBS_SBS_Status
   (Notbremsassistent), DSC_OFF_Switch/iStop_OFF_Switch (Deaktivierungsschalter),
   RoofGraphicStatus (Verdeckstatus).
-- **Sonstiges:** Service-Restdistanz (0x3D1, ersetzt das frühere Müll-Signal `Mileage`, siehe `status/can-open-fields.md`), Date (HS_CMU, ohne Inhalt), `C001_ODO` (0x40A, exakter
-  Gesamtkilometerstand, gegen Kombiinstrument bestätigt), `C0xx_VIN_*` (Fahrgestellnummer,
-  byte-order-Fehler behoben), HUD_Height/HUD_Height_Moving/HUD_Bright (Head-Up-Display),
+- **Sonstiges:** `C001_ODO` (0x40A, exakter Gesamtkilometerstand, gegen Kombiinstrument
+  bestätigt), **`DistanceToService_related`✓ (0x3D1, NEU 2026-09-21)** – Restkilometer bis
+  nächster Service, exakt gegen `C001_ODO` kalibriert (R²=1,000000 über alle 34 Logs,
+  `raw = 173764 − ODO_km`) – kein Kalenderdatum, siehe "Bekannte offene Punkte" unten. Das
+  alte `Mileage`-Signal an derselben Stelle war Müllwerte und wurde entfernt (kollidierte
+  außerdem mit dem neuen Fund, siehe Logbuch). `Date` (0x3D1) bleibt unklar/vermutlich
+  bedeutungslos. Am 26.09. von der Offline-Ausbeute ein drittes Mal unabhängig gefunden (dort
+  zunächst `Service_DistanceRemaining_maybe`, beim Merge vereinheitlicht). `C0xx_VIN_*` (Fahrgestellnummer, byte-order-Fehler behoben),
+  HUD_Height/HUD_Height_Moving/HUD_Bright (Head-Up-Display),
   Key_hold/Key_notfound/Key_Batt/Key_fob/IC_Buzz/INFO_SW/CRU_CON_SW1 (Schlüssel/Bedienelemente),
   SpeedUnit/StopVehicle (Anzeigeeinstellungen).
 - **GPS (begleitender Track, nicht CAN selbst):** Breite✓/Länge✓ (deg), Höhe✓ (m),
@@ -356,6 +374,13 @@ vertrauen, Details im Logbuch unten.
   (hinten rechts) liegt in beiden Fahrten durchgängig ~0,15-0,2 bar über den anderen drei
   Reifen.
 
+- **Beifahrer-Gurtschloss (2026-09-20, bestätigt):** `0x340`/`HS_RCM` Byte3 Bit2
+  (`PassengerSeatbelt_Buckled`) – 1 wenn der Beifahrergurt eingesteckt ist, 0 sonst. An 2
+  unabhängigen Freitagslogs (18.09.) gegen exakte Nutzer-Zeitangaben verifiziert (Ein-/
+  Aussteigen, An-/Abschnallen). Ist der Gurtschloss-Schalter, **keine** Gewichts-/
+  Sitzbelegungserkennung – Details und offener Testfahrt-Punkt siehe Logbuch-Eintrag
+  2026-09-20 und "Bekannte offene Punkte".
+
 Aktuell im Datalake sind nur die ✓-markierten, durchgehend numerischen Telemetriekanäle
 integriert (siehe `CAN_SIGNAL_MAP` in `scripts/build_datalake.py`) – Schalter/Status-Signale
 sind genauso dekodierbar, aber bisher nicht übernommen (bei Bedarf leicht ergänzbar).
@@ -392,6 +417,80 @@ OBD/CAN-Referenz gesucht werden muss):
   (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
 
 ### Bekannte offene Punkte
+- **Kein Datums-/Uhrzeitkanal fürs No-RTC-Problem gefunden (2026-09-21):** systematisch
+  gesucht (bekanntes `Date`/`Mileage`-Signal, alle 41 UDS-Sub-Felder von `Central_Config_Index`,
+  plus ein gezielter Cluster-B-Rückblick über alle 34 Logs auf "pro Log konstant, zwischen Logs
+  unterschiedlich"-Felder) — nichts gefunden, das ein echtes Kalenderdatum trägt. Einziger echter
+  Treffer war `DistanceToService_related` (Distanz-, nicht Zeit-basiert, siehe oben). Ein
+  Fahrzeug-Kalenderkanal existiert vermutlich nur per aktiver UDS-Anfrage ans Kombiinstrument
+  (wie `OilTemp`/`KnockRetard`, ebenfalls nicht gebroadcastet) — dafür fehlt noch ein gezielter
+  DID-Sweep gegen das IC-Modul. Details: Logbuch, Abschnitt "Suche nach einem Datum/Uhrzeit-Kanal
+  fürs No-RTC-Problem".
+  **Zweite, ratenunabhängige Suche (2026-09-21):** über 600 unbekannte Felder systematisch auf
+  Zähler-Verhalten geprüft (jede Taktrate, nicht nur 1Hz/pro-Frame) — bestes Ergebnis
+  `IgnitionTick_related` (0x4FE, NEU in DBC), ein extrem präziser 3,33Hz-Tick (Periode über
+  3 unabhängige Logs auf 0,000025 Variationskoeffizient identisch!), der aber bei jeder
+  Zündung auf 0 zurückspringt — kein persistenter Zeitstempel. `C000_TOTAL_TIME` (0x40A,
+  bereits bekannt) läuft zwar ohne Reset über alle 9 Tage durch, ist aber nachweislich
+  kumulierte Betriebszeit (pausiert bei Motor aus), keine Wanduhr. Kein Kandidat gefunden,
+  der das No-RTC-Problem löst. Details: Logbuch, Abschnitt "Zweite, systematische Suche nach
+  einem Zaehler/Timestamp fuers No-RTC-Problem".
+- **Vollständiges Feld-Clustering (2026-09-20):** alle 151 DBC-Botschaften über 32 Rohlogs in
+  bekannt/statisch-unbelegt/dynamisch-unbelegt sortiert (`scripts/can_field_segmentation.py`,
+  READ-Algorithmus). Ergebnis:
+  [`data/can/can_field_clustering_2026-09-20.md`](../../data/can/can_field_clustering_2026-09-20.md)
+  (74 Botschaften mit dynamischen unbelegten Feldern, davon 36 komplett unbekannt — Arbeitsliste
+  für künftige `can_bitsearch.py`/`can_re_toolkit.py`-Sessions). Details/Cross-Referenzen zu den
+  Punkten unten im Logbuch, Abschnitt "Vollständiges Feld-Clustering über alle Rohlogs".
+  **Folgesession (2026-09-20, "…gegen den bekannten Fahrtverlauf geraten + validiert"):**
+  Anker-Satz in `can_byte_search.py` erweitert (neue Signale + 5 Ereignis-Proxys wie
+  `PROXY_limiter_active`), `--correlate`-Batch-Lauf über alle 32 Logs ergab 119 Kandidaten mit
+  `hit_logs≥2 & r≥0,6`. Bestätigt und in die DBC übernommen: `EngineTorque_related_maybe`
+  (0x200) und `SteeringWheelSpeed_related` (0x082, sehr sauber: r=0,98-0,995 über 4 Logs).
+  Dabei einen echten **Bit-Indizierungs-Bug in `can_opendbc_crosscheck.py::signal_bit_indices()`**
+  gefunden und behoben (falsche "covered"-Zuordnung für nicht byte-ausgerichtete Sub-Byte-
+  Signale, betrifft praktisch jedes Flag/kleine Enum der DBC) — der vermeintliche `0x0FD` Bit
+  20-Fund war dadurch in Wahrheit nur `MT_Gear_Actual` selbst, kein Falschpositiv der
+  Korrelationsmethode. Details/Regressionstests siehe Logbuch. `--correlate` mit dem Fix erneut
+  über alle Logs gelaufen — Rest der priorisierten Liste (u.a. `0x4F7`/`0x415` gegen
+  `DSC_Status`) noch nicht einzeln geprüft.
+- **NACHTRAG 2026-09-26 (Offline-Ausbeute):** ein Broadcast-Signal für die EINGESPRITZTE MENGE gibt
+  es doch: `FuelConsumption_Counter` = 0x420 Byte2, umlaufender Zähler, ~7 Schritte/g, Rate
+  r=0,99-0,999 gegen MAF/Lambda (Datalake `FuelRate_CAN`, siehe `status/can-open-fields.md`). Er
+  wurde bisher übersehen, weil alle Sweeps monotone Reihen verwarfen. Die MID-Anzeige selbst
+  (l/100km) ist damit nicht gefunden, lässt sich aber aus Zähler und Wegzähler (0x420 Byte1)
+  berechnen. Der folgende Stand vom 20.09. ist insoweit überholt:
+- **Momentanverbrauch (l/100km, Kombiinstrument-MID) – noch kein CAN-Signal gefunden, aber
+  ein neuer, sauberer Kanal + ein vielversprechender Zusatzkandidat dabei entdeckt
+  (2026-09-20, Auto bis 22.09. nicht verfügbar, daher Log-only-Kreativrunde):** weder
+  Standard-OBD-PID `0x5E` noch Mode-22-DIDs noch mehrere HS-CAN-Byte-Sweeps (gepollter UND
+  dichter nativer MAF-Proxy aus RPM×MAP, referenzfreie Feld-Segmentierung über alle 101
+  Botschaften, Schubabschaltungs-Diskriminator-Test) liefern einen eigenständigen
+  Verbrauchs-Kandidaten. **Entscheidender neuer Hebel:** Nutzer bestätigt, die
+  MID-Anzeige aktualisiert nur alle paar hundert Meter (distanz-, nicht zeitgetaktet) – ein
+  eigens gebauter Distanz-Sprung-Detektor (Wertänderung gegen zurückgelegte Strecke statt
+  Zeit) fand darüber `0x977` (`HS_CMU_MMmonth`) Byte5-6: fällt exakt mit -4,000 Rohwert-Counts
+  pro Odometer-km (r=-0,9999, 3/3 Logs) – **derselbe Kanal, den die parallele No-RTC-Uhr-Suche
+  (siehe oben) unabhängig über eine Ganz-Log-Regression gegen `C001_ODO` fand** (zwei
+  unabhängige Methoden, identisches Ergebnis) und der deshalb unter dem dort vergebenen Namen
+  `DistanceToService_related` vereinheitlicht in der DBC steht, fahrverhaltensunabhängig
+  (vermutlich Wartungsintervall, nicht Verbrauch) – löst nebenbei das alte "Mileage liefert
+  nur Müllwerte"-Rätsel (war ein Dual-Column-Mix mit dem benachbarten Byte4). Das ebenfalls in
+  `0x977` liegende Byte3-4 zeigt die bisher stärkste (aber noch instabile, R²=0,33-0,71)
+  Korrelation mit RPM/MAF aller bisherigen Verbrauchskandidaten – nicht übernommen, aber
+  vielversprechendster offener Faden. **Nächster belastbarer Schritt weiterhin:** aktiver
+  UDS-DID-Sweep am stehenden Fahrzeug (`uds_did_sweep.py`) nach einer echten Einspritzzeit-DID
+  – siehe Logbuch "Suche nach dem Momentanverbrauch…" und "Kreativ-Runde ohne Testfahrt".
+- **Verbrauch aus MAF/Lambda berechnet und validiert (2026-09-20):** `fuel_g_s =
+  MAF/(Lambda·14,7)` (FuelCut als Nullstellen-Override) liefert für Einzelfahrten
+  plausible 5,8-8,6 l/100km. Über den längsten durchgehenden Y-Splitter-Abschnitt
+  (10 Logs, 188 km) stimmt die Hochrechnung (7,0-7,1 l/100km) mit der Tankanzeige
+  (0x9E Byte5, kalibriert an einem echten Tankvorgang: 150 Rohwert-Einheiten ≙ ~36 l
+  Nutzerangabe → 0,24 l/Einheit) auf 7,53 l/100km überein (~6-7% Abweichung, für zwei
+  unabhängige Methoden sehr gut). Löst nebenbei den alten "Fuel_Tank-Rohwert 0-21 zu
+  niedrig"-Verdacht (war der bereits DBC-skalierte statt der rohe Wert). `fuel_g_s`
+  ist jetzt eine einsatzbereite Rechengröße für Y-Splitter-Logs. Details: Logbuch
+  "Kraftstofffluss aus MAF/Lambda berechnet…".
 - ~~**`KnockingRetard`-PID unbekannt**~~ – **GELÖST 2026-09-20**: DID `0x03EC` (Mode 0x22,
   PCM-Header 0x7E0/0x7E8), Formel `signed_int16(raw)/512`, per Korrelation gegen ein
   Y-Splitter-Log identifiziert (73% der App-Werte bitgenau, R²=0,958) — siehe Logbuch
@@ -423,6 +522,11 @@ OBD/CAN-Referenz gesucht werden muss):
 - ~~Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung~~ – **GELÖST 2026-09-26:** das Rückwärtsgang-Signal ist 0x445 Bit 7 (`ReverseGear`);
   `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`.
+- **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
+  Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
+  angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
+  Gurtwarnung, Zeit notieren) und erneute Bit-Suche über `0x340` (und ggf. weitere leere
+  Botschaften) für dieses Zeitfenster. Vom Nutzer für später vorgemerkt (2026-09-20).
 - ~~**ABS/DSC-Eingriffsindikator nicht gefunden**~~ – **GELÖST 2026-09-15**:
   `ABS_Active` = 0x211 (HS_ABS) Bit 42. Über ein 35-Minuten-Log zu 0,052 % gesetzt, in genau
   den zwei Phasen mit echter ABS-Modulation; Negativkontrolle 0,000 % in der Hinfahrt
