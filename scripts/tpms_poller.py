@@ -113,8 +113,11 @@ OBD1_PIDS = {
     0x3C: ("CatalystTemp_B1S1_C", 2, lambda raw: raw / 10 - 40),
     0x34: ("LambdaMeasured_B1S1", 4, lambda raw: (int(raw) >> 16) / 32768),
     0x2F: ("FuelLevel_pct", 1, lambda raw: raw * 100 / 255),
+    # 0x10 Luftmassenstrom (2026-09-26): einzige echte Luftmassen-Messung, kein Broadcast. Vorher
+    # nur vom Handy abgefragt; jetzt selbst, damit das Handy sie abwaehlen kann (Dongle-Konflikt).
+    0x10: ("MAF_gps", 2, lambda raw: raw / 100),
 }
-OBD1_FAST_PIDS = {0x44, 0x11}
+OBD1_FAST_PIDS = {0x44, 0x11, 0x10}
 
 # --- Ruecksicht auf den Handy-OBD-Dongle (2026-09-26) -------------------------------------
 # Die schnelle Gruppe (0x44/0x11/0x03EC ohne Pause) erreichte ~170 Anfragen/s auf 0x7E0 -
@@ -126,7 +129,7 @@ OBD1_FAST_PIDS = {0x44, 0x11}
 # alle FAST_PERIOD_SHARED_S. Ohne Handy bleibt sie ungebremst wie bisher.
 FOREIGN_TESTER_IDS = {0x7DF, 0x7E0}
 FOREIGN_TESTER_HOLD_S = 5.0
-FAST_PERIOD_SHARED_S = 0.2   # 5 Runden/s = 15 Anfragen/s; Kalibrierknopf: --fast-period-shared
+FAST_PERIOD_SHARED_S = 0.2   # 5 Runden/s = 20 Anfragen/s (0x44/0x11/0x10 + 0x03EC); Kalibrierknopf: --fast-period-shared
 _last_foreign_request = 0.0
 # Nur Diagnoseverkehr in den Socket lassen (vorher jeder Frame, ~2000/s).
 DIAG_CAN_FILTERS = [

@@ -3920,3 +3920,10 @@ Sekunden eingegrenzt hatte. **Künftig MAF (oder Zündzeitpunkt) für die bitgen
 nehmen**, GPS-Geschwindigkeit für die Grobsuche (so macht es die Pipeline automatisch). Das Handy
 braucht KnockRetard nicht mehr (der Pi pollt es ~50×/s, die Antworten stehen im CAN-Log); MAF und
 Zündzeitpunkt bleiben im Handy (kein Broadcast, der Pi fragt sie nicht ab).
+
+**Nachtrag: MAF jetzt vom Pi (26.09. abends).** PID 0x10 (Luftmassenstrom) in `OBD1_FAST_PIDS` von
+`tpms_poller.py` aufgenommen (Dekoder in `can_log_parser.py` und Datalake-Kanal `MassAirFlow_CAN`
+gab es schon). Schnelle Runde jetzt 0x44/0x11/0x10 + 0x03EC: ohne Handy ~51 Runden/s (Simulation,
+vorher ~62), mit Handy gedrosselt auf 5 Runden/s = 20 Anfragen/s. Deployt 26.09. abends (md5
+identisch, vorige Version in `backup-2026-09-26b/tpms_poller.py.vor_maf`). Das Handy kann MAF damit
+abwählen; **als Sync-Referenz bleibt dort der Zündzeitpunkt** (95 % gegen 19 %, siehe oben).

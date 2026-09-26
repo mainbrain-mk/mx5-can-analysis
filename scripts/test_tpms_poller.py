@@ -78,9 +78,13 @@ def test_throttle_position_formula():
 
 
 def test_fast_group_is_lambda_and_throttle_only():
-    """Batteriespannung bleibt in der langsamen Gruppe, nur Lambda+Drosselklappe pollen
-    ohne Intervall-Gate (siehe poll_obd1/poll_obd1_fast)."""
-    assert OBD1_FAST_PIDS == {0x44, 0x11}
+    """Batteriespannung bleibt in der langsamen Gruppe, nur Lambda+Drosselklappe+Luftmasse
+    pollen ohne Intervall-Gate (siehe poll_obd1/poll_obd1_fast)."""
+    assert OBD1_FAST_PIDS == {0x44, 0x11, 0x10}
+    from tpms_poller import decode_response_mode1
+    # Beispielantwort 41 10 01 41 -> 0x0141/100 = 3,21 g/s (Leerlaufgroessenordnung)
+    name, n_bytes, formula = OBD1_PIDS[0x10]
+    assert round(formula(decode_response_mode1(0x10, bytes([0x04, 0x41, 0x10, 0x01, 0x41, 0, 0, 0]), n_bytes)), 2) == 3.21
     assert 0x42 not in OBD1_FAST_PIDS
 
 
