@@ -100,10 +100,19 @@ UDS_FAST_PIDS = {
 # sich kaum aendern, will man Drosselklappe+Lambda so oft wie moeglich sehen. Die erreichbare
 # Frequenz ist dabei nicht durch ein Intervall begrenzt, sondern einzig durch die
 # Antwortzeit der ECU (poll_group wartet pro PID auf die Antwort, dann sofort die naechste).
+# 0x3C/0x34/0x2F (2026-09-26, Fahrzeugtest C9 aus docs/status/can-open-fields.md): alle drei
+# laut probe-20260916-081915.csv unterstuetzt. 0x3C = Katalysatortemperatur B1S1 als Referenz fuer
+# die PCM-Modellgroessen in 0x4DA; 0x34 = GEMESSENES Lambda der vorderen Breitbandsonde (obere
+# 2 von 4 Bytes); 0x2F = Tankfuellstand als zweite Referenz zu FLI/Fuel_Tank. Bewusst in der
+# LANGSAMEN Gruppe (10 s), damit Lambda-Soll/Drosselklappe/Klopfen ihre Rate behalten - 0x34
+# bei Bedarf in OBD1_FAST_PIDS verschieben.
 OBD1_PIDS = {
     0x44: ("LambdaCommanded", 2, lambda raw: raw / 32768),
     0x42: ("BatteryVoltage", 2, lambda raw: raw / 1000),
     0x11: ("ThrottlePosition_pct", 1, lambda raw: raw * 100 / 255),
+    0x3C: ("CatalystTemp_B1S1_C", 2, lambda raw: raw / 10 - 40),
+    0x34: ("LambdaMeasured_B1S1", 4, lambda raw: (int(raw) >> 16) / 32768),
+    0x2F: ("FuelLevel_pct", 1, lambda raw: raw * 100 / 255),
 }
 OBD1_FAST_PIDS = {0x44, 0x11}
 

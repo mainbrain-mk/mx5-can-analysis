@@ -3419,3 +3419,180 @@ steht (0,6 s vor deren Abfall, bei ~6970 U/min statt 7385). Das deutet auf einen
 Drehmomenteingriff (z.B. Zündung) hin. Nicht verwertet: das %Moment ist mit ~0,15 s
 Abtastung zu grob und in vier der sechs Ereignisse lückenhaft; ein Onset über %Moment statt
 `ETC_ACT` bräuchte neue Züge mit mehr Abtastpunkten.
+
+## Offline-Ausbeute: 30 neue bzw. korrigierte Signale aus den vorhandenen Logs (2026-09-26)
+
+Ohne Fahrzeugzugang, nur die 29 Logs >= 20 MB. Plan: `docs/plans/can-offline-ausbeute-plan.md`,
+Katalog aller neuen und offenen Werte mit Fahrzeugtests: `docs/status/can-open-fields.md`.
+Referenzlog `candump-2026-09-18_093544`: ohne DBC-Signal variierten vorher 1311 von 1977 Bits,
+jetzt 1124.
+
+### Neue Werkzeuge
+- `scripts/can_offline_lab.py`: Frames je ID als numpy, Cache in `data/can/cache/*.npz` (Aufbau
+  aller Logs 3 min, danach Sekunden je Analyse), vektorisiertes Dekodieren in DBC-Bitnummerierung
+  (Selbsttest gegen cantools), Zeitraster ohne Uhrsprung-Lücken.
+- `scripts/can_rare_bits.py`: **Katalog seltener Bits** (Minderheitszustand <= 2 % im Log), jede
+  Episode mit Fahrzustand. Vom Bit aus statt vom Ereignis aus - das hat den TCS-Eingriff gefunden.
+- `scripts/can_natural_events.py`: natürliche Experimente (Rückwärtsfahrt über das
+  Gierraten-Vorzeichen, Motorstart/-stopp, Kupplung, Leerlauf, Bremse, Blinker, Licht, Tür, kalt,
+  Hochdrehzahl, Stillstand) jeweils gegen eine gleichartige Kontrolle.
+- `scripts/can_anchor_sweep.py`: Sweep mit ~80 Ankern inkl. abgeleiteter Größen
+  (Kraftstoffstrom, Steigung, Gierrate aus Rädern, Gierabweichung, Schlupf, Trip-Mittelwerte,
+  Batteriespannung ...), bitgenau freie Felder, Spearman roh + Pearson trendbereinigt.
+- `scripts/can_field_inspect.py` (ein Feld gegen alle Anker), `scripts/can_open_fields.py`
+  (Rest-Budget offener Felder).
+- `can_log_parser.OBD_CHANNELS`: PID 0x42 (Batteriespannung) ergänzt.
+
+### Funde (Details in den DBC-Kommentaren)
+1. **Traktionskontrolle (lange offen):** 0x211 Bit 40 (`TCS_Active_maybe`) in 6 Episoden/5 Logs,
+   alle am Kurvenausgang mit Hinterachsschlupf 0,6-4,4 km/h und 0,45-0,8 g quer. In den zwei
+   längsten fällt das Motormoment bei konstantem Pedal (083214 t=45,5 s: 67 -> 7 %). Dazu
+   0x211 Byte2-3 (`TCS_TorqueRequest_maybe`: 0xFFFE = keine Begrenzung, im Eingriff raw-32768 =
+   -98..632, r=0,77 gegen das Moment), Byte6 Bit5 (Anforderung aktiv) und 0x415 Byte0 = 6
+   (DSC-Leuchte blinkt). **`ABS_Active` wird dabei nicht gesetzt** - die Frage vom 15.09. ist
+   beantwortet. Auch die damals verworfene Stelle (171047 t=726,2 s) trägt Bit 40 für 0,26 s:
+   der Rarity-Scan verlangte >= 80 % Setzquote im 37-s-Fenster und konnte ein 0,26-s-Flag nie
+   sehen. Geradeaus-Schlupf bis 14 km/h ohne Querbeschleunigung setzt das Bit nicht.
+2. **0x211 Bit 43 (`HighDecel_maybe`):** gesetzt ab ~0,55-0,6 g Verzögerung (96 % bei
+   -0,68..-0,85 g, 2 % bei -0,32..-0,41 g), unabhängig von v (26-224 km/h) und nicht vom Druck
+   allein (73 bar im Stand nie). Nebenbei: bei drei harten Bremsungen am 15.09. blinkte der
+   Warnblinker ohne Schalter (0x09A `Turn`=3, `HAZ_SW`=0) = Notbremssignal.
+3. **Rückwärtsgang:** 0x445 Byte0 Bit7 (`ReverseGear`, HS_IC_PSM_MZ). Rückwärtsfahrt offline
+   über das umgekehrte Vorzeichen Gierrate/Lenkwinkel erkannt; bei `ReverseGear`=1 umgekehrt in
+   99,7 % (n=1195), sonst 0,4 % (n=13.930). `MT_Gear_Actual` zeigt dabei 0, `Reverse_Flag_maybe`
+   (0x9F) ist in keinem Log je gesetzt.
+4. **Kraftstoffzähler:** 0x420 Byte2-3, umlaufend; gefunden erst mit einer Suche nach Zählern mit
+   variabler Rate (alle früheren Sweeps verwarfen monotone Reihen). Zuwachsrate gegen
+   Moment*Drehzahl r=0,992 (5 Logs), gegen OBD-Luftmasse/(14,7*Soll-Lambda) r=0,99-0,999 in 20 von
+   24 Logs, **1750-1850 Schritte/g** (~0,75 uL). Leerlauf ~300/s = 0,8 l/h, Schub ~25/s. Einzelne
+   Sprünge > 5000 in 3 Logs. Tankgeber als Gegenprobe zu verrauscht (Tanken zwischen Logs).
+5. **Wegzähler:** 0x420 Byte1 (`Travel_distance_related`) r=1,000 gegen integrierte
+   Geschwindigkeit, 0,209 m/Schritt in drei Logs gleich.
+6. **Außentemperatur korrigiert:** die Formel vom 15.09. (55|16 signed, 0,0025, +32) liefert in
+   allen 29 Logs 25,7-25,9 °C. Byte6 ist konstant 246, der Wert steckt in Byte7 (48-114): morgens
+   niedrig, nachmittags hoch, nachts niedriger, nach kurzem Abstellen erhöht und während der Fahrt
+   fallend (Stauwärme). Die damalige Spanne 3,8-25,9 °C kam vom Init-Wert 0xD400. Vorläufig
+   0,3477*raw-6,3 °C gegen die Ansauglufttemperatur bei 10 Kaltstarts (r=0,987, RMSE 1,2 K). PID
+   0x46 wird nicht unterstützt, also keine OBD-Referenz.
+7. **Spannungen:** 0x08A 19|10 = Bordnetz 0,02 V/LSB (r=0,9986 gegen PID 0x42, höchstes Bit =
+   10,24 V immer gesetzt); 0x08A 13|10 (+Kopie 53|10) = i-ELOOP-Kondensator 13,8-24,6 V bei
+   angenommenen 0,04 V/LSB, steigt in der Rekuperation um +0,43 V/s, fällt sonst (-0,2 V/s), steht
+   bei Motor aus. 0x43F 19|10 = BCM-Versorgung 0,016 V/LSB, konstant 0,68 V unter PCM/DCDC.
+   0x45A = Batteriesensor: Spannung 45|13 (1/512 V, Einbruch auf 9,65 V beim Anlassen), Strom
+   roh 3|12 (~3665 aus / ~3730 lädt / ~2900 Anlassen), Byte3 = Batterietemperatur raw-40 (r=0,966).
+8. **Temperaturen:** 0x4F7 Byte0 = 48 bei Kühlwasser <= 55 °C, in 21/21 Übergängen exakt bei 55,0 °C
+   aus (Kaltlauf-Leuchte). 0x075 Byte6 = RCM-Temperatur raw-103 (Kaltstarts r=0,980).
+9. **i-stop:** 97 automatische Stopps in den Logs. 0x0FD Bit0/6 und 0x09F Bit16 = Motor läuft
+   (1,000/0,03); 0x130 Bit30 + 0x167 Bit22 = Stoppanforderung 0,85 s vor dem Drehzahlabfall;
+   0x130 Bit0/10 0,58 s davor; 0x130 Bit19 + 0x050 Bit20 = automatisch gestoppt; 0x130 Bit20
+   vor jedem Stopp gesetzt, in der Warmlaufphase 0 (vermutlich i-stop-bereit).
+10. **Bremse/Tür:** 0x167 Byte2 Bit3/2/0 = Bremsschalter im PCM (1,000 bei > 2 bar, 0,018 sonst),
+    0x43E Bit53 = Bremsleuchte, 0x43E Bit30 = eine Tür offen (1,000/0,0002), 0x415 Bit13
+    (`BrakeRelated_weak_maybe`) ebenfalls ein Bremsschalterbit (0,918/0,0003).
+11. **Frontkamera:** 0x35F 4|7 = erkanntes Tempolimit in km/h (30…120, 0 = kein Limit, passend
+    zur gefahrenen v); 0x242 Byte3 = Spurkrümmung, r=0,94-0,97 gegen Gierrate/v bei > 60 km/h,
+    0,3 1/km je Schritt, 0,4-0,8 s verzögert; 0x242 LINE1/LINE2 = Querversatz in der Spur,
+    Sägezahn bei 233 Spurwechseln mit Sprung 335 Schritten (~1 cm/LSB bei 3,35 m); 0x245 Byte4/0
+    korrelieren mit Krümmung bzw. Versatzdifferenz (r=0,88).
+12. **DSC_Status umgedeutet:** 0x415 Byte0 ist ein Kontrollleuchten-Byte (114 = Lampentest für
+    25 Frames nach Zündung EIN, 98 beim Abstellen). Bit 4 leuchtet nur im Lampentest, 0 heißt also
+    "DSC-OFF-Leuchte aus", nicht "DSC aus".
+
+### Verworfen / Fallstricke
+- **Scheinfund Licht:** 0x20A Bit9, 0x4FA Bit2, 0x42B Bit42 sahen nach Abblendlicht aus
+  (P=0,7-0,85 zu 0,0000). `Headlight` ist aber bei fast jeder Fahrt > 0 (Tagfahrlicht), die Bits
+  hängen am laufenden Motor.
+- **Trendbereinigte Korrelation gegen langsame Anker** (Luftdruck, Außentemperatur, Temperaturen,
+  Batteriespannung) erzeugt am Zündungs-/Startsprung Scheinkorrelationen bis 1,0 mit jedem Feld,
+  das beim Start den Wert wechselt. Langsame Anker werden jetzt nur roh (Spearman) gewertet.
+- **Speicherfehler:** `candump-2026-09-11_201950` reicht wegen des Uhrsprungs scheinbar über 19 h;
+  ein 10-Hz-Raster darüber belegte 24 GB. `can_offline_lab.grid()` lässt Lücken > 2 s jetzt aus.
+- 0x4D4 (ab Zündung 0, Werte erscheinen nach Minuten) ist kein Trip-Mittelwert; vermutlich
+  Fahrbewertung/Eco-Monitor, offline nicht zu klären. 0x3D2 ist eine gemultiplexte CMU-Tabelle.
+- 0x4DA Byte3 Bit6 (1,4 % der Zeit, im Schub) ist nicht deckungsgleich mit `FuelCut`.
+- Zähler mit variabler Rate gegen die Geschwindigkeit: nur 0x420 Byte1 (s. o.); 0x4FE, 0x45B,
+  0x21D, 0x4DA negativ.
+
+### Datalake
+`CAN_SIGNAL_MAP` um 19 Kanäle erweitert (u. a. `SystemVoltage_CAN`, `iELOOP_CapVoltage_CAN`,
+`BatteryVoltage_CAN`, `BatteryTemp_CAN`, `AmbientTemp_CAN`, `TCS_*_CAN`, `HighDecel_CAN`,
+`ReverseGear_CAN`, `BrakeSwitch_CAN`, `EngineRunning_CAN`, `iStop_Stopped_CAN`,
+`SpeedLimitSign_CAN`, `LaneCurvature_CAN`, `SteeringRateAbs_CAN`) plus **`FuelRate_CAN` (g/s)**,
+abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
+
+### Nachtrag: zwei Punkte aus Plan-Schritt 6 (2026-09-26)
+- **Rekuperation bremst messbar, aber schwach:** Schubphasen mit FuelCut, eingekuppelt, ohne
+  Bremse, Gang 2-6, > 30 km/h, verglichen in Zellen gleicher Gang/Drehzahl/Geschwindigkeit
+  (Verzögerung aus den Radgeschwindigkeiten der Vorderachse, 18 Zellen mit je > 50 Proben):
+  `DCDC_State_maybe`=4 verzögert im Mittel 0,0042 g stärker als Zustand 8 (Median 0,0049 g, in
+  83 % der Zellen stärker), bei 1150 kg ~47 N bzw. ~1,3 kW bei 100 km/h. Für
+  `engine_braking_analysis.py` eine kleine Korrektur, nicht eingebaut.
+- **WOT-Kriterium mit dem echten Soll-Lambda (PID 0x44):** Anfettung nur bei Pedal >= 95 %
+  (Median 0,850; Quantile 5/50/95 % = 0,841/0,850/0,971), bei 0-95 % Pedal Median 0,99 und
+  höchstens 2 % unter 0,9. `ETC` >= 80 % allein: nur 52 % unter 0,9. Empfehlung: APP >= 95 % UND
+  `LambdaCommanded_CAN` < 0,9.
+
+### Nachtrag: weitere Felder (2026-09-26, später)
+- **0x3D1 Byte5 + Byte6 Bit7..2 = Service-Restdistanz** (`Service_DistanceRemaining_maybe`, 14 Bit):
+  zählt 0,952 Schritte je km integrierter `VehicleSpeed` herunter (513 auf 538,8 km), über alle
+  29 Logs lückenlos stetig (Endwert = Startwert des nächsten Logs), 4008 km am 12.09. -> 3437 km
+  am 19.09.; einzige Lücke 41 km zwischen 16.09. und 17.09. (Fahrten ohne Logger). Das
+  Community-Signal `Mileage` (39|22) schloss Byte4 mit ein und lieferte deshalb Müll - ersetzt.
+  Nebenbefund: die ~5 % Differenz passt dazu, dass `VehicleSpeed` etwas über der Tachostrecke liegt.
+- **0x200 Byte2-3** (`PCM_TorqueLoss_raw_maybe`, raw-32768 wie Byte4-5): im Mittel -19..-26,
+  in der Rekuperation -30..-36, bei kaltem Motor in 2/3 Logs -40..-49, keine Korrelation mit
+  Pedal/Moment -> Hypothese Verlust-/Nebenaggregate-Lastmoment.
+- **0x20A Byte0 Bit1..0 + Byte1 Bit7..2** ist ein 8-Bit-Feld (`PCM_20A_Ramp_raw_maybe`), steigt bei
+  Volllast und im Schub, fällt bei Teillast, keine Ankerkorrelation. Die "117/118-Wechsel" von
+  `EngineState_raw_maybe` waren dessen oberste Bits -> `EngineState_raw_maybe` auf 7|6 gekürzt.
+- **0x09B Bit 2** (11-29 % der Zeit, ~10-s-Episoden): im Leerlauf sinkt dabei der
+  Batteriesensor-Strom in 6/6 Logs um ~100 Schritte und die Spannung leicht -> großer
+  elektrischer Verbraucher, vermutlich Kühlerlüfter. Bestätigt nebenbei die Stromrichtung von
+  `BattSensor_Current_raw_maybe` (kleiner = mehr Entladung).
+- **0x4DF (DCDC, ~1,6 Hz) Byte0/Byte5:** beim Kaltstart r=0,980/0,994 gegen die Ansaugluft, steigen je
+  Fahrt, aber 1,44 bzw. 2,24 K/Schritt - temperaturabhängig, keine Standardkodierung.
+- **Negativ:** 0x21D-Episoden (Stand, Kupplung) zeigen keinen Steigungsunterschied
+  (|Steigung| 0,0065 gegen 0,0057 g) -> keine Berganfahrhilfe; 0x4D4 gegen i-stop-Zeit,
+  Rekuperations-/Leerlauf-/Schubanteil und gleitende Mittel: Vorzeichen wechseln zwischen Logs,
+  offline nicht zu klären.
+- **Taktanalyse (Plan-Schritt 4):** 99 von 101 Broadcast-IDs sind streng periodisch (< 5 % der
+  Abstände weichen um mehr als 50 % vom Median ab); nur 0x3D2 (CMU-Tabelle, Schübe) und 0x046
+  (nur in einem Log) nicht. Kein Hinweis auf ereignisgetriebene Botschaften.
+- **`SteeringRate_Abs_maybe` gegen EPS-DID 0x3301 (`STEER_SPD_EPS`):** r=0,985-0,993 in 4 Logs,
+  EPS_raw = 0,241-0,247 * CAN-Wert; bei 4 deg/s je EPS-Schritt wäre die CAN-Skala 0,49 statt 0,5.
+- **Zwischen-Log-Konstanten (Plan-Schritt 5):** 19 Bits sind je Log konstant, aber zwischen Logs
+  verschieden. Außer Temperatur-/Countdown-Oberbits bilden 0x340 Bits 26/28/29/31, 0x344 Bits 6/7
+  und 0x09F Bit 40 zwei Log-Gruppen zu je 14 (Pendelfahrten morgens vs. Mittag/Nachmittag/
+  Wochenende). Innerhalb eines Logs wechseln sie nur im Stand bei offener Fahrertür bzw. nach
+  Zündung AUS/Verdeckbewegung (093544: 5,1 s, 763,7 s, 2775,1 s). Hypothese Beifahrer-/Gurtstatus
+  (opendbc: 0x340 `SEATBELT`), offline nicht entscheidbar -> Test C12 im Katalog.
+- **Korrektur Kraftstoffzähler:** nach dem ersten Datalake-Lauf hatte `FuelRate_CAN` Median 0 - die
+  Frame-Inkremente kommen nur in 256er-Schritten. Byte3 von 0x420 ist in allen Logs konstant 51/52;
+  der Zähler ist **nur Byte2** (8 Bit): ~7,0 Schritte/g, ~0,142 g bzw. ~0,19 ml je Schritt,
+  Leerlauf ~1,2 Schritte/s. Die Kalibrierung (Verhältnis zur Luftmasse) bleibt, nur durch 256 geteilt.
+  `FuelRate_CAN` wird jetzt über ein 2-s-Fenster gebildet (Mittelwert im synthetischen Test exakt).
+  Außerdem filtert `ingest_can()` Init-/Ungültig-Werte (Batterietemperatur 215 = Rohwert 255,
+  Außentemperatur -6,3 = Rohwert 0, Spannungen 0 V). `SCHEMA_VERSION` 5.
+- **0x4D9 Byte7:** meist 0, in 0,8 % der Zeit 1-21 (2544 Einsätze über alle Logs), in allen
+  ABS-/TCS-/Starkbrems-Ereignissen gesetzt. Einsatzwahrscheinlichkeit steigt mit |Längs-| (bis 9 %
+  bei < -0,6 g) und Querbeschleunigung; an den Einsätzen ist der Ruck doppelt so hoch wie zu
+  zufälligen Zeitpunkten (0,21 gegen 0,11 g/s). Hypothese: Bewertung von G-Wechseln (i-DM-artig).
+- **0x4FE** ist eine Tabellenübertragung (Byte0-1 = 10-Bit-Adresse, +1 je 0,3 s, ~1280 Einträge;
+  Byte2-7 sechs Werte je Adresse), kein Kilometerzähler (opendbc `MILAGE_MAYBE` passt nicht).
+- **Fahrbahnsteigung gefunden:** 0x49C (HS_IC) Byte7 Bit7..1 (`RoadIncline_maybe`, (raw-32) %), gegen
+  den abgeleiteten Steigungsanker r=0,82-0,96 in 16 von 19 Logs, gepoolt r=0,875 (n=232.412), ~1 % je
+  Stufe (Stufenmediane 0,6/1,6/2,8/3,8/4,5 %), + = bergauf. Gefunden erst mit dem synthetischen Anker
+  'slope' - die 0x49C-Bits standen am 26.09. schon auf der Soft-Limiter-Kandidatenliste (dort als
+  Zufall gewertet, zu Recht: die Steigung hat mit dem Limiter nichts zu tun).
+- **Bug unterwegs:** der neue PID-0x34-Dekoder bekam den Rohwert als float (`>>` schlug fehl) und
+  brach `can_log_parser.py` für Logs mit 0x34-Antworten (Einmal-Erhebung 15./16.09.) ab - behoben
+  (`int(r)`), betroffene Logs neu dekodiert.
+- **Zweiter Sweep** mit geglätteten abgeleiteten Ankern (Steigung 5 s, Gierabweichung, Krümmung,
+  Schlupf) und roher Rangkorrelation für alle Anker: keine neuen unbelegten Felder über der
+  Schwelle (nur bekannte 0x200 Byte4-5 und schwache 0x4FA Byte2-3 r~0,65, Kamera-Bytes ~0,7 gegen v).
+- **Datalake** neu gebaut (Schema 5, danach die zwei vom 0x34-Bug betroffenen Logs nachdekodiert und
+  inkrementell nachgezogen): `FuelRate_CAN` Mittel 0,83 g/s, max 10,3 g/s; `AmbientTemp_CAN`
+  10,5-33,6 °C; `BatteryTemp_CAN` 13-35 °C; keine Init-Werte mehr.
+- Hinweis für Test C9: die Handy-App hat PID 0x3C (Katalysatortemperatur) in den .dlg-Logs vom
+  20.-25.08. schon abgefragt (300-900 °C); zeitgleich mit einem CAN-Log gibt es aber nur 20 Samples
+  (12.09. 211851, konstant ~370 °C) - zu wenig, um 0x4DA offline zu prüfen.

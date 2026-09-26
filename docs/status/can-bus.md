@@ -2,7 +2,32 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-20, Nachmittag)
+## Kurzüberblick: aktueller Stand (2026-09-26)
+
+**Status 2026-09-26 — Offline-Ausbeute: rund 30 neue bzw. korrigierte Signale allein aus den
+vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
+[`status/can-open-fields.md`](can-open-fields.md). Herleitung im Logbuch ("Offline-Ausbeute…").
+
+1. **Traktionskontrolle gefunden:** 0x211 Bit 40 (`TCS_Active_maybe`), die angeforderte
+   Momentgrenze 0x211 Byte2-3 und die blinkende DSC-Leuchte (0x415 Byte0). `ABS_Active` bleibt
+   dabei 0 - ein Traktionseingriff hat also ein eigenes Bit. Die am 15.09. verworfene Stelle war
+   doch ein Eingriff (0,26 s); der alte Rarity-Scan konnte so kurze Flags nicht sehen.
+2. **Rückwärtsgang gelöst:** 0x445 Bit 7 (`ReverseGear`), physikalisch bestätigt über das
+   umgekehrte Gierraten-Vorzeichen (99,7 %). `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0.
+3. **Kraftstoff- und Wegzähler:** 0x420 Byte2 (~7 Schritte/g, r bis 0,999) und Byte1
+   (0,209 m/Schritt, r=1,000). Im Datalake jetzt `FuelRate_CAN` in g/s.
+4. **Außentemperatur war falsch dekodiert** (konstant 25,8 °C) - jetzt Byte7 von 0x420,
+   vorläufig kalibriert. Außerdem: Bordnetz-, BCM-, Batteriesensor- und i-ELOOP-Kondensatorspannung,
+   Batterie- und RCM-Temperatur, Kaltlauf-Leuchte (Schwelle exakt 55 °C), i-stop-Zustände
+   (97 Stopps), Bremsschalter, Tür offen, starke Verzögerung, Kamera-Tempolimit, Spurkrümmung und
+   Querversatz in der Spur, **Fahrbahnsteigung** (0x49C, r bis 0,96) und **Service-Restdistanz**
+   (0x3D1, ersetzt das Müll-Signal `Mileage`).
+5. **Neue Werkzeuge:** `can_offline_lab.py` (gecachte Frames), `can_rare_bits.py`,
+   `can_natural_events.py`, `can_anchor_sweep.py`, `can_field_inspect.py`, `can_open_fields.py`.
+6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
+
+<details>
+<summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>
 
 **Status 2026-09-20 Nachmittag — ECU-Soft-Limiter-Zone an 2 weiteren Logs bestätigt (5
 Eingriffe insgesamt), Klopfen UND Radschlupf/DSC als Auslöser ausgeschlossen, Live-Erkennung
@@ -29,6 +54,8 @@ Limiter…").
    die Shiftlight-Reihe bei Treffer mit 8 Hz komplett blau blinken statt der normalen
    RPM-Zonenfarbe. Deployt und auf dem Pi neu gestartet, `dash_gui.py`+`test_dash_gui.py`
    md5-identisch zum Repo (siehe `status/pi-runtime-state.md`).
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Vormittag)</summary>
@@ -164,6 +191,10 @@ Byte-Sweep-Tool gebaut, das 3 neue CAN-Signale gefunden und die `SteeringAngle_r
 
 </details>
 
+**Offline-Ausbeute 2026-09-26:** die neuen Signale (TCS, Rückwärtsgang, Spannungen,
+Kraftstoff-/Wegzähler, i-stop, Kamera u. a.) stehen gesammelt in
+[`status/can-open-fields.md`](can-open-fields.md) Teil A; die Liste unten ist noch der Stand davor.
+
 ### Hardware & Infrastruktur
 - **Adapter:** DSD TECH SH-C31A (CANable 2.0) am OBD-Port, nur HS-CAN (`can0`), 500 kbit,
   R120=OFF (kein Busende, Adapter hängt nur als Stich am Bus).
@@ -292,7 +323,8 @@ vertrauen, Details im Logbuch unten.
   `raw = 173764 − ODO_km`) – kein Kalenderdatum, siehe "Bekannte offene Punkte" unten. Das
   alte `Mileage`-Signal an derselben Stelle war Müllwerte und wurde entfernt (kollidierte
   außerdem mit dem neuen Fund, siehe Logbuch). `Date` (0x3D1) bleibt unklar/vermutlich
-  bedeutungslos. `C0xx_VIN_*` (Fahrgestellnummer, byte-order-Fehler behoben),
+  bedeutungslos. Am 26.09. von der Offline-Ausbeute ein drittes Mal unabhängig gefunden (dort
+  zunächst `Service_DistanceRemaining_maybe`, beim Merge vereinheitlicht). `C0xx_VIN_*` (Fahrgestellnummer, byte-order-Fehler behoben),
   HUD_Height/HUD_Height_Moving/HUD_Bright (Head-Up-Display),
   Key_hold/Key_notfound/Key_Batt/Key_fob/IC_Buzz/INFO_SW/CRU_CON_SW1 (Schlüssel/Bedienelemente),
   SpeedUnit/StopVehicle (Anzeigeeinstellungen).
@@ -422,6 +454,12 @@ OBD/CAN-Referenz gesucht werden muss):
   Korrelationsmethode. Details/Regressionstests siehe Logbuch. `--correlate` mit dem Fix erneut
   über alle Logs gelaufen — Rest der priorisierten Liste (u.a. `0x4F7`/`0x415` gegen
   `DSC_Status`) noch nicht einzeln geprüft.
+- **NACHTRAG 2026-09-26 (Offline-Ausbeute):** ein Broadcast-Signal für die EINGESPRITZTE MENGE gibt
+  es doch: `FuelConsumption_Counter` = 0x420 Byte2, umlaufender Zähler, ~7 Schritte/g, Rate
+  r=0,99-0,999 gegen MAF/Lambda (Datalake `FuelRate_CAN`, siehe `status/can-open-fields.md`). Er
+  wurde bisher übersehen, weil alle Sweeps monotone Reihen verwarfen. Die MID-Anzeige selbst
+  (l/100km) ist damit nicht gefunden, lässt sich aber aus Zähler und Wegzähler (0x420 Byte1)
+  berechnen. Der folgende Stand vom 20.09. ist insoweit überholt:
 - **Momentanverbrauch (l/100km, Kombiinstrument-MID) – noch kein CAN-Signal gefunden, aber
   ein neuer, sauberer Kanal + ein vielversprechender Zusatzkandidat dabei entdeckt
   (2026-09-20, Auto bis 22.09. nicht verfügbar, daher Log-only-Kreativrunde):** weder
@@ -481,8 +519,9 @@ OBD/CAN-Referenz gesucht werden muss):
 - **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x20A` (22 Logs);
   `0x086` Byte4-5 ist als zweite Winkelspur aufgelöst; `0x4DB` HS_DCDC ist als i-ELOOP-Rekuperationszustand
   geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
-- Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
-  Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
+- ~~Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
+  Kupplung~~ – **GELÖST 2026-09-26:** das Rückwärtsgang-Signal ist 0x445 Bit 7 (`ReverseGear`);
+  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`.
 - **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
   Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
   angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
@@ -495,8 +534,10 @@ OBD/CAN-Referenz gesucht werden muss):
   beides gleichzeitig: ein echtes Ereignis (in allen früheren Logs blieb die Radspreizung
   beim Bremsen unter 2,2 km/h) **und** das richtige Vergleichsfenster (Regelphase gegen den
   Rest DERSELBEN Bremsung, nicht gegen den Rest des Logs).
-  **Weiterhin offen:** ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne
-  Bremsung gesetzt wird – dafür fehlt noch ein Ereignis. **Erster Kandidat 2026-09-15 geprüft
+  **2026-09-26 geklärt:** ein reiner Traktionseingriff setzt NICHT `ABS_Active`, sondern
+  0x211 Bit 40 (`TCS_Active_maybe`) plus Momentanforderung (Byte2-3) und DSC-Leuchte (0x415).
+  Der damals folgende Absatz ("erster Kandidat verworfen") ist überholt: die Stelle t=726 s war
+  ein 0,26-s-Eingriff. Frühere Einschätzung: **Erster Kandidat 2026-09-15 geprüft
   und verworfen** (Vollgas-Pull mit echtem Hinterradschlupf, Heimfahrt t=708–745 s): es gab
   dort gar keinen Eingriff – weder `ABS_Active`, noch Bremsdruck, noch ein Momenteneinbruch,
   und ein Rarity-Scan über alle 105 IDs × 64 Bits findet kein Ereignisbit. Siehe Logbuch,
@@ -548,6 +589,10 @@ OBD/CAN-Referenz gesucht werden muss):
   13.09.-Zeitstempel.
 
 ### Nächste Schritte
+0. **Fahrzeugtest-Programm aus [`status/can-open-fields.md`](can-open-fields.md) Teil C**
+   (Stand-Test mit Multimeter/Verbrauchern, Rückwärtsgang, Bordcomputer, Traktionseingriff auf
+   rutschiger Fläche, Vollbremsung, Tempomat, Zusatz-PIDs 0x3C/0x34/0x2F) - löst die meisten
+   `_maybe`-Skalen der Offline-Ausbeute vom 26.09.
 1. Standtests wiederholen: Zündung durchgehend auf ON/Motor an (nicht nur ACC), Start-Tap
    direkt bei der Handlung drücken; fehlende Punkte (Blinker/Licht/Wischer, Tür links) ergänzen.
 2. Fahrmanöver aus Testplan-Abschnitt C: mehrere Vollbremsungen (Rollover-Test), Schaltvorgänge
