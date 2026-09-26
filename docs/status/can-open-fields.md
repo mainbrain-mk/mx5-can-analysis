@@ -1,6 +1,6 @@
 # CAN: neu identifizierte und noch offene Werte, mit Fahrzeugtest-Strategien
 
-**Stand 2026-09-26 spätabends** (Fahrzeugtests C2, C3, C7, C9, C12 vom 26.09. eingearbeitet, Einmal-Befunde gegen alle Logs geprüft, siehe Teil A2 und Logbuch "Fahrtag 26.09." / "Offene Fragen vom Fahrtag 26.09. geklärt"). In-place pflegen. Herleitungen stehen im Logbuch
+**Stand 2026-09-26 nachts** (Fahrzeugtests C2, C3, C7, C8, C9, C12 und Teile von C1/C10 vom 26.09. eingearbeitet, Einmal-Befunde gegen alle Logs geprüft, siehe Teil A2 und Logbuch "Fahrtag 26.09." / "Offene Fragen vom Fahrtag 26.09. geklärt"). In-place pflegen. Herleitungen stehen im Logbuch
 [`logs/can-bus-status.md`](../logs/can-bus-status.md) (Abschnitt "Offline-Ausbeute…") und
 in den `CM_`-Kommentaren der DBC (`data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc`). Plan und
 Methoden: [`plans/can-offline-ausbeute-plan.md`](../plans/can-offline-ausbeute-plan.md).
@@ -43,7 +43,7 @@ Spalte "Test" verweist auf Teil C.
 | `BattSensor_Temp_maybe` | 0x45A Byte3 | raw − 40 °C | Kaltstarts r=0,966; in der Fahrt fast konstant | _maybe | C1 |
 | `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **4834 Schritte je echtem Liter** (0,207 ml; Voll-bis-Voll 16.→26.09.: 34,4 l getankt gegen 33,09 l Bordcomputer; der Bordcomputer selbst rechnet mit 5025 Schritten/l, zeigt also 4 % zu wenig) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt, absolut kalibriert |
 | `Travel_distance_related` | 0x420 Byte1 | **0,1992 m/Schritt** (26.09. gegen ODO-Inkremente, 5 Logs; die 0,209 kamen aus dem ~5 % zu hohen VehicleSpeed) | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |
-| `AmbientTemp` (korrigiert) | 0x420 Byte7 | ≈0,35·raw − 6,3 °C | alte Formel war konstant 25,8 °C; Kaltstarts r=0,987 | Formel _maybe | C1 |
+| `AmbientTemp` (korrigiert) | 0x420 Byte7 | ≈0,35·raw − 6,3 °C (Steigung 0,22–0,35 offen) | alte Formel war konstant 25,8 °C; Kaltstarts r=0,987. Anzeige 20 °C in der letzten Fahrt 26.09. (raw 73–81): passt zur Formel (19,3–22,1) und zu 0,25·raw (18,3–20,3), entscheidet also die Steigung nicht; gegen die Stundentemperatur (Open-Meteo) bei > 90 km/h: T = 0,215·raw + 0,9, r=0,85 | Formel _maybe, Größenordnung bestätigt | C1 (Zweitpunkt < 10 °C) |
 | `RCM_Temperature_maybe` | 0x075 Byte6 | raw − 103 °C | Kaltstarts r=0,980, steigt 10–24 K je Fahrt | _maybe | C1 |
 | `EngineRunning` (+`_2`, `_3`) | 0x0FD Bit 0/6, 0x09F Bit 16 | Flag | P=1,000 / 0,03 über 97 i-stop-Stopps | **bestätigt** | – |
 | `iStop_StopRequest` (+`_PCM`) | 0x130 Bit 30, 0x167 Bit 22 | Flag | 0,85 s vor jedem der 97 Stopps | **bestätigt** | – |
@@ -51,10 +51,12 @@ Spalte "Test" verweist auf Teil C.
 | `iStop_Ready_maybe` | 0x130 Bit 20 | Flag | vor jedem Stopp gesetzt, in Warmlaufphase 0 | _maybe | C5 |
 | `TSR_SpeedLimit` | 0x35F 4\|7 | km/h | Werte 30…120, passend zur gefahrenen v; 0 = kein Limit | **bestätigt** | – |
 | `LaneCurvature_maybe` | 0x242 Byte3 | 0,3·(raw−127) 1/km | r=0,94–0,97 gegen Gierrate/v bei > 60 km/h | _maybe (Skala) | – |
-| `LaneOffset_Line1/2_maybe` | 0x242 3\|10, 9\|10 | raw − 686, ≈1 cm/LSB | Sägezahn bei 233 Spurwechseln, Sprung 335 ≈ Spurbreite | _maybe (Skala) | C10 |
+| `LaneOffset_Line1/2_maybe` | 0x242 3\|10, 9\|10 | raw − 686, ≈1 cm/LSB | Sägezahn bei 233 Spurwechseln, Sprung 335 ≈ Spurbreite. Test 26.09. (B96, `…120235`, 12:18–12:22): Ausschläge +71…+81 und −71…−97 nur in diesem 3,5-min-Fenster, erwartet ±80 für „Rad auf der Linie“ (3,35 m Spur, 1,73 m Fahrzeug) - Skala 1 cm/LSB passt; Reihenfolge links/rechts nicht eindeutig (siehe Logbuch); Spitzen bis −175/+233 teils mit Gas/Bremse zusammen (Nickartefakt vermutet), teils ohne Auslöser | _maybe (Skala plausibel) | C10 teils erledigt |
 | `CAM581_Curvature2_raw_maybe`, `CAM581_LineDiff_raw_maybe` | 0x245 Byte4, Byte0 | roh | r=0,88 gegen Spurkrümmung bzw. Versatzdifferenz | _maybe | C10 |
 | `RoadIncline_maybe` | 0x49C 63\|7 | (raw − 32) % | r=0,82–0,96 gegen abgeleitete Steigung in 16/19 Logs, ~1 % je Stufe, + = bergauf | _maybe (Skala) | C13 |
 | `DistanceToService_related` | 0x3D1 47\|14 | km | zählt 0,95/km (integrierte v) bzw. exakt 1/km (Kilometerstand) herunter, über alle Logs lückenlos (4008 → 3437 km); parallel am 20./21.09. zweimal unabhängig gefunden (`raw = 173764 − ODO`), beim Merge vereinheitlicht | **bestätigt** | C11 |
+| `CruiseActive_Inv` | 0x0FD Bit 61 (Byte7 Bit5), 50 Hz | 0 = Tempomat regelt | deckt `CC_Mode_Related == 149` ab: 356.029 Frames beide, 61 abweichend (0,02 %); 55/55 Segmente innerhalb 0,5 s | **bestätigt** | C8 erledigt |
+| `CRU_CON_SW1` Byte0 (Lenkradtasten) | 0x09D Byte0 Bit5 / Bit0 / Bit3, Byte2 spiegelt invertiert | Pulse 0,1–0,2 s | Bit5 = SET/- (60/60 Tempomat-Starts), Bit0 = CANCEL (26/60 Enden), Bit3 = RES/+ (Soll +1 je Druck). Übrige Enden: Bremse 17, Kupplung 17 - alle 60 erklärt. `CruiseMainSwitch_maybe` = Byte1 Bit5 (nur 5 Ereignisse) | **bestätigt** (Hauptschalter _maybe) | C8 erledigt |
 | `BatteryVoltage_OBD` (PID 0x42) | Diagnose | /1000 V | Standard-PID, pollt `tpms_poller.py` seit 16.09. | bestätigt | – |
 
 **Korrigierte Fehldeutungen:** `AmbientTemp` (war konstant 25,8 °C), `DSC_Status` (ist eine
@@ -98,7 +100,7 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x4FA Byte1 | 34–40, r=−0,71 gegen Ansaugluft | Temperatur-Kompensation | C9 |
 | 0x165 Byte7, 0x42B Byte0 | ändern selten, schwach mit Gang/Schub | unbekannt | – |
 | 0x202 Bit 63, 0x45A Bit 15 | Zustandsbits, an Motorbetrieb gekoppelt | unbekannt | – |
-| 0x09D Bits 17/20/22 | kurze Episoden (0,07–0,1 s) bei 87–114 km/h im 6. Gang, Pedal zu, in 8–25 Logs | Tempomat-/Schubzustand? | C8 |
+| 0x09D Bits 17/20/22 | **geklärt (26.09.)**: Lenkrad-Tempomattasten `CRU_CON_SW1`, Byte2 ist die invertierte Kopie von Byte0 (Teil A) | - | C8 erledigt |
 | 0x0FD Bit 4 | 41 Episoden in 22 Logs, ~2 s, oft Leerlauf-nah | unbekannt | – |
 
 ### Spannungswandler / i-ELOOP / Batteriesensor
@@ -122,7 +124,7 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 ### Kombiinstrument / Infotainment (IC, CMU)
 | Feld | Verhalten | Hypothese | Test |
 |---|---|---|---|
-| 0x4D4 Bytes 0-5 | ab Zündung 0, erscheinen nach Minuten, Byte0 steigt auf der Autobahn, Byte1 wächst bei Stau | Fahrbewertung (i-DM) bzw. Eco-Monitor | C4: Anzeigen fotografieren |
+| 0x4D4 Bytes 0-5 | ab Zündung 0, erscheinen nach Minuten, Byte0 steigt auf der Autobahn, Byte1 wächst bei Stau. **Nicht die i-stop-Uhr (26.09.):** während 66 automatischer Stopps ≥ 20 s (bis 123 s, 17.09.) bleiben alle sechs Bytes konstant; alle korrelieren nur mit Fahrzeit/Strecke (r 0,4–0,8), nicht mit Stillstand oder i-stop-Dauer. Byte1 springt teils 1–3 s nach Stopp-Ende um ±1-4 | Fahrbewertung (i-DM) bzw. Eco-Monitor; die Uhr rechnet das CMU vermutlich selbst aus `iStop_EngineStopped` | C4: Anzeigen fotografieren |
 | 0x4D9 Byte7 | meist 0, in 0,8 % der Zeit 1-21 (2544 Einsätze); Einsatz bei doppeltem Ruck (0,21 gegen 0,11 g/s) und höherer Längsbeschleunigung als zufällige Zeitpunkte; in allen ABS-, TCS- und Starkbrems-Ereignissen gesetzt | Fahrstil-Bewertung von G-Wechseln (i-DM-artig) | C4: Anzeige beobachten, bewusst ruckartig/sanft fahren |
 | 0x3D2 | Multiplex (Byte0 = Seite 80–82/104–107), 16-Bit-Wertepaare | Verbrauchshistorie oder Navigation | C4 |
 | 0x3D0/0x3D1, 0x4F2 Byte2 | seltene Zustandswechsel | HUD/CMU-Einstellungen | – |
@@ -145,7 +147,7 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 
 ## C. Fahrzeugtest-Programm (nächster Termin, nach Nutzen sortiert)
 
-**Erledigt am 26.09.:** C2 (Rückwärtsgang im Stand, siehe `ReverseGear`), C3 (Bordcomputer, über den Durchschnittsverbrauch; Foto der Anzeige fehlt
+**Erledigt am 26.09.:** C8 (Tempomat: 60 Segmente, alle mit SET gestartet, Ende per Bremse 17 / CANCEL 26 / Kupplung 17, siehe `CruiseActive_Inv`, `CRU_CON_SW1`), C10 teilweise (Linien-Test B96, Kamera-Abstand blieb stumm), C2 (Rückwärtsgang im Stand, siehe `ReverseGear`), C3 (Bordcomputer, über den Durchschnittsverbrauch; Foto der Anzeige fehlt
 noch), C7 (zwei Vollbremsungen mit ABS und Notbremssignal), C12 (Ein-/Anschnallen Fahrer und
 Beifahrer), dazu Starts aus dem Stand mit TCS-Eingriffen (Teil von C6, aber auf trockener Straße)
 und ECU-Limiter-Eingriffe mit blauen Shiftlights. C9 (Zusatz-PIDs) lief mit (alle 10 s,
@@ -179,8 +181,7 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
    `DSC_Indicator_maybe`, den DSC-OFF-Leuchtenbit (heutiges `DSC_Status`).
 7. **Vollbremsung** aus 60-80 km/h auf freier Strecke (> 0,6 g), Warnblinker beobachten.
    Bestätigt `HighDecel_maybe` und die Notbremssignal-Logik.
-8. **Tempomat** einmal setzen, +/- tippen, per Bremse abbrechen. Für 0x21F (`CRZ_EVENTS`),
-   `CC_SetSpeed`, 0x09D, 0x0FD Bit 4.
+8. **Tempomat** (erledigt 26.09.). Offen bleibt nur `0x0FD Bit 4` (unabhängig vom Tempomat, 41 Episoden in 22 Logs) und ob 149 auch „Tempomat an, nicht gesetzt“ meint (der Hauptschalter allein ergibt 141).
 9. **Zusätzliches Polling** (Code in `scripts/tpms_poller.py` und die Offline-Dekoder sind seit
    26.09. fertig, **nur noch auf den Pi kopieren und den Poller neu starten**, siehe
    `status/pi-runtime-state.md`):
@@ -189,7 +190,7 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
    `data/can/probe-20260916-081915.csv` als unterstützt.
 10. **Kamera:** auf gerader Straße mit bekannter Spurbreite bewusst an die linke, dann die
     rechte Linie fahren; hinter einem vorausfahrenden Auto Abstand ändern. Für
-    `LaneOffset_*`, 0x244, 0x246.
+    `LaneOffset_*`, 0x244, 0x246. **26.09.:** Linientest gefahren; das Auflaufen auf das Fahrzeug bei 130-149 km/h (12:19-12:21, `…120235`) ließ 0x244 auf dem Basismuster (kein Abstandssignal); 0x244 wich nur bei 12:26:28 (18 s, ~70 km/h) ab - dort Objekt vor dem Auto? Offen: Abstandstest mit Ansage und Uhrzeit.
 
 11. **Wartungsanzeige** im MZD-Menü (Einstellungen > Fahrzeug > Wartung) ablesen: Restdistanz
     gegen `DistanceToService_related` (0x3D1).
