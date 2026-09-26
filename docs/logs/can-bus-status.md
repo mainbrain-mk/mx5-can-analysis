@@ -3899,4 +3899,4 @@ abgeleiteten ~46 l. Damit Liter ≈ **3,0** + 1,10 · roh, vor dem Tanken 10,6 l
 liegt im Rahmen: die Reichweite rechnet das Kombiinstrument mit einem eigenen Verbrauchswert, und
 der Füllstand beim Abschalten der Zapfpistole schwankt. Die Zählerkalibrierung (4834 Schritte/l)
 hängt davon nicht ab - Voll-bis-Voll braucht nur zweimal denselben Füllstand. `FUEL_L_AT_FLI0`
-auf 3,0, heutige Massen neu: 1245,2 / 1243,1 / 1242,0 / 1265,7 kg.
+auf 3,0, heutige Massen neu: 1245,2 / 1243,2 / 1242,0 / 1265,7 kg.
