@@ -102,6 +102,19 @@ RCM_LONGITUDINAL_CAN_ID = 118
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274  # BO_ 1274 HS_PCM, Signal IAT_Sensor_No1
 LOAD_CAN_ID = 359   # BO_ 359 HS_PCM, Signal ActualEnginePercentTorque
+# Tempomat-aktiv-Flag (2026-09-26, fuer die Gaspedal-Kachel im Dash, siehe dash_gui.py
+# _gas_card_source): 0x21F ist bei uns eine leere HS_PCM-Botschaft, opendbc
+# (data/can/external/opendbc_mazda_2017.dbc, CRZ_EVENTS) fuehrt dort
+# CRUISE_ACTIVE_CAR_MOVING als 16|1@0+ = Byte2 Bit0. NOCH NICHT gegen ein eigenes
+# Log verifiziert (Pruefwerkzeug: scripts/can_cruise_flag_check.py) - deshalb
+# _maybe im Snapshot-Key und bewusst NICHT in die DBC uebernommen (Regel aus
+# data/can/external/README.md). Faelschlich nie gesetzt -> Dash zeigt wie bisher
+# APP; faelschlich "Tempomat bereit" statt "regelt" -> Dash zeigt bei losgelassenem
+# Pedal die Drosselklappe in Gruen, was inhaltlich weiter stimmt.
+CRUISE_FLAG_CAN_ID = 0x21F
+CRUISE_FLAG_BYTE = 2
+CRUISE_FLAG_BIT = 0
+CRUISE_FLAG_SIGNAL = "_CruiseActive_maybe_derived"
 
 NEEDED_CAN_IDS = sorted({
     *(can_id for _, can_id, _ in LIVE_SIGNALS),
@@ -116,6 +129,7 @@ NEEDED_CAN_IDS = sorted({
     ABS_CAN_ID,
     IAT_CAN_ID,
     LOAD_CAN_ID,
+    CRUISE_FLAG_CAN_ID,
 })
 
 
@@ -125,6 +139,13 @@ def extract_brake_pct(data):
     shift = total_bits - BRAKE_PCT_START_BIT - BRAKE_PCT_LEN
     raw = (full >> shift) & ((1 << BRAKE_PCT_LEN) - 1)
     return max(0.0, min(100.0, (raw - 156) / 2.56))
+
+
+def extract_cruise_active(data):
+    """1/0 aus Byte CRUISE_FLAG_BYTE Bit CRUISE_FLAG_BIT, None bei zu kurzem Frame."""
+    if len(data) <= CRUISE_FLAG_BYTE:
+        return None
+    return (data[CRUISE_FLAG_BYTE] >> CRUISE_FLAG_BIT) & 1
 
 
 def can0_up(channel):
@@ -314,6 +335,10 @@ class CanBackend:
                     if msg.arbitration_id == BRAKE_PCT_CAN_ID and len(msg.data) == 8:
                         self._set(BRAKE_PCT_CAN_ID, "_BrakePedalPercent_derived",
                                    extract_brake_pct(msg.data), now)
+                    elif msg.arbitration_id == CRUISE_FLAG_CAN_ID:
+                        flag = extract_cruise_active(msg.data)
+                        if flag is not None:
+                            self._set(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL, flag, now)
                     elif msg.arbitration_id == OIL_RESPONSE_ID:
                         if _uds_decode_response is not None:
                             _, n_bytes, formula = _PCM_PIDS[OIL_DID]

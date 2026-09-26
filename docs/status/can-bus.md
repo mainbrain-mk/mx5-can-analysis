@@ -2,7 +2,26 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-20, Nachmittag)
+## Kurzüberblick: aktueller Stand (2026-09-26)
+
+**Status 2026-09-26 — Tempomat-Anzeige in der GASPEDAL-Kachel des Dash (Nutzerwunsch),
+noch nicht deployt, Trigger-Signal unverifiziert.** Details im Logbuch ("Tempomat-Anzeige in der
+Gaspedal-Kachel…").
+
+1. **`dash_gui.py`:** regelt der Tempomat und ist das Pedal losgelassen (`APP` ≤ 2 %), zeigt die
+   Kachel die Drosselklappe `ETC_ACT` in **grüner Schrift** statt `APP`; Tempomat aus oder Fahrer
+   gibt Gas → wieder `APP` in Normalfarbe (`_gas_card_source`).
+2. **Trigger:** `0x21F` Byte2 Bit0 (opendbc `CRZ_EVENTS.CRUISE_ACTIVE_CAR_MOVING`, PCM), roh in
+   `can_backend.py` extrahiert (`_CruiseActive_maybe_derived`). **Nie gegen ein eigenes Log
+   geprüft**, deshalb nicht in der DBC. Fehlermodi gutartig (Flag nie gesetzt → Anzeige wie
+   bisher).
+3. **Prüfwerkzeug `scripts/can_cruise_flag_check.py`:** bewertet alle Kandidaten (`0x21F` alle
+   64 Bits, `0x21C` Bit3, `0x165 CC_Mode_Related*`/`CC_SetSpeed`) gegen die Fahrsituation
+   "Pedal los + >40 km/h + Last an". **Offen:** auf dem Tempomat-Log vom 06.09.2026 laufen
+   lassen, dann DBC nachziehen und `dash_gui.py` + `can_backend.py` gemeinsam auf den Pi.
+
+<details>
+<summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>
 
 **Status 2026-09-20 Nachmittag — ECU-Soft-Limiter-Zone an 2 weiteren Logs bestätigt (5
 Eingriffe insgesamt), Klopfen UND Radschlupf/DSC als Auslöser ausgeschlossen, Live-Erkennung
@@ -29,6 +48,8 @@ Limiter…").
    die Shiftlight-Reihe bei Treffer mit 8 Hz komplett blau blinken statt der normalen
    RPM-Zonenfarbe. Deployt und auf dem Pi neu gestartet, `dash_gui.py`+`test_dash_gui.py`
    md5-identisch zum Repo (siehe `status/pi-runtime-state.md`).
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Vormittag)</summary>

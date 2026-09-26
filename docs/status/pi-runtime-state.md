@@ -20,9 +20,9 @@ das lokale Repo. Deshalb dieser Abschnitt.
 
 | Datei | Pi = lokales Repo? | Bemerkung |
 |---|---|---|
-| `dash_gui.py` | ✅ identisch | inkl. blau blinkender Shiftlights bei ECU-Limiter-Eingriff (siehe `status/can-bus.md`) |
-| `test_dash_gui.py` | ✅ identisch | |
-| `can_backend.py` | ✅ identisch | unverändert seit 16.09. (Kivy-Neubau) |
+| `dash_gui.py` | ⚠️ **Repo neuer (26.09.)** | Pi-Stand: blau blinkende Shiftlights (20.09.). Lokal zusätzlich Tempomat-Anzeige in der GASPEDAL-Kachel (siehe `status/can-bus.md`) — **nur zusammen mit `can_backend.py` deployen** (neuer Snapshot-Key `_CruiseActive_maybe_derived`), Backend danach neu starten |
+| `test_dash_gui.py` | ⚠️ Repo neuer (26.09.) | +2 Tests zur Tempomat-Anzeige |
+| `can_backend.py` | ⚠️ **Repo neuer (26.09.)** | Pi-Stand unverändert seit 16.09. Lokal: `0x21F` neu im SocketCAN-Filter + Roh-Extraktion des Tempomat-Flags |
 | `tpms_poller.py` | ✅ identisch | inkl. KnockRetard-Fast-Poll (DID 0x03EC) vom 20.09. |
 | `session_logger.py` | ⚠️ **nur Kommentar-Drift** | Pi-Version stammt vom 17.09. (commit `fc42822`), lokal seit der Doku-Umstrukturierung (`42f2013`, 18.09.) mit aktualisierten Pfad-Kommentaren (`mx5_can_bus_status.md` → `docs/logs/can-bus-status.md`). **Rein kosmetisch, keine Funktionsänderung** — kein dringender Redeploy nötig, aber beim nächsten ohnehin fälligen Deploy mitnehmen. |
 | `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch | |

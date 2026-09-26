@@ -3145,3 +3145,58 @@ gemessen; Lambda ist der SOLL- nicht IST-Wert (Abweichung im Transienten dokumen
 oben); Schwapprauschen macht die Tankanzeige-Methode für kurze Fenster unbrauchbar (deshalb
 180s-Median nötig) - für Momentanverbrauch (Sekundenbereich) ist sie ohnehin ungeeignet, nur
 MAF/Lambda liefert die nötige Zeitauflösung.
+
+## Tempomat-Anzeige in der Gaspedal-Kachel des Dash (2026-09-26, Nutzerwunsch)
+
+**Anlass:** Nutzer will, dass die GASPEDAL-Kachel im Renncockpit bei aktivem Tempomat statt
+der (dann ohnehin ~0 %) Pedalstellung die Drosselklappe zeigt - in **grüner Schrift** als
+Kennzeichnung. Sobald der Tempomat aus ist oder der Fahrer selbst Gas gibt, wieder `APP` in
+Normalfarbe.
+
+**Umsetzung (`dash_gui.py`, `can_backend.py`):**
+- `_gas_card_source(app, etc, cruise_active)` liefert `(Wert, Farbe)` für die Kachel:
+  Tempomat-Flag gesetzt UND `APP` ≤ `CRUISE_APP_MAX` (2 %, `APP` liegt losgelassen nicht
+  exakt bei 0) → `ETC_ACT` (`_ThrottlePosition_pct_derived`, OBD-PID 0x11 aus dem schnellen
+  `tpms_poller`-Poll) in `GREEN`; sonst `APP` in `TEXT`. Fehlt die Drosselklappe (Poll
+  älter als `LIVE_STALE_S`), fällt die Kachel auch bei aktivem Tempomat auf `APP` zurück
+  statt einen Strich zu zeigen. `MetricCard.set_value()` nimmt dafür jetzt eine optionale
+  Textfarbe.
+- **Das eigentliche Problem: wir haben kein verifiziertes "Tempomat regelt"-Signal.**
+  Kandidaten aus Fremdquellen, alle noch nie gegen ein eigenes Log geprüft:
+  - opendbc `mazda_2017` (`data/can/external/`): `0x21F CRZ_EVENTS` (Sender PCM),
+    `CRUISE_ACTIVE_CAR_MOVING` = 16|1@0+ = **Byte2 Bit0**, `CRZ_SPEED` = Byte0-1. `0x21F`
+    ist bei uns eine komplett leere `HS_PCM`-Botschaft (siehe Deep-Search-Plan). Da der
+    Tempomat beim ND vom PCM geregelt wird, ist das der plausibelste Kandidat.
+  - opendbc `0x21C CRZ_CTRL`, `CRZ_ACTIVE` = Byte0 Bit3 - kommt vom FSC/MRCC-Modul; ohne
+    Radar-Tempomat beim ND vermutlich nicht gesetzt.
+  - berumiya-Upstream in unserer DBC: `0x165` `CC_Mode_Related`/`CC_Mode_Related2`
+    (VAL 0=OFF/1=ON) und `CC_SetSpeed`.
+- Gewählt: **`0x21F` Byte2 Bit0**, roh in `can_backend.py` extrahiert
+  (`extract_cruise_active`, Snapshot-Key `543:_CruiseActive_maybe_derived`, `0x21F` neu in
+  `NEEDED_CAN_IDS`). **Bewusst NICHT in die DBC übernommen** (Regel aus
+  `data/can/external/README.md`: erst gegen eigene Logs prüfen). Fehlermodi sind gutartig:
+  Flag nie gesetzt → Kachel zeigt wie bisher `APP`; Flag bedeutet "Tempomat bereit" statt
+  "regelt" → bei losgelassenem Pedal steht die Drosselklappe in Grün, was inhaltlich weiter
+  stimmt.
+- **Prüfwerkzeug `scripts/can_cruise_flag_check.py`** (neu): teilt ein Log anhand der
+  Fahrsituation in "Tempomat plausibel" (Pedal los, >40 km/h, Drosselklappe/Last trotzdem
+  offen), "Schubbetrieb" (Pedal los, Last aus) und "Fahrer gibt Gas" und gibt für jeden
+  Kandidaten - sowie für **alle 64 Bits von `0x21F`** - den Anteil gesetzter Zeit je
+  Situation aus. Ein brauchbares Flag ist in der ersten Spalte ~100 %, sonst ~0 %.
+  `--window t0 t1` für eine sicher bekannte Tempomat-Phase. Gegen ein synthetisches Log
+  (Byte2 Bit0 nur in der Tempomat-Phase gesetzt) verifiziert; **gegen ein echtes Log noch
+  offen** - Kandidat: der letzte Log vom 06.09.2026 (5 Tempomat-Kurven bei 92-94 km/h, siehe
+  `projekt-stand.md` "Kurvendetektion für schnelle Großradius-Kurven").
+
+**Tests:** `test_dash_gui.py` (+2: Quellen-/Farbwahl, `MetricCard`-Farbe),
+`test_can_backend.py` (+1: Bit-Extraktion, `0x21F` im SocketCAN-Filter). Alle 14 unter
+Xvfb grün. **Noch nicht auf den Pi deployt** (`dash_gui.py` + `can_backend.py` müssen
+zusammen, siehe `status/pi-runtime-state.md`).
+
+**Nächster Schritt:** `python scripts/can_cruise_flag_check.py data/can/candump-2026-09-06_<…>.log`
+auf dem Tempomat-Log laufen lassen. Bestätigt sich Byte2 Bit0 → Signal als
+`CruiseActive` in `MX5ND_6thGenMazda_HSCAN_extended.dbc` eintragen (mit CM_-Herleitung) und
+`can_backend.py` auf den DBC-Decode umstellen; ist es ein anderes Bit → `CRUISE_FLAG_BYTE`/
+`CRUISE_FLAG_BIT` anpassen; ist `0x165 CC_Mode_Related*` besser → `CRUISE_FLAG_*` in
+`dash_gui.py` auf `(357, "CC_Mode_Related2")` umstellen (Wert kommt dann als Choice-String
+`"ON"`/`"OFF"`, `bool()` reicht nicht mehr).
