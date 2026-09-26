@@ -6,7 +6,21 @@ das die Ersteinrichtung/Reproduzierbarkeit beschreibt). **In-place aktualisieren
 bei jedem Deploy/Neustart auf dem Pi** — sonst veraltet das schnell, weil hier
 kein Git läuft (siehe unten).
 
-**Stand: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
+**Nachtrag 2026-09-26, ~17:30-18:15 Uhr:** Pi lief ab 16:12:42 (`uptime -s`) am Heimnetz **ohne
+CAN-Adapter** (`lsusb` ohne CANable, `can-logger.service` "dependency failed"); jemand hatte um
+17:30 die Vcan-Simulation im Dash gestartet (`/tmp/mx5_sim_active`). Die sechs Fahrt-Logs des
+Tages lagen dort unter falschem Datum (No-RTC, Anker 19.09.) und wurden **auf dem Pi umbenannt**
+(`candump-2026-09-26_120029` … `_154000`, samt `clockstate-*`), siehe Logbuch "Fahrtag 26.09.".
+`last_known_time` steht noch auf "2026-09-20 02:31:42" (falscher Anker aus der letzten Session) -
+beim nächsten Start ohne NTP wird die Uhr darauf gestellt, der Marker warnt aber korrekt.
+**18:55 Uhr, Pi wieder online (Boot 18:53:41, NTP ok):** in der Offline-Zeit liefen zwei weitere
+Fahrten (ohne NTP, als `candump-2026-09-20_023215/_031203` benannt) - auf dem Pi umbenannt in
+`candump-2026-09-26_180459/_184447` (geschätzt, siehe Logbuch). `last_known_time` von der falschen
+"2026-09-20 03:18:16" auf "2026-09-26 18:53:00" gesetzt, damit der nächste Start ohne NTP
+wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo, altes Skript in
+`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler. Greift ab der nächsten Session.
+
+**Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
 
 ## Kein Git auf dem Pi
@@ -20,12 +34,12 @@ das lokale Repo. Deshalb dieser Abschnitt.
 
 | Datei | Pi = lokales Repo? | Bemerkung |
 |---|---|---|
-| `dash_gui.py` | ✅ deployt 26.09. abends (md5 `6b8ca049…`) | **Nicht identisch mit `main`:** Stand `a66ec59` (Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`; liegt nur lokal auf `can-offline-ausbeute`, nicht gepusht) **plus** Tempomat-Anzeige (Trigger `0x165 CC_Mode_Related == 149`, PR #20), per 3-Wege-Merge auf die Pi-Datei aufgesetzt. Vorheriger Pi-Stand: `backup-2026-09-26/dash_gui.py.a66ec59`. Dash neu gestartet (nur er, das Backend lief unverändert weiter). |
+| `dash_gui.py` | ✅ identisch (deployt 26.09. abends) | Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`, Tempomat-Anzeige (Trigger `0x165 CC_Mode_Related == 149`, siehe `status/can-bus.md`). Vorheriger Pi-Stand: `backup-2026-09-26/dash_gui.py.a66ec59` |
 | `test_dash_gui.py` | – | läuft nicht auf dem Pi (Tests liegen nur im Repo) |
-| `can_backend.py` | ⚠️ weicht von `main` ab | Pi = Stand `a66ec59` (`0x08A`-Bordnetzspannung, `ReverseGear_IC`); in `main` fehlt das, weil die 13 lokalen Commits von `can-offline-ausbeute` nicht gepusht sind. Die Tempomat-Roh-Extraktion von `0x21F` war nie auf dem Pi. |
-| `tpms_poller.py` | ✅ identisch (deployt 26.09.) | neu: PID 0x3C (Kat-Temperatur), 0x34 (gemessenes Lambda), 0x2F (Tankfüllstand) in der langsamen 10-s-Gruppe - Fahrzeugtest C9 aus `status/can-open-fields.md`. Greift ab der nächsten Logging-Session (Poller wird von `session_logger.py` je Fahrt neu gestartet). |
+| `can_backend.py` | ✅ identisch | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
+| `tpms_poller.py` | ✅ identisch (deployt 26.09., 18:57; status_gui.py + DBC um ~19:25 ebenfalls, TPMS-Vorderachse bestätigt) | Drosselung der schnellen Gruppe auf 5 Runden/s, solange der Handy-Dongle auf 0x7DF/0x7E0 fragt, + Kernel-Filter auf Diagnose-IDs (Dongle-Konflikt, siehe `status/can-bus.md`). ~20:25: PID 0x42/0x2F entfernt (Broadcast), `can_backend.py`/`dash_gui.py` zeigen die Batterie aus 0x08A `DCDC_Voltage` - beide deployt und neu gestartet (Backup `backup-2026-09-26c/`). Abends zusätzlich PID 0x10 (MAF) in der schnellen Gruppe (Backup `backup-2026-09-26b/tpms_poller.py.vor_maf`). Davor 11:40: PIDs 0x3C/0x34/0x2F. 21:01: `dash_gui.py` (neue Ganganzeige R/N/1), `test_dash_gui.py`, `can_backend.py`/`status_gui.py` (Live-Liste `ReverseGear_IC`) und DBC deployt, Backend/Dash neu gestartet (Backup `backup-2026-09-26d/`). |
 | `session_logger.py` | ✅ identisch (deployt 26.09.) | Kommentar-Drift vom 18.09. mitgenommen (nur Pfadangaben). `status_gui.py` und `uds_did_sweep.py` ebenso angeglichen. |
-| `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (deployt 26.09.) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die neuen Signale noch nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt weiterhin das tote `Reverse_Flag_maybe` statt `ReverseGear`. |
+| `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (deployt 26.09., abends um CM_-Kommentare zu `CC_Mode_Related`/`CC_SetSpeed` ergänzt, Vorversion `backup-2026-09-26/*.vor-cm`) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die neuen Signale noch nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt weiterhin das tote `Reverse_Flag_maybe` statt `ReverseGear`. |
 
 **Vorgehen für den Abgleich (bei Bedarf wiederholen):**
 ```bash

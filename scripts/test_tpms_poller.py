@@ -78,10 +78,14 @@ def test_throttle_position_formula():
 
 
 def test_fast_group_is_lambda_and_throttle_only():
-    """Batteriespannung bleibt in der langsamen Gruppe, nur Lambda+Drosselklappe pollen
-    ohne Intervall-Gate (siehe poll_obd1/poll_obd1_fast)."""
-    assert OBD1_FAST_PIDS == {0x44, 0x11}
-    assert 0x42 not in OBD1_FAST_PIDS
+    """Batteriespannung bleibt in der langsamen Gruppe, nur Lambda+Drosselklappe+Luftmasse
+    pollen ohne Intervall-Gate (siehe poll_obd1/poll_obd1_fast)."""
+    assert OBD1_FAST_PIDS == {0x44, 0x11, 0x10}
+    from tpms_poller import decode_response_mode1
+    # Beispielantwort 41 10 01 41 -> 0x0141/100 = 3,21 g/s (Leerlaufgroessenordnung)
+    name, n_bytes, formula = OBD1_PIDS[0x10]
+    assert round(formula(decode_response_mode1(0x10, bytes([0x04, 0x41, 0x10, 0x01, 0x41, 0, 0, 0]), n_bytes)), 2) == 3.21
+    assert 0x42 not in OBD1_PIDS and 0x2F not in OBD1_PIDS  # seit 26.09. aus dem Broadcast
 
 
 def test_knock_retard_formula():
@@ -97,6 +101,16 @@ def test_knock_retard_formula():
     assert round(formula(65024), 6) == round((65024 - 65536) / 512, 6)  # negativer Bereich
 
 
+def test_fast_poll_delay_throttles_only_with_foreign_tester():
+    from tpms_poller import fast_poll_delay
+    # kein fremder Tester (letzte fremde Anfrage > 5 s her): sofort weiter wie bisher
+    assert fast_poll_delay(now=100.0, last_fast=99.99, last_foreign=90.0, period=0.2, hold=5.0) == 0.0
+    # Handy aktiv: bis 0,2 s nach der letzten Runde warten
+    assert round(fast_poll_delay(now=100.0, last_fast=99.95, last_foreign=99.0, period=0.2, hold=5.0), 3) == 0.15
+    # Handy aktiv, Runde ist schon ueberfaellig: nicht negativ warten
+    assert fast_poll_delay(now=100.0, last_fast=99.0, last_foreign=99.5, period=0.2, hold=5.0) == 0.0
+
+
 if __name__ == "__main__":
     test_build_request_frames_did_correctly()
     test_decode_response_extracts_raw_value()
@@ -110,5 +124,6 @@ if __name__ == "__main__":
     test_throttle_position_formula()
     test_fast_group_is_lambda_and_throttle_only()
     test_knock_retard_formula()
+    test_fast_poll_delay_throttles_only_with_foreign_tester()
     print("alle Tests ok")
     print("OK")

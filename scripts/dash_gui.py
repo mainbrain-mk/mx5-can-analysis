@@ -56,7 +56,6 @@ LIVE_STALE_S = 2.0
 OIL_STALE_S = 25
 TPMS_STALE_S = 200
 LAMBDA_STALE_S = 25
-BATTERY_STALE_S = 25
 
 DRIVE_RPM_MAX = 8000
 DRIVE_RPM_YELLOW = 7000
@@ -181,18 +180,32 @@ def _darken(color, factor=0.19):
     return (r * factor, g * factor, b * factor, a)
 
 
-def _format_gear(raw):
-    if raw is None:
-        return "-"
-    try:
-        n = int(raw)
-    except (TypeError, ValueError):
-        return str(raw)
-    if n == 0:
-        return "N"
-    if n == 7:
+GEAR_POSITION_FIRST = 19  # MT_Gear_Position >= 19: Stand/Anfahren im 1. (oder N, s. Select)
+GEAR_ROLLING_KMH = 3.0    # darueber ist Leerlaufschalter + Kupplung ein Schaltvorgang
+
+
+def _gear_label(reverse, select, actual, position, clutch_raw=None, speed=None):
+    """Ganganzeige aus Rueckfahrschalter, Leerlaufschalter und Gang (26.09., Logbuch
+    "Offene Fragen vom Fahrtag 26.09."). MT_Gear_Actual allein zeigt im Stand, im
+    Rueckwaertsgang und bei getretener Kupplung 0 und direkt nach Zuendung EIN 7 (Initwert).
+    select/position kommen wegen decode_choices als Text ("Neutral", "N/1st") oder, ohne
+    VAL_-Eintrag, als Zahl (z.B. Position 20).
+    Rollend mit getretener Kupplung ist "Neutral" ein Schaltvorgang (0,2-0,3 s durch die
+    Neutralgasse) - dann kein "N"-Flackern, sondern letzten Gang stehen lassen.
+    None = nicht bestimmbar: letzten Gang stehen lassen."""
+    if reverse == 1:
         return "R"
-    return str(n)
+    if select in ("Neutral", 2):
+        shifting = (clutch_raw is not None and clutch_raw > CLUTCH_ACTIVE_RAW
+                    and speed is not None and speed > GEAR_ROLLING_KMH)
+        return None if shifting else "N"
+    if isinstance(actual, (int, float)) and 1 <= actual <= 6:
+        return str(int(actual))
+    if select in ("InGear", 1) and (
+            position == "N/1st"
+            or isinstance(position, (int, float)) and position >= GEAR_POSITION_FIRST):
+        return "1"
+    return None
 
 
 def _measure_text_width(text, font_size, bold=False):
@@ -720,15 +733,19 @@ class DriveScreen(Screen):
         self.session_max_speed = snap.get("session_max_speed", 0.0)
         self.vmax_value.text = f"{self.session_max_speed:.0f} km/h"
 
-        self.gear_value.text = _format_gear(c.get(253, "MT_Gear_Actual"))
         clutch_raw = c.get(304, "Clutch_Pedal_Position_raw")
+        gear = _gear_label(c.get(159, "ReverseGear_IC"), c.get(357, "MT_Gear_Select"),
+                           c.get(253, "MT_Gear_Actual"), c.get(357, "MT_Gear_Position"),
+                           clutch_raw, speed)
+        if gear is not None:
+            self.gear_value.text = gear
         self.gear_value.color = (
             BABY_BLUE if clutch_raw is not None and clutch_raw > CLUTCH_ACTIVE_RAW else TEXT)
 
         self.coolant_card.set_value(c.get(COOLANT_TEMP_CAN_ID, "CoolantTemp"))
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))
         self.battery_card.set_value(
-            c.get(OIL_RESPONSE_KEY, "_BatteryVoltage_derived", max_age=BATTERY_STALE_S))
+            c.get(138, "DCDC_Voltage"))  # Broadcast 0x08A statt PID 0x42 (26.09.)
 
         for key, spec in (("VL", "Tire1"), ("VR", "Tire2"), ("HL", "Tire3"), ("HR", "Tire4")):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
@@ -763,7 +780,7 @@ LIVE_SIGNALS = [
     ("Kilometerstand", 1034, "C001_ODO"), ("Waschanlage", 145, "Washer"),
     ("Tür links", 1086, "DoorRight"), ("Tür rechts", 1086, "DoorLeft"),
     ("Kofferraum", 1086, "Trunk"), ("Parkbremse", 159, "Parking_Brake"),
-    ("Rückwärtsgang", 159, "Reverse_Flag_maybe"), ("Speed ABS (neu)", 535, "VehicleSpeed_ABS_raw"),
+    ("Rückwärtsgang", 159, "ReverseGear_IC"), ("Speed ABS (neu)", 535, "VehicleSpeed_ABS_raw"),
     ("Drehzahl 0x130 (neu)", 304, "EngineRPM_related_2"),
     ("Kupplung 0x166 (neu)", 358, "Clutch_Pedal_Position_related_2"),
     ("Gang-Anzeige (unsicher)", 1143, "GearDisplay_related_maybe"),

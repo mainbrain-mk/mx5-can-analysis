@@ -24,7 +24,11 @@ import sqlite3
 import statistics
 import subprocess
 import sys
-from datetime import date
+import zoneinfo
+from datetime import date, datetime
+
+import numpy as np
+import pandas as pd
 
 import can_log_parser
 import pipeline_checks
@@ -40,14 +44,21 @@ PI_HOST = "pi@192.168.0.247"
 PI_CANLOGS_DIR = "/home/pi/canlogs"
 GPX_PAIR_TOLERANCE_S = 180
 PYTHON = ".venv/bin/python"
+LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 DRIVER_MASS_KG = 86.0
 EMPTY_MASS_KG = 1073.0
-TANK_LITERS = 45.0
+# Tankinhalt aus FLI (%): Kennlinie aus dem Tank 16.->26.09. (Voll-bis-Voll + CAN-Kraftstoffzaehler,
+# docs/logs/can-bus-status.md "Kraftstoff absolut"): Liter = 3,0 + 1,10 * Fuel_Tank_roh (voll = 45 l
+# laut Mazda), und FLI % = 2,486 * roh. Vorher FLI % * 45 l - gleiche Steigung, aber ohne die ~3 l
+# unter "0 %".
+FUEL_L_AT_FLI0 = 3.0
+FUEL_L_PER_FLI_PCT = 1.10 / 2.486
 FUEL_DENSITY_KG_L = 0.745
 # Beifahrer-Zusatzmasse (2026-09-20, siehe DBC-Kommentar bei BO_832
 # PassengerSeatOccupied_maybe / docs/logs/can-bus-status.md): wird anteilig zum
 # belegten Zeitanteil der Fahrt aufaddiert, nicht binaer - siehe compute_mass().
+# 75 kg sind gewogen, nicht geschaetzt (Nutzerangabe 2026-09-26).
 PASSENGER_MASS_KG = 75.0
 
 
@@ -239,6 +250,170 @@ def _clockstate_warning(log_name):
     return f"Uhr beim Start NICHT per NTP bestaetigt ({state}): {note} Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden."
 
 
+# Automatische Uhrkorrektur (2026-09-26, siehe docs/logs/can-bus-status.md "Automatische
+# Uhrkorrektur"): Offset per VehicleSpeed (CAN) gegen GPS-Geschwindigkeit der dlg-Dateien.
+CLOCK_ANCHOR_RE = re.compile(r"auf gespeicherte (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+CLOCK_FIX_MAX_RMSE_KMH = 5.0     # echte Treffer 26.09.: 3,3-3,4 km/h, Fehltreffer >= 9 km/h
+CLOCK_FIX_MIN_POINTS = 300       # Mindestueberlappung in GPS-Punkten ...
+CLOCK_FIX_MIN_FRACTION = 0.5     # ... oder Anteil der CAN-Log-Sekunden, was kleiner ist,
+CLOCK_FIX_MIN_POINTS_FLOOR = 60  # aber nie weniger (kurze Logs passen sonst ueberall)
+CLOCK_FIX_MIN_SPEED_STD = 5.0    # Stillstand passt auf jeden Offset -> Bewegung verlangen
+CLOCK_FIX_SEPARATION_S = 30      # zweiter Treffer weiter weg als das -> mehrdeutig
+CLOCK_FIX_GROUP_TOL_S = 5        # Logs eines Boots muessen sich so genau einig sein
+CAN_TO_GPS_SPEED = 0.968         # VehicleSpeed eilt GPS ~3 % vor (Fahrtag 26.09.)
+GPS_SPEED_LAG_S = 1              # Handy-GPS-Speed haengt 0,8-2,7 s nach (gegen KnockRetard, 26.09.)
+DOTNET_EPOCH_TICKS = 621355968000000000
+
+
+def _can_speed_1hz(log_path):
+    """VehicleSpeed (0x202 HS_PCM, Byte2-3 BE * 0,01) als Serie {Pi-Epoch-Sekunde: km/h}."""
+    df = can_log_parser.parse_candump(log_path)
+    sub = df[df["can_id"] == 0x202]
+    v = sub["data"].map(lambda d: int.from_bytes(d[2:4], "big") * 0.01 * CAN_TO_GPS_SPEED)
+    return v.groupby(sub["t"].astype(int)).mean()
+
+
+def _dlg_gps_speed_1hz(dlg_path):
+    """GPS-Geschwindigkeit aus der dlg als {UTC-Epoch-Sekunde: km/h} (Time = .NET-Ticks UTC)."""
+    con = sqlite3.connect(dlg_path)
+    try:
+        rows = con.execute("""SELECT pde.Time, pde.Value FROM PidDataEntry pde
+            JOIN PidMetadataEntry pme ON pde.UniqueId = pme.UniqueId
+            WHERE pme.PidName = 'GPS-Geschwindigkeit'""").fetchall()
+    finally:
+        con.close()
+    s = pd.Series([r[1] for r in rows], index=[(r[0] - DOTNET_EPOCH_TICKS) // 10**7 for r in rows], dtype=float)
+    return s.groupby(level=0).mean()
+
+
+def _offset_candidates(can_s, gps_s):
+    """Alle Offsets L (wahre Zeit = Pi-Zeit + L, 1-s-Raster, L >= -120 s, weil die Standzeit
+    nur nach vorn verschiebt), die Mindestueberlappung und Bewegung erfuellen: [(rmse, L, n)].
+    ponytail: Brute Force ueber alle Lags, O(len_can * len_gps); reicht fuer einige dlg pro Lauf."""
+    if can_s.empty or gps_s.empty:
+        return []
+    c0, g0 = int(can_s.index.min()), int(gps_s.index.min())
+    c = can_s.reindex(range(c0, int(can_s.index.max()) + 1)).to_numpy()
+    g = gps_s.reindex(range(g0, int(gps_s.index.max()) + 1)).to_numpy()
+    need = max(CLOCK_FIX_MIN_POINTS_FLOOR, min(CLOCK_FIX_MIN_POINTS, CLOCK_FIX_MIN_FRACTION * can_s.size))
+    out = []
+    for k in range(max(1 - len(c), c0 - g0 - 120), len(g)):  # k: gps-Index minus can-Index
+        i0, i1 = max(0, -k), min(len(c), len(g) - k)
+        cc, gg = c[i0:i1], g[i0 + k:i1 + k]
+        ok = ~(np.isnan(cc) | np.isnan(gg))
+        n = int(ok.sum())
+        if n < need or gg[ok].std() < CLOCK_FIX_MIN_SPEED_STD:
+            continue
+        out.append((float(np.sqrt(np.mean((cc[ok] - gg[ok]) ** 2))), g0 + k - c0 - GPS_SPEED_LAG_S, n))
+    return out
+
+
+def _find_clock_offset(log_id, gps_cache):
+    """Eindeutiger Treffer (rmse, L, n, dlg) oder None: bester Lag unter der RMSE-Schwelle und
+    kein weiterer darunter, der mehr als CLOCK_FIX_SEPARATION_S davon entfernt liegt."""
+    can_s = _can_speed_1hz(os.path.join(CAN_DIR, f"{log_id}.log"))
+    claimed = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
+    cands = []
+    for dlg_path in sorted(glob.glob(f"{RAW_DIR}/*.dlg")):
+        try:
+            dlg_start = datetime.strptime(os.path.basename(dlg_path)[:-4], "%Y-%m-%d %H%M%S")
+        except ValueError:
+            continue
+        if dlg_start.replace(tzinfo=LOCAL_TZ).timestamp() < claimed - 86400:
+            continue  # Standzeit verschiebt nur nach vorn
+        if dlg_path not in gps_cache:
+            gps_cache[dlg_path] = _dlg_gps_speed_1hz(dlg_path)
+        cands += [(*c, os.path.basename(dlg_path)) for c in _offset_candidates(can_s, gps_cache[dlg_path])]
+    good = [c for c in cands if c[0] <= CLOCK_FIX_MAX_RMSE_KMH]
+    if not good:
+        return None
+    best = min(good)
+    if any(abs(c[1] - best[1]) > CLOCK_FIX_SEPARATION_S for c in good):
+        return None
+    return best
+
+
+def _clockstate_name(log_id):
+    y, mo, d, hms = CLOCKSTATE_RE.match(f"{log_id}.log").groups()
+    return f"clockstate-{y}{mo}{d}-{hms}.txt"
+
+
+def _rename_can_log(old_id, new_id, errors):
+    """Benennt .log/.log.gz/clockstate auf dem Pi (root-owned -> sudo) und lokal zusaetzlich
+    _decoded.csv um. Pi zuerst: behielte er den alten Namen, holte der naechste Sync das Log
+    erneut als "neu". Bricht ab, wenn ein Zielname schon existiert."""
+    names = [(f"{old_id}.log", f"{new_id}.log"), (f"{old_id}.log.gz", f"{new_id}.log.gz"),
+             (_clockstate_name(old_id), _clockstate_name(new_id))]
+    local = names + [(f"{old_id}_decoded.csv", f"{new_id}_decoded.csv")]
+    if any(os.path.exists(os.path.join(CAN_DIR, b)) for _, b in local):
+        errors.append((f"{old_id}.log", f"Uhrkorrektur: Ziel {new_id} existiert lokal schon, nichts umbenannt."))
+        return False
+    q = shlex.quote
+    remote_cmd = f"cd {q(PI_CANLOGS_DIR)} && " + " && ".join(
+        f"if [ -e {q(a)} ]; then [ ! -e {q(b)} ] && sudo mv {q(a)} {q(b)}; fi" for a, b in names)
+    try:
+        res = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", PI_HOST, remote_cmd],
+                             capture_output=True, text=True, timeout=30)
+    except Exception as e:
+        res = subprocess.CompletedProcess([], 1, "", str(e))
+    if res.returncode != 0:
+        errors.append((f"{old_id}.log", f"Uhrkorrektur -> {new_id}: Umbenennen auf dem Pi fehlgeschlagen "
+                       f"({res.stderr[-300:]}), lokal nichts geaendert."))
+        return False
+    for a, b in local:
+        if os.path.exists(os.path.join(CAN_DIR, a)):
+            os.rename(os.path.join(CAN_DIR, a), os.path.join(CAN_DIR, b))
+    return True
+
+
+def fix_can_log_clocks(log_ids, errors):
+    """Fuer neue CAN-Logs mit Uhr-Marker "korrigiert" (Pi ohne NTP, Uhr auf den letzten Anker
+    gestellt -> Name UND Frames um die Standzeit zu frueh): Offset gegen die dlg bestimmen, Logs
+    desselben Boots (gleicher Anker) gemeinsam. Eindeutig -> umbenennen (Pi + lokal +
+    can_gps_pairs.json), sonst die bisherige clockstate-Warnung. Gibt (log_ids mit neuen
+    Namen, Info-Meldungen) zurueck."""
+    groups, warnings = {}, {}
+    for log_id in log_ids:
+        warning = _clockstate_warning(f"{log_id}.log")
+        if not warning:
+            continue
+        warnings[log_id] = warning
+        anchor = CLOCK_ANCHOR_RE.search(warning)
+        if "(korrigiert)" in warning and anchor:
+            groups.setdefault(anchor.group(1), []).append(log_id)
+        else:
+            errors.append((f"{log_id}.log", warning))
+
+    gps_cache, renamed, messages = {}, {}, []
+    for anchor, members in groups.items():
+        hits = {m: h for m in members if (h := _find_clock_offset(m, gps_cache))}
+        offsets = [h[1] for h in hits.values()]
+        if not hits or max(offsets) - min(offsets) > CLOCK_FIX_GROUP_TOL_S:
+            reason = ("kein eindeutiger dlg-Treffer" if not hits
+                      else f"Logs desselben Boots uneinig (Offsets {sorted(offsets)} s)")
+            errors += [(f"{m}.log", f"{warnings[m]} Automatische Korrektur: {reason}.") for m in members]
+            continue
+        rmse, offset, n, dlg = min(hits.values())
+        for m in members:
+            claimed = datetime.strptime(m, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
+            new_id = datetime.fromtimestamp(claimed + offset, LOCAL_TZ).strftime("candump-%Y-%m-%d_%H%M%S")
+            if _rename_can_log(m, new_id, errors):
+                renamed[m] = new_id
+                messages.append(f"Pi-Uhr ohne NTP korrigiert: {m} -> {new_id} (Offset {offset:+d} s, "
+                                f"Boot-Anker {anchor}, Beleg dlg '{dlg}' mit {n} GPS-Punkten, "
+                                f"Speed-RMSE {rmse:.1f} km/h{'' if m in hits else ', Offset vom selben Boot uebernommen'})")
+
+    if renamed and os.path.exists(CAN_GPS_PAIRS_OVERRIDE_PATH):
+        with open(CAN_GPS_PAIRS_OVERRIDE_PATH, encoding="utf-8") as f:
+            pairs = json.load(f)
+        for old, new in renamed.items():
+            pairs.pop(f"{old}.log", None)
+            pairs[f"{new}.log"] = _find_matching_gpx(new) or ""
+        with open(CAN_GPS_PAIRS_OVERRIDE_PATH, "w", encoding="utf-8") as f:
+            json.dump(pairs, f, indent=2, ensure_ascii=False, sort_keys=True)
+    return [renamed.get(i, i) for i in log_ids], messages
+
+
 def sync_can_logs_from_pi(errors):
     """Neuer Schritt (vor der eigentlichen Auswertung): prueft, ob der
     Raspberry Pi erreichbar ist und abgeschlossene CAN-Logs hat, die
@@ -325,10 +500,6 @@ def sync_can_logs_from_pi(errors):
         if res is None:
             continue
 
-        warning = _clockstate_warning(log_name)
-        if warning:
-            errors.append((log_name, warning))
-
         pairs_override[log_name] = _find_matching_gpx(log_id) or ""
         new_log_ids.append(log_id)
 
@@ -372,7 +543,7 @@ def compute_mass(log_id):
         return None
     start_pct, end_pct = statistics.median(first10), statistics.median(last10)
     level_pct = (start_pct + end_pct) / 2
-    fuel_kg = (level_pct / 100 * TANK_LITERS) * FUEL_DENSITY_KG_L
+    fuel_kg = (FUEL_L_AT_FLI0 + FUEL_L_PER_FLI_PCT * level_pct) * FUEL_DENSITY_KG_L
     mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_kg
     note = f"FLI ~{start_pct:.1f}%->~{end_pct:.1f}%"
 
@@ -433,6 +604,7 @@ def main():
     downloaded = rclone_sync_new_logs(errors)
     new_logs = find_new_logs()
     new_can_logs = sync_can_logs_from_pi(errors)
+    new_can_logs, clock_fixes = fix_can_log_clocks(new_can_logs, errors)
 
     if not new_logs and not new_can_logs:
         print("Keine neuen Logs gefunden.")
@@ -566,6 +738,7 @@ def main():
         current_corner_peak_best=current_corner_peak_best,
         script_errors=errors,
     )
+    findings += [pipeline_checks._finding("info", "can_clock_fixed", m) for m in clock_fixes]
 
     run_report = {
         "date": date.today().isoformat(),

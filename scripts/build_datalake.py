@@ -141,7 +141,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
 # Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
 # der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "8"
 
 MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
                         "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
@@ -252,9 +252,9 @@ CAN_SIGNAL_MAP = {
     # bereits korrekt skaliert (Druck in bar, Temp mit -50 Offset trotz
     # "_maybe"-Suffix, gegen den Y-Splitter-Log gegen OBD-Referenzwerte
     # bestaetigt). Tire3=hinten links/Tire4=hinten rechts bestaetigt (siehe
-    # Memory), Tire1/Tire2=Vorderachse aber Reihenfolge NOCH NICHT bestaetigt -
-    # deshalb bei der Rohnummerierung 1-4 belassen statt VL/VR/HL/HR zu
-    # erfinden. Nur in Logs vorhanden, in denen der Pi beim Fahren lief
+    # Memory), Tire1=vorne links/Tire2=vorne rechts seit 2026-09-26 bestaetigt
+    # (Nutzer fuellte VR mit weniger Druck, temperaturbereinigte Differenz
+    # Tire1-Tire2 sprang von 0,027 auf 0,085 bar). Kanalnamen bleiben 1-4. Nur in Logs vorhanden, in denen der Pi beim Fahren lief
     # (seit 2026-09-11, sporadisch je nach Session).
     "Tire1_Pressure": ("TirePressure_CAN_Tire1", "bar"),
     "Tire2_Pressure": ("TirePressure_CAN_Tire2", "bar"),
@@ -311,13 +311,25 @@ CAN_SIGNAL_MAP = {
     # FuelConsumption_Counter wird nicht roh uebernommen, sondern in ingest_can() zu
     # FuelRate_CAN (g/s) differenziert - siehe _derive_fuel_rate().
     "FuelConsumption_Counter": ("FuelRate_CAN", "g/s"),
+    # Fahrzeugtests 26.09. (C3/C7/C12, docs/logs/can-bus-status.md "Fahrtag 26.09."):
+    # Bordcomputer-Durchschnittsverbrauch, Fahrergurt, Notbremssignal.
+    "AvgFuelConsumption": ("AvgFuelConsumption_CAN", "l/100km"),
+    "DriverSeatbelt_Buckled": ("DriverSeatbelt_Buckled_CAN", ""),
+    "EmergencyStopSignal_maybe": ("EmergencyStopSignal_CAN", ""),
+    # Zusatz-PIDs aus Fahrzeugtest C9 (tpms_poller.py langsame Gruppe seit 26.09.)
+    "CatalystTemp_OBD": ("CatalystTemp_CAN", "°C"),
+    "LambdaMeasured_OBD": ("LambdaMeasured_CAN", ""),
+    "FuelLevel_OBD": ("FuelLevel_CAN", "%"),
 }
-FUEL_COUNTS_PER_G = 1800.0 / 256   # Byte2 von 0x420, ~0,142 g je Schritt, gegen OBD-MAF/Lambda (+-10 %)
+# Byte2 von 0x420: 5025 Schritte je Bordcomputer-Liter (26.09., zwei Logs 5024/5026); der Bordcomputer
+# zaehlt aber 4,0 % zu wenig (Voll-bis-Voll 16.09.->26.09.: 34,4 l getankt gegen 33,09 l angezeigt),
+# also 4834 Schritte je echtem Liter; bei 0,745 kg/l ~6,49 Schritte/g. Vorher 7,03 aus OBD-MAF/Lambda.
+FUEL_COUNTS_PER_G = 4834.0 / 745.0
 FUEL_RATE_WINDOW_S = 2.0           # Zaehler zaehlt nur ~1 Schritt/s im Leerlauf -> ueber ein Fenster mitteln
 # Init-/Ungueltig-Werte, die sonst als echte Messwerte im Datalake landen (2026-09-26 gesehen:
 # Batterietemperatur 255-40=215, Aussentemperatur Rohwert 0 = -6,3, Spannungen 0 in den ersten Frames).
 CAN_SENTINELS = {"BattSensor_Temp_maybe": 215.0, "AmbientTemp": -6.3, "DCDC_Voltage": 0.0,
-                 "iELOOP_CapVoltage_maybe": 0.0}
+                 "iELOOP_CapVoltage_maybe": 0.0, "AvgFuelConsumption": 655.34}
 GPX_NS = {"g": "http://www.topografix.com/GPX/1/0"}
 TICKS_OFFSET = 621355968000000000  # .NET-Ticks -> Unix-Referenz
 

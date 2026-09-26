@@ -3597,6 +3597,589 @@ abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
   20.-25.08. schon abgefragt (300-900 °C); zeitgleich mit einem CAN-Log gibt es aber nur 20 Samples
   (12.09. 211851, konstant ~370 °C) - zu wenig, um 0x4DA offline zu prüfen.
 
+## Fahrtag 26.09.: fünfter No-RTC-Fall (6 Logs um 6,5 Tage falsch), Dongle-Konflikt durch den Pi-Poller, Fahrzeugtests C3/C7/C12 (2026-09-26 abends)
+
+Nutzer: Logs von heute auswerten (CAN + dlg), Zeiten prüfen ("Pi war zwischendurch stromlos"),
+dazu die gemachten Tests (1-2 Vollbremsungen, Start aus dem Stand, Tanken + Tageskilometerzähler
+zurückgesetzt, blaue Shiftlights vor dem Schalten, Ein-/Anschnall-Reihenfolge Fahrer/Beifahrer
+im ersten Log) und ein möglicher Konflikt zwischen OBD-Dongle und unserem Mode-1/22-Polling.
+
+### Zeitkorrektur: die "neuen" Logs vom 19./20.09. waren die Fahrten vom 26.09.
+
+Auf dem Pi lag kein einziges candump mit Datum 26.09. Der Pipeline-Lauf von 17:19 hatte aber sechs
+bis dahin unbekannte Logs geholt (`candump-2026-09-19_235203` bis `…-20_020042`), alle mit
+Clock-Marker "korrigiert" (Uhr ohne NTP auf den gespeicherten Anker vorgestellt). Der Anker stammte
+vom 19.09. abends, dazwischen stand das Auto eine Woche - jede Session landete deshalb direkt hinter
+der vorherigen, 6,5 Tage zu früh. Die Marker zeigen vier Boots (Anker 23:51:49 / 00:22:49 /
+00:45:13 / 01:58:47), also drei Stromausfälle des Pi.
+
+Abgleich per Geschwindigkeits-Kreuzkorrelation gegen die GPS-Geschwindigkeit der vier dlg-Dateien
+und anschließend bitgenau über KnockRetard (DID 0x03EC, gleiche Methode wie am 20.09.):
+
+| altes Log | Boot | wahrer Start | Beleg |
+|---|---|---|---|
+| `…19_235203` | A | 12:00:29 | gleicher Boot wie 235409 (Offset +6 d 12:08:26), stehend, 2 min |
+| `…19_235409` | A | 12:02:35 | KnockRetard 319/319 = 100 % bitgenau gegen dlg 121414 |
+| `…20_002313` | B | 13:04:40 | 97,5 % bitgenau gegen dlg 130327, Speed-RMSE 1,3 km/h |
+| `…20_004532` | C | 13:58:55 | 98,3 % bitgenau gegen dlg 135743 |
+| `…20_010853` | C | 14:22:16 | gleicher Boot wie 004532 und per GPS-Speed unabhängig derselbe Offset (+13:13:23/24) |
+| `…20_020042` | D | ~15:40:00 | **geschätzt**, siehe unten |
+
+Kilometerstand bestätigt die Reihenfolge lückenlos (170 327 → 351 → 367 → 387 → 432 | 437 → 467);
+die 5 km zwischen 142216 und 154000 fehlen, weil der Pi während der Fahrt neu bootete (154000
+beginnt bei 74 km/h). Für 154000 gibt es keinen externen Anker: das dlg 142514 zeichnete nach
+15:14 fast nichts mehr auf (nur 15:32:45 stehend am selben Ort wie 15:12 und 16:13-16:14 zu Hause).
+Eingrenzung: Abfahrt nach 15:32:45 + 5 km Anfahrt, Ende vor dem Pi-Boot um 16:12:42 (`uptime -s`,
+ohne CAN-Adapter) → Start zwischen ~15:38 und 15:41:07, benannt auf 15:40:00 (±1,5 min).
+
+Korrektur wie beim vierten Fall: Dateien (`.log`, `.log.gz`, `_decoded.csv`, `clockstate-*`) lokal
+**und auf dem Pi** umbenannt, `data/can_gps_pairs.json` nachgezogen, Datalake neu gebaut
+(`log_start_epoch()` erkennt die Abweichung von +156-158 h und nimmt den Dateinamen). Die alten
+log_ids sind aus dem Datalake verschwunden.
+
+Folgen im Pipeline-Lauf von 17:19: die Massen der heutigen dlg-Logs liefen mit "kein CAN-Log,
+SOLO", obwohl den ganzen Tag ein Beifahrer dabei war (beide Gurte gesteckt) - in
+`data/log_mass_overrides.json` korrigiert (Beifahrer mit Default 75 kg, Tank aus dem
+CAN-Tankgeber, weil der dlg-FLI zu Beginn zweier Logs auf 20,3 % einfror): 1243,1 / 1241,1 /
+1239,8 / 1263,5 kg. Die beiden gemeldeten "neuen Querbeschleunigungs-Rekorde" (1,15 g / 1,12 g)
+sind Einzel-Sample-Spitzen: 0,2-s-Mittel 0,88 g (130440, 13:07:32) und 0,97 g (154000, ~15:57),
+kinematisch (v·Gierrate) 0,74/0,85 g; der zweite ist ein Leistungsübersteuern beim
+Herausbeschleunigen mit TCS-Eingriff und Gegenlenken (-141° → -10° in 1 s) - kein neuer Grip-Wert.
+
+### Dongle-Konflikt: der Pi-Poller hat das Handy vom Bus gedrängt
+
+Beide Tester fragen das PCM über **denselben Header 0x7E0** ab, beide sehen alle Antworten auf
+0x7E8. Seit dem 19.09. läuft in `tpms_poller.py` die schnelle Gruppe (0x44, 0x11, ab 20.09. 0x03EC)
+ohne Pause - die Rate ist nur durch die ECU-Antwortzeit begrenzt:
+
+| Zeitraum | Pi-Anfragen/s (+ 0x03EC) | Handy-Anfragen/s | Handy beantwortet | erste 0x7E8 nach Handy-Anfrage ist fremd |
+|---|---|---|---|---|
+| 16.-18.09. (nur Öl/TPMS) | 0,1-2,7 | 18-20 | 99,9 % | 0,2 % |
+| 19.09. 163755 | 77 (+4) | 9,4 | 94,6 % | 18,5 % |
+| 19.09. 233436 | 109 (+2) | 6,6 | 90,4 % | 19,5 % |
+| 26.09. 120235 / 130440 / 135855 | 85-110 (+44-55) | 0,5 / 4,8 / 3,2 | 94 / 87 / 82 % | 19 / 27 / 29 % |
+| 26.09. 142216 / 154000 | 103-115 (+51-57) | 0 | - | - |
+
+Das Handy sieht in einem Viertel der Fälle zuerst unsere Antwort (andere PID) und bekommt 5-18 %
+gar keine Antwort. Die App reagiert stufenweise: Multi-PID-Anfragen (`01 0D 10 44 0E 62`) → nur
+noch Einzel-PIDs (135855) → 13 erfolglose Initialisierungen (`7DF 01 00`, `09 02`, `22 F810`) in
+142216 → Stille. Im dlg sieht man dasselbe als OBD-Rate: ~39 Werte/s bis 19.09. mittags, 25,8
+(163857), 10,7 (233619), heute 9,8 → 9,5 → 3,8 → **0** (dlg 142514 hat keinen einzigen OBD-Kanal).
+Die Buslast selbst ist unkritisch (~7 %); der Engpass ist der Diagnose-Server des PCM und die
+gemeinsame Antwort-ID. Die frühere Einschätzung "Kollision unkritisch" (14.09., TPMS mit 0,005 %
+Zusatzlast) stimmte für die langsamen Gruppen, nicht mehr für die schnelle.
+
+**Fix in `tpms_poller.py`:** sieht der Poller fremde Anfragen auf 0x7DF/0x7E0 (SocketCAN liefert
+eigene Frames nicht zurück), läuft die schnelle Gruppe 5 s lang höchstens alle 0,2 s
+(`fast_poll_delay()`, Knopf `--fast-period-shared`), also ~15 statt ~170 Anfragen/s; ohne Handy
+unverändert. Zusätzlich Kernel-Filter auf 0x7E0-0x7EF/0x7DF/0x720-0x72F (vorher las der Poller
+jeden Frame, ~2000/s). Test in `test_tpms_poller.py`, Simulation auf einem virtuellen Bus
+(Steuergerät + Handy 4 s aktiv): 62 → 5 → 67 Runden/s wie erwartet. **Noch nicht auf dem Pi** - der
+Pi war beim Deploy-Versuch nicht mehr erreichbar.
+
+### Blaue Shiftlights = echte ECU-Eingriffe
+
+Drosselklappe (PID 0x11) steht bei Vollgas stabil auf 91,8 %, die Dash-Schwelle 90 passt also.
+Heute 12 Drehzahlspitzen > 7000/min, in 9 davon schloss die Drosselklappe bei vollem Pedal
+(2. Gang bei 7307-7417/min, 1. Gang 7121-7379/min), 0,2-0,8 s bevor der Fahrer vom Gas ging -
+genau die beobachteten blauen LEDs vor dem Schalten. Maximaldrehzahl 7441-7525/min, KnockRetard
+dabei 0 bis -1,0°. Eine Auslösung im 1. Gang (135855, 821,7 s bei 6521/min) war ein
+TCS-Eingriff, kein Limiter. Bestätigt die Limiterzone vom 19./20.09.
+
+### Fahrzeugtests aus `status/can-open-fields.md`
+
+- **C12 Ein-/Anschnallen (120235):** 12:11:21 Fahrergurt ein (0x340 **Bit 27** = neues
+  `DriverSeatbelt_Buckled`), 12:11:23 Fahrertür zu - wie vom Nutzer beschrieben. 12:11:24
+  Beifahrertür auf, 12:11:32 zu, 12:11:33 Belegungscode B→6, 12:11:40 Beifahrergurt, 12:12:33 (60,0 s
+  nach der Belegung) Code 6→2 und Bit 16. Der Beifahrer hat also **erst die Tür geschlossen, dann
+  angeschnallt**. Byte3-High-Nibble von 0x340 ist der Belegungscode: 0xB leer (Bit 28), 0x6 besetzt
+  + Klassifizierung läuft (Bit 30), 0x2 besetzt bestätigt (+ Bit 16). Damit ist der bisher nie
+  gesehene Zustand "besetzt, nicht angeschnallt" belegt (7 s), und die 60-s-Verzögerung von Bit 16
+  bezieht sich auf die Belegung, nicht auf den Motorstart. Bestätigt in 142216 (Beifahrer sitzt
+  schon: Code 6 von 9,5-69,5 s nach Zündung) und durch Fahrer ab/an beim Tankstopp (120,23/138,55 s,
+  Tür auf 123,24/zu 133,96 s).
+- **C7 Vollbremsungen (120235):** 12:16:05 73→24 km/h, -0,87 g, 12:16:16 73→2 km/h, -0,91 g, beide
+  mit ABS. `HighDecel_maybe` bei beiden gesetzt (Einschalten bei ~-0,74 bis -0,79 g), bei einer
+  normalen -0,55-g-Bremsung nicht. Nach der zweiten startet exakt beim Abfallen von HighDecel das
+  **Notbremssignal**: Warnblinker im 0,3-s-Takt 822,28-824,83 s, dazu **0x09A Bit 61**
+  (`EmergencyStopSignal_maybe`, neu). Bei der ersten (endete bei 24 km/h) kein Notbremssignal.
+- **C3 Bordcomputer:** getankt zwischen 14:19:50 und 14:22:16 (km 170 387, Tankgeber ~7 → 36 roh ≈
+  17 → 90 %). Der Trip-Zähler selbst ist auf dem HS-CAN nicht zu finden (Suche über alle Felder
+  aller Botschaften gegen die Strecke, auch ohne Reset-Bedingung: nur 0x3D1). Aber der daran
+  gekoppelte **Durchschnittsverbrauch**: 0x4F3 Byte4-5 BE in 0,01 l/100km, Update alle 60 s,
+  vorher 7,51 → 7,42, um 14:23:17 der Reset-Wert 0xFFFE, danach 40,38 → 19,38 → 9,27 … → 6,31
+  (`AvgFuelConsumption`, neu). Ein früherer Reset steckt in candump-2026-09-16_083214.
+  Damit ließ sich **`FuelConsumption_Counter` kalibrieren**: 5024 Schritte je Anzeige-Liter
+  (142216, 40 Updates, Rest 2,6 ml), unabhängig 5026 in 154000 (Fit mit unbekanntem Stand bei
+  Logbeginn liefert nebenbei die 50,0 km seit Reset = 44,4 km + die 5-km-Lücke) → **0,199 ml je
+  Schritt**, 4,5 % mehr als die MAF/Lambda-Schätzung. `FUEL_COUNTS_PER_G` im Datalake
+  entsprechend auf 5025/745 umgestellt.
+- **Wegzähler 0x420 Byte1 korrigiert:** gegen die exakten Inkremente von `C001_ODO` in allen fünf
+  Logs 0,1992 m/Schritt (vorher 0,209 aus dem VehicleSpeed-Integral). Nebenbefund:
+  `VehicleSpeed` liegt 5 % über der ODO-Strecke und ~3,1 % über GPS (GPS/VehicleSpeed =
+  0,966-0,970 in drei Logs) - relevant fürs Fahrleistungsmodell, dort noch nicht geprüft.
+- **Start aus dem Stand:** bester Start 14:39:14 (142216) mit Einkuppeln bei ~4800-6400/min:
+  0-50 in 2,42 s, 0-80 in 4,78 s, 0-100 in 6,72 s (Vorderräder, nicht angetrieben; GPS-korrigiert
+  ~6,9 s, Werksangabe 6,8 s). 14:12:33 und 14:41:43 mit TCS-Eingriff (Radschlupf hinten bis 109 %,
+  DSC-Leuchte blinkt), 14:07:22 ohne.
+
+- **C9 Zusatz-PIDs** (langsame Gruppe, alle 10 s, sauber beantwortet): `CatalystTemp_OBD` 25-780 °C,
+  `LambdaMeasured_OBD` 0,78-2,0, `FuelLevel_OBD` 90,6 % nach dem Tanken (CAN-Tankgeber 90 %).
+  Bisher nicht im Datalake - `CAN_SIGNAL_MAP` ergänzt (`CatalystTemp_CAN`, `LambdaMeasured_CAN`,
+  `FuelLevel_CAN`). Broadcast-Gegenstück zur Kat-Temperatur: Korrelation aller Bytes und
+  BE-Bytepaare aller IDs gegen die Kat-Temperatur in fünf Logs - Bestwert r=0,66, und das sind
+  Geschwindigkeitsfelder (0x202/0x215); 0x4DA schwächer. Kein eigener Kanal.
+
+### Pipeline-Bug
+
+`corner_event_analysis.py` brach für alle vier heutigen dlg ab (`np.interp` auf leerer
+Object-Spalte), weil 142514 keinen `VehicleSpeed` hat. Jetzt Rückfall auf die GPS-Geschwindigkeit.
+
+### Nachtrag 18:55: zwei Abendfahrten, Poller deployt
+
+Der Pi war ab ~18:05 offline und bootete um 18:53:41 wieder zu Hause (NTP). Dazwischen zwei
+weitere Sessions im selben Boot ohne NTP (Anker 02:31:42 = Ende von 154000):
+`candump-2026-09-20_023215` (383 s, km 170 467 → 471, bis 98 km/h) und `_031203` (413 s,
+km 471 → 475, bis 118 km/h), dazwischen 33 min Pause. Keine dlg dazu, also kein externer Anker.
+Obergrenze: Ende der zweiten Fahrt vor dem Pi-Boot 18:53:41 (KeyState OFF bei 413,5 s, gzip 4 s
+später, dann Strom weg). Angenommen 2 min bis zum Boot zu Hause → Offset +6 d 15:32:44 →
+`candump-2026-09-26_180459` und `_184447` (höchstens ~2 min zu früh, eher später falls der Pi
+länger stromlos war). Lokal und auf dem Pi umbenannt; auf dem Pi zusätzlich `last_known_time`
+auf "2026-09-26 18:53:00" gesetzt (stand auf dem falschen 20.09.), damit der nächste Start ohne
+NTP nicht wieder eine Woche zurückspringt. `tpms_poller.py` deployt (md5 identisch, Backup in
+`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler.
+
+Inhalt der Abendfahrten: keine Vollbremsung, kein Start aus dem Stand, ein Limiter-Eingriff im
+2. Gang bei 7349/min (Drosselklappe 2,3 s vor dem Gaswegnehmen zu), kein Handy-Verkehr auf dem Bus
+(App lief nicht). Datalake-Neubau Schema 7 danach komplett: 40 CAN-Logs, die neuen Kanäle in 38.
+Fallstrick: `build_datalake.py` trägt beim Lauf gefundene Logs selbst in `data/can_gps_pairs.json`
+ein - wer während eines laufenden Builds umbenennt, bekommt dort die alten Namen zurück (hier
+passiert, von Hand nachgezogen).
+
+### Offen
+- Bei der nächsten Fahrt mit Handy-Dongle prüfen, ob die App wieder ~19 Anfragen/s schafft
+  (dlg-OBD-Rate ~39 Werte/s).
+- Startzeiten der beiden Abendfahrten vom Nutzer bestätigen lassen.
+- Beifahrermasse (Default 75 kg) vom Nutzer erfragen; Startzeit von 154000 nur geschätzt.
+- `VehicleSpeed`-Voreilung (~3 % gegen GPS) im Fahrleistungsmodell berücksichtigen?
+- Handy-IMU: die dlg-Kurvenauswertung zeigte heute a_lat ≈ 0 bei 10-16 °/s Gierrate. Ursache ist
+  nicht heute-spezifisch: die schwerkraftbereinigten dlg-Kanäle `AccelerationX/Y` korrelieren auch
+  am 15.09. und 19.09. kaum mit `LateralAcc_CAN` (r = -0,42…+0,04, Streuung 0,2-0,27 m/s²), die
+  `AccelerationWithGravity*`-Kanäle dagegen mit r = 0,88-0,98. Betrifft die dlg-basierte
+  Kurven-/Grip-Auswertung grundsätzlich - separat zu prüfen.
+
+### Nachtrag: Nutzerangaben zum Fahrtag (2026-09-26 abends)
+
+- **Beifahrermasse 75 kg ist gewogen**, nicht geschätzt - die Massen der heutigen Fahrten
+  (1243,1/1241,1/1239,8/1263,5 kg) bleiben, nur die Notizen in `data/log_mass_overrides.json` und
+  der Kommentar an `PASSENGER_MASS_KG` angepasst.
+- **Startzeiten** `_154000`, `_180459`, `_184447`: vom Nutzer als ungefähr richtig bestätigt, bleiben.
+- **Getankt 34,4 l** (Rechnung). Tankgeber vorher ~16,9 % (PID 0x2F, Median der letzten 2 min vor
+  dem Abstellen, schwappend), nachher 90,6 % (PID 0x2F; `Fuel_Tank` 36,2 roh ≈ 90,0 % - beide Quellen
+  einig). Δ 73,7 % für 34,4 l entspräche 46,7 l Skalenendwert statt 45 l Tankinhalt; war der Tank
+  randvoll, lag der wahre Stand vorher bei 45 - 34,4 = 10,6 l (23,6 %) statt 16,9 % - die Anzeige
+  geht bei niedrigem Stand und nach oben (Einfüllstutzen) nicht linear. Für den Kraftstoffzähler
+  ist das noch **keine absolute Kalibrierung** (dafür bräuchte es Voll-bis-Voll). Referenzstand
+  dafür: seit dem Tanken bis zum Ende von `_184447` laut Bordcomputer 5,95 l/100km über ~88 km
+  (ODO 170 387 → 170 475) = **~5,2 l**. Wird beim nächsten Mal wieder bis zum Abschalten getankt,
+  ergibt getankte Menge gegen Bordcomputer-Liter (Pi loggt `AvgFuelConsumption_CAN` bis kurz vor dem
+  Tanken) die absolute Einheit des Zählers.
+- **TPMS-Vorderachse geklärt:** Nutzer hat den Reifen **vorne rechts** mit etwas weniger Druck
+  gefüllt. Auf 20 °C normierter Druck (ideales Gas, Absolutdruck), Differenz Tire1 − Tire2 je Tag
+  (Median aller Abfragen): 14.09. 0,024 · 15.09. 0,024 · 16.09. 0,026 · 17.09. 0,028 · 18.09. 0,027 ·
+  19.09. 0,029 · **26.09. 0,085 bar** (69 Abfragen). Tire2 ist also relativ um ~0,06 bar gesunken →
+  **Tire1 = vorne links, Tire2 = vorne rechts** (Tire3/4 = hinten links/rechts waren schon bestätigt).
+  DBC-Kommentare, `build_datalake.py`-Kommentar und `status_gui.py` (Sternchen an "Vorne Links/Rechts"
+  entfernt) nachgezogen; das Kivy-Dash hatte die Zuordnung VL/VR schon so. `status_gui.py` und DBC
+  auf den Pi kopiert, md5 identisch.
+
+## Automatische Uhrkorrektur in der Pipeline (2026-09-26 spätabends)
+
+Nutzer: die Handkorrektur vom Fahrtag (Speed-Kreuzkorrelation gegen dlg, Umbenennen lokal + Pi,
+`can_gps_pairs.json`, Datalake) soll die Pipeline selbst versuchen.
+
+**Umgesetzt in `scripts/run_daily_pipeline.py`**, neuer Schritt `fix_can_log_clocks()` direkt
+nach `sync_can_logs_from_pi()` (die dlg sind zu dem Zeitpunkt schon per rclone geholt):
+- Nur neue Logs mit Marker `korrigiert`; gruppiert nach dem Anker im Marker ("auf gespeicherte
+  …") = ein Pi-Boot = ein gemeinsamer Offset.
+- `VehicleSpeed` (0x202 Byte2-3, direkt aus dem `.log`, 1-Hz-Mittel, ×0,968 wegen der ~3 %
+  Voreilung gegen GPS) gegen `GPS-Geschwindigkeit` aller dlg ab einem Tag vor dem Pi-Datum
+  (.NET-Ticks = UTC). Brute Force über alle Sekunden-Lags ≥ -120 s.
+- Ein Lag zählt nur mit Überlappung ≥ min(300 GPS-Punkte, 50 % der CAN-Log-Sekunden), aber nie
+  unter 60 Punkten, und GPS-Speed-Streuung ≥ 5 km/h in der Überlappung (Stillstand passt sonst auf
+  jeden Offset).
+- Eindeutig = bester Lag mit RMSE ≤ 5 km/h und kein weiterer Lag unter der Schwelle, der mehr als
+  30 s davon entfernt liegt. Logs eines Boots müssen sich auf ±5 s einig sein; Logs ohne eigenen
+  Treffer (z.B. stehend) übernehmen den Offset ihres Boots.
+- Treffer → Umbenennen erst auf dem Pi (`sudo mv`, bricht ab, wenn der Zielname existiert; ohne
+  Pi-Erfolg lokal nichts ändern, sonst holte der nächste Sync das Log erneut), dann lokal `.log`,
+  `.log.gz`, `_decoded.csv`, `clockstate-*`, dann `can_gps_pairs.json` (neu gepaart). Alle
+  folgenden Schritte (Datalake, Kurven-/Schaltanalysen) laufen schon mit dem neuen Namen. Im
+  Report steht ein `info`-Befund `can_clock_fixed` mit Offset, dlg, Punktzahl und RMSE.
+- Kein Treffer → die bisherige clockstate-Warnung, ergänzt um den Grund ("kein eindeutiger
+  dlg-Treffer" bzw. "Logs desselben Boots uneinig").
+
+**Gegen die Fahrtag-Logs geprüft** (Logs unter den alten Namen in ein Scratch-Verzeichnis
+verlinkt, Pi-Aufrufe abgefangen):
+
+| altes Log | Boot | Ergebnis | Referenz (KnockRetard) | Speed-RMSE / Punkte |
+|---|---|---|---|---|
+| `…19_235203` | A | Warnung | 12:00:29 | - |
+| `…19_235409` | A | Warnung | 12:02:35 | bester Lag 6,4 km/h, nur 150 Punkte (dlg 121414 ist 156 s lang) |
+| `…20_002313` | B | 13:04:39 | 13:04:40 | 3,4 / 1365 |
+| `…20_004532` | C | 13:58:55 | 13:58:55 | 3,3 / 1255 |
+| `…20_010853` | C | 14:22:16 | 14:22:16 | eigener Treffer gegen dlg 142514 (3,4 / 2778), gleicher Offset |
+| `…20_020042` | D | Warnung | ~15:40 geschätzt | bester Lag 19,8 km/h |
+| `…20_023215`, `…20_031203` | E | Warnung | keine dlg | beste Lags 9,4-9,5 km/h gegen dlg 121414 |
+
+Die Fehltreffer der Abendfahrten (9,4 km/h mit 150 Punkten gegen das kurze 121414) sind der Grund,
+warum Boot A nicht automatisch geht: bei 150 Punkten liegt der echte Treffer (6,4) zu nah an den
+falschen. Mit der Überlappungsregel (50 % der CAN-Sekunden) fallen beide raus.
+
+**Genauigkeit:** Die GPS-Geschwindigkeit des Handys hängt 0,8-2,7 s nach (Feinsuche mit 0,1 s gegen
+die KnockRetard-Referenz). Die Pipeline zieht pauschal 1 s ab (`GPS_SPEED_LAG_S`), das Ergebnis
+liegt damit auf ±1 s (2 von 3 Treffern exakt). Für die bitgenaue Zuordnung bleibt KnockRetard der
+Weg; in die Pipeline eingebaut ist das noch nicht.
+
+Laufzeit ~1 min für sechs Logs. Test: `test_fix_can_log_clocks_renames_whole_boot_group` in
+`scripts/test_run_daily_pipeline.py` (synthetischer Boot mit einem fahrenden und einem stehenden
+Log, dlg mit verzögerter GPS-Spur).
+
+**Grenze:** Ein CAN-Log wird nur in dem Lauf geprüft, der es vom Pi holt. Kommt die dlg erst
+später über Google Drive, bleibt es bei der Warnung und der Handkorrektur.
+
+## Kraftstoff absolut: Voll-bis-Voll 16.09. → 26.09., Tankgeber-Literkennlinie (2026-09-26 abends)
+
+Nutzerangaben: 34,4 l getankt (Rechnung); beim Anfahren der Tankstelle zeigte das Auto 33 km
+Restreichweite; bei Reichweite 0 sind noch 9 l im Tank, die Tankanzeige steht dann schon auf 0.
+Und: das vorige Volltanken liegt ebenfalls in den CAN-Logs.
+
+**Vorige Volltankung:** zwischen `candump-2026-09-16_082929` (Ende 08:29, `Fuel_Tank` 4,6 roh) und
+`_083214` (36,2 roh = gesättigt). Dort setzte der Nutzer auch den Durchschnittsverbrauch zurück
+(0xFFFE in 0x4F3 bei 76,1 s, Wert davor 7,38). Beide Resets liegen direkt nach dem Tanken an der
+Zapfsäule, der Bordcomputer-Mittelwert kurz vor dem heutigen Reset deckt deshalb genau die
+Strecke zwischen den beiden Volltankungen ab - **einschließlich der Fahrten ohne Logger** (41 + 23
++ 2 km).
+
+- Kilometerstand an den Resets (letztes `C001_ODO`-Inkrement ± Wegzähler 0,1992 m/Schritt):
+  169 941,87 und 170 387,84 → **445,97 km**.
+- Bordcomputer vor dem heutigen Reset: 7,42 l/100km → **33,09 l**. Getankt: **34,4 l**.
+- → Der Bordcomputer zählt **4,0 % zu wenig**. Da er dem Zähler 0x420 Byte2 auf 2,6 ml folgt
+  (5025 Schritte je Anzeige-Liter), ist die echte Einheit **4834 Schritte je Liter = 0,207 ml je
+  Schritt** (6,49 Schritte/g bei 0,745 kg/l). Die MAF/Lambda-Schätzung (0,19 ml) lag ~8 % zu tief.
+  Unsicherheit v. a. der Füllstand beim Abschalten der Zapfpistole (~1-1,5 %).
+- `FUEL_COUNTS_PER_G` im Datalake auf 4834/745, `SCHEMA_VERSION` 8, DBC-Kommentare ergänzt.
+
+**Restreichweite als Plausibilität:** 33 km bei ~7,4 l/100km (Anzeige) sind 2,45 l Anzeige = 2,55 l
+echt über der 9-l-Reserve → vor dem Tanken ≈ 11,5 l, nach dem Tanken ≈ **46 l** (Nenninhalt 45 l +
+Einfüllstutzen) - passt zu "bis zum Abschalten getankt".
+
+**Tankgeber-Kennlinie:** für den ganzen Tank 16.→26.09. in 5-min-Fenstern (66 Stützpunkte aus 20
+Logs) den Median von `Fuel_Tank` gegen die bis dahin verbrauchten Liter (Bordcomputer-Mittelwert ×
+Strecke seit Reset × 1,04) aufgetragen: roh = 38,08 − 0,908 · verbraucht (Rest 0,5 roh), gesättigt
+bei 36,2 bis ~2,3 l nach dem Tanken. Mit voll = 46 l: **Liter ≈ 4,0 + 1,10 · roh**. Die Steigung
+entspricht der alten Formel FLI % = 2,486 · roh bei 45 l (1,12 l/roh), neu ist der Sockel von ~4 l
+unter "0 %". Tankanzeige 0 ↔ 9 l ↔ roh ≈ 4,6 (folgt aus den Nutzerangaben, keine unabhängige
+Probe). `run_daily_pipeline.py::compute_mass()` rechnet jetzt `4,0 + 1,10/2,486 · FLI%` statt
+`FLI% · 45 l` (≈ +2-3 kg je Fahrt); die vier heutigen Massen neu: 1245,9 / 1243,9 / 1242,7 / 1266,4 kg.
+Ältere Einträge in `data/log_mass_overrides.json` bleiben (Differenz ~0,2 %).
+
+**Restreichweite/Trip-km auf dem Bus:** gezielte Suche nach einem Feld, das beim Tanken von ~33 auf
+mehrere hundert springt (alle IDs, 8-16 Bit, beide Byte-Reihenfolgen, Skalen 0,1-10) - nur
+Zufallstreffer aus verschobenen Bitfenstern, keine echte Reichweite. Beide Werte leben offenbar nur
+im Kombiinstrument.
+
+**Nebenbei:** Die Parallelsession (automatische Neudatierung) lief im selben Arbeitsverzeichnis;
+mein Commit `4410007` hat einen Zwischenstand ihrer `run_daily_pipeline.py` mitgenommen, der Rest
+steht in `2c35136`. Inhaltlich vollständig, Tests grün.
+
+**Korrektur (Nutzer, gleicher Abend):** voll sind laut Mazda **45 l**, nicht die aus der Reichweite
+abgeleiteten ~46 l. Damit Liter ≈ **3,0** + 1,10 · roh, vor dem Tanken 10,6 l, Tankanzeige 0
+(roh ≈ 4,6) bei ~8 l. Die ~1 l Differenz zur Reichweiten-Rechnung (dort 9 l Reserve + 2,55 l)
+liegt im Rahmen: die Reichweite rechnet das Kombiinstrument mit einem eigenen Verbrauchswert, und
+der Füllstand beim Abschalten der Zapfpistole schwankt. Die Zählerkalibrierung (4834 Schritte/l)
+hängt davon nicht ab - Voll-bis-Voll braucht nur zweimal denselben Füllstand. `FUEL_L_AT_FLI0`
+auf 3,0, heutige Massen neu: 1245,2 / 1243,2 / 1242,0 / 1265,7 kg.
+
+## Handy-PIDs ausgedünnt, beste Sync-Referenz ist MAF, nicht KnockRetard (2026-09-26 abends)
+
+Nutzer hat in OBD Fusion Motordrehmoment (Broadcast 0x167) und FuelLevel % (Broadcast 0x09E)
+abgewählt. Offen waren KnockRetard, Zündzeitpunkt Zyl. 1 und Luftmassenstrom. Test als
+Zeit-Referenz (candump-2026-09-26_130440 gegen dlg 130327, Offset in 0,1-s-Schritten ±30 s,
+Anteil bitgenau gleicher Werte, dlg-Wert gegen nächsten CAN-Wert ≤ 0,3 s):
+
+| dlg-Kanal | am richtigen Offset | bester falscher Offset (> 1 s daneben) | distinkte Werte |
+|---|---|---|---|
+| `MassAirFlowRate` | 94 % | 11 % | 795 |
+| `TimingAdvance` | 95 % | 19 % | 110 |
+| `KNOCKR` | 98 % | **94 %** | 42 |
+
+KnockRetard ist meist 0 und trennt richtige und falsche Offsets kaum - die bisherigen
+Zuordnungen hielten nur, weil die Geschwindigkeits-Korrelation den Offset vorher schon auf wenige
+Sekunden eingegrenzt hatte. **Künftig MAF (oder Zündzeitpunkt) für die bitgenaue Synchronisation
+nehmen**, GPS-Geschwindigkeit für die Grobsuche (so macht es die Pipeline automatisch). Das Handy
+braucht KnockRetard nicht mehr (der Pi pollt es ~50×/s, die Antworten stehen im CAN-Log); MAF und
+Zündzeitpunkt bleiben im Handy (kein Broadcast, der Pi fragt sie nicht ab).
+
+**Nachtrag: MAF jetzt vom Pi (26.09. abends).** PID 0x10 (Luftmassenstrom) in `OBD1_FAST_PIDS` von
+`tpms_poller.py` aufgenommen (Dekoder in `can_log_parser.py` und Datalake-Kanal `MassAirFlow_CAN`
+gab es schon). Schnelle Runde jetzt 0x44/0x11/0x10 + 0x03EC: ohne Handy ~51 Runden/s (Simulation,
+vorher ~62), mit Handy gedrosselt auf 5 Runden/s = 20 Anfragen/s. Deployt 26.09. abends (md5
+identisch, vorige Version in `backup-2026-09-26b/tpms_poller.py.vor_maf`). Das Handy kann MAF damit
+abwählen; **als Sync-Referenz bleibt dort der Zündzeitpunkt** (95 % gegen 19 %, siehe oben).
+
+**Nachtrag: doppelte Abfragen aus dem Poller entfernt (26.09., ~20:25).** Nutzer hat im Handy
+Motordrehmoment, FuelLevel, KnockRetard und MAF abgewählt (bleibt: Zündzeitpunkt als
+Sync-Referenz). Im Pi-Poller entfallen PID 0x42 (Batteriespannung → Broadcast 0x08A
+`DCDC_Voltage`, r=0,998-1,000, 100 Hz) und PID 0x2F (Tankfüllstand → 0x09E `Fuel_Tank`, derselbe
+Geber). Das Renncockpit zeigt die Batterie jetzt aus `DCDC_Voltage` (`can_backend.py`: 0x08A in
+`NEEDED_CAN_IDS`; `dash_gui.py`: `c.get(138, "DCDC_Voltage")`, `BATTERY_STALE_S` entfällt).
+Verbleibende Abfragen: schnell 0x44/0x11/0x10 + DID 0x03EC, langsam (10 s) 0x3C/0x34 + DID 0x1310,
+TPMS alle 120 s. Tests lokal grün (`test_dash_gui.py` scheitert lokal auch ohne Änderung am
+fehlenden GL-Kontext), auf dem Pi `test_dash_gui.py`/`test_can_backend.py` grün. Deployt,
+`can_backend.py`/`dash_gui.py` auf dem Pi neu gestartet (20:24), Backup in `backup-2026-09-26c/`.
+Ältere Logs behalten ihre PID-0x42/0x2F-Werte (`can_log_parser.py` dekodiert sie weiter).
+
+## Offene Fragen vom Fahrtag 26.09. geklärt: Rückwärtsgang-Test, langer Limiter-Aufenthalt, Einmal-Befunde, C9, VehicleSpeed (2026-09-26 spätabends)
+
+Nutzer: vor dem Losfahren die Rückwärtsgang-Routine im Stand gemacht (Test C2); im letzten Log
+(`_184447`) den Motor bewusst etwas länger im Limiter gehalten. Dazu die übrigen offenen Punkte des
+Fahrtags. Skripte nur im Scratchpad (Auswertungen auf `can_offline_lab.py`), keine Codeänderung.
+
+### 1. Rückwärtsgang im Stand (C2): bestätigt, Quellenkette gefunden
+
+`candump-2026-09-26_120235`, Zündung ein, Motor aus: `ReverseGear` (0x445 Bit 7) dreimal gesetzt,
+64,78-70,87 / 73,27-83,47 / 90,21-97,47 s (12:03:40-12:04:12), wie im Testplan (3×). Die Kupplung
+war nur beim ersten Mal durchgehend getreten (Motor aus, geht auch ohne). Bit-Abgleich aller Frames
+im Fenster gegen `ReverseGear` und danach über alle Logs (42 Rückwärts-Episoden, jede 1:1):
+
+| Quelle | Bit | Einlegen relativ zu 0x445 (Median) | Auslegen | außerhalb R |
+|---|---|---|---|---|
+| PCM 0x165 | Bit 24 + Bit 25 (Byte3 0x03) | −0,56 s | gleichzeitig | nur die Vorlaufzeit |
+| IC 0x09F | Bit 0 | −0,53 s | −0,03 s | dto. |
+| IC 0x477 | Bit 17 (Bit 16 invers, aber nicht exklusiv) | −0,39 s | +0,10 s | dto. |
+| 0x445 | Bit 7 `ReverseGear` | 0 | 0 | – |
+
+Der Rückfahrschalter kommt also im PCM an (0x165), das Kombiinstrument spiegelt ihn, 0x445
+entprellt das Einlegen um ~0,5 s. `Reverse_Flag_maybe` (0x09F Bit 7, nie gesetzt) sitzt vermutlich
+nur an der falschen Bitposition der Quell-DBC: das echte Bit ist 0x09F Bit 0.
+Kein eigenes DBC-Signal für 0x165 eingetragen, weil es `CC_Mode_Related2` (31|8) überlappen würde
+(strict-Laden); nur als `CM_` dokumentiert.
+
+- `MT_Gear_Select` springt beim Einlegen auf 1 (InGear), `MT_Gear_Position` bleibt 19 (wie N/1.).
+- `MT_Gear_Actual` ist im Rückwärtsgang immer 0, auch mit eingekuppelter Kupplung und rollend.
+  **Die 7 ist kein Rückwärtsgang:** sie steht in jedem Log für ~2 s direkt nach Zündung EIN
+  (28 Logs, nie bei `ReverseGear`=1), ist also ein Initialisierungswert. Die Deutung vom
+  12.09. (7 = R bei eingekuppelter Kupplung) ist widerlegt.
+- 0x165 Byte4 Bit 39-37 zeigt die Gangnummer 1-6 wie `MT_Gear_Actual` (in R die 6) - Duplikat,
+  nicht eingetragen.
+- **0x21D** (Absender HS_FSC2, Frontkamera) hat mit dem Rückwärtsgang nichts zu tun: während der
+  ganzen Routine konstant `7f3fff000000ffff` (Ungültig-Muster), die seltenen anderen Werte
+  treten meist bei stehendem Motor auf und nie mit R zusammen. Byte0-2 kodieren dabei einen Wert
+  dreifach (B1 = B0 − 0x40, B2 = 4·B1 + 3). Offen, aber aus C2 herausgenommen.
+
+Weitere Rückwärts-Episoden am 26.09. (Rangieren mit laufendem Motor): 120235 1743 s, 130440 9 s,
+135855 3 s, 154000 1865 s, 180459 369 s, 184447 11/30/403 s.
+
+### 2. Langer Limiter-Aufenthalt (`_184447`, 2. Gang): Momentrampe auf null, gehalten bis zum Gaswegnehmen
+
+Ablauf (APP durchgehend 100 %):
+
+| t [s] | Drehzahl | Moment 0x167 | Drosselklappe (PID 0x11) | Lambda soll | FuelCut |
+|---|---|---|---|---|---|
+| 235,0 | 6987 | 79 % | 91,8 % | 0,9 | 0 |
+| 235,38 | 7284 | **Beginn Rampe** (≤ 73 %) | 91,8 % | 0,9 | 0 |
+| 235,6 | 7349 | 52 % | 86 % → 30 % | 0,8 | 0 |
+| 235,9 | 7455 (Max.) | 19 % | 28 % | 0,8 | 0 |
+| 236,1-237,8 | 7395 → 7177 | 6,6 % | 22-27 % | 0,8 | 0 |
+| 237,9 | 7195 | Fahrer geht vom Gas | | | danach 1 |
+
+- **Kein harter Kraftstoff-Cut:** `FuelCut` bleibt die ganzen 2,5 s bei 0, gemessenes Lambda
+  0,845 bei 0,846 Soll in dieser Phase (die Einspritzung läuft, fett).
+- **Kein Drehzahlregler:** das Moment läuft auf ~6,6 % (≈ Reibung, netto null) und bleibt dort.
+  Das Auto verzögert am Luftwiderstand (102 → 98 km/h), die Drehzahl fällt auf 7177/min, also
+  110 unter den Rampenbeginn und 280 unter das Maximum, **ohne dass die ECU wieder Moment
+  freigibt**. Der Eingriff ist gehalten (Latch oder Hysterese > 280/min), bis der Fahrer das Pedal
+  loslässt; kein Pendeln an einer Grenze.
+- Die Drosselklappen-PID zeigt den Eingriff 0,14-0,40 s (Median 0,25 s) **nach** dem
+  Broadcast-Moment 0x167 (100 Hz), das Moment ist der schnellere Indikator. Das Dash erkennt über
+  ETC < 90 % (siehe 20.09.); auf `ActualEnginePercentTorque` umzustellen würde ~0,2 s früher
+  blinken, nicht umgesetzt.
+- KnockRetard 0, keine TCS-Bits, keine Radschlupf-Auffälligkeit.
+
+**Vergleich aller Eingriffe vom 19. und 26.09.** (Beginn = Moment fällt ≥ 6 % unter den
+Volllastwert bei 6700-7000/min, APP ≥ 99 %; Anfahr-/Schaltsequenzen ausgenommen):
+
+| Gang | n | Drehzahl bei Rampenbeginn | Zeit über 7000 bis dahin | Anstieg | Rampe 79 → 15 % | Max. Drehzahl |
+|---|---|---|---|---|---|---|
+| 2 | 8 | 7184-7366 (Median 7262) | 0,22-0,39 s | 780-913 /min/s | 0,54-0,84 s | 7410-7458 |
+| 3 | 2 | 7152 / 7160 | 0,39 / 0,47 s | 373 /min/s | 0,92 / 1,36 s | 7286 / 7306 |
+
+- Im 3. Gang nähert sich die Drehzahl wegen der langsameren Rampe einem Plateau (7250-7300),
+  das wie Regelung aussieht; der lange Aufenthalt im 2. Gang zeigt, dass es keine ist.
+- Die Rampe ist zeitgesteuert, die Steilheit gangabhängig (2. Gang 75-120 %/s, 3. Gang 47-70 %/s).
+- Der **Auslöser bleibt offen**:
+  - Die Beginndrehzahl ist im 2. Gang ~100/min höher als im 3.
+  - Die Zeit über 7000/min ist im 2. Gang kürzer.
+  - Keine der beiden Größen ist über die Gänge konstant.
+  - Öl 78-102 °C, Kühlwasser 83-90 °C und Ansaugluft 16-37 °C zeigen keinen Zusammenhang mit der
+    Beginndrehzahl im 2. Gang.
+- **Korrektur zum 20.09.:** der Kontrollzug "Gang 4, 7297/min ohne Eingriff" (233436, 360 s) lief
+  bei vollem Pedal nur bis 7137/min; die 7420 danach sind das Hochdrehen beim Auskuppeln nach dem
+  Gaswegnehmen. Er liegt damit unter allen Beginndrehzahlen und widerlegt nichts.
+- Für die Trennung von Drehzahl und Zeit fehlen weiterhin Vollgaszüge im 3. und 4. Gang bis
+  in die Begrenzung (im 4. Gang gibt es noch keinen Eingriff).
+
+### 3. Einmal-Befunde gegen alle Logs
+
+- **`EmergencyStopSignal_maybe` (0x09A Bit 61):**
+  - 4 Episoden in allen Logs: die 3 Notbremssignale vom 15.09. (171047: 1881,9 / 1888,0 /
+    1963,5 s) und das vom 26.09.
+  - Jede beginnt im selben Frame wie das Schnellblinken (`Turn`=3 bei `HAZ_SW`=0) und endet
+    mit ihm; beim manuellen Warnblinker (12.09.) ist das Bit nie gesetzt. **Als Flag bestätigt**,
+    der Name bleibt aus Kompatibilität.
+  - Auslösebedingung unklar: allen vier ging `HighDecel_maybe` voraus (3 mit ABS, 1 ohne bei
+    −0,86 g). 11 andere HighDecel-Episoden (17-211 km/h, bis −0,95 g) lösten keins aus, auch die
+    erste Vollbremsung vom 26.09. mit ABS nicht.
+- **`HighDecel_maybe`:** 16 Episoden in 6 Logs. Die Verzögerung beim Einschalten
+  (`Longi_Acc_Corr`) liegt bei 0,46-0,84 g, Median 0,60 g. Die höheren Werte (0,73-0,84 g, darunter
+  die Vollbremsungen vom 26.09.) gehören zu steilen Bremsanstiegen, bei denen das Flag hinterherläuft.
+  Die Schwelle bleibt also ~0,55-0,6 g, die "~0,75 g" vom Fahrtag waren Anstiegsverzug.
+  Unabhängig von v (17-211 km/h).
+- **Beifahrer-Belegungscode 0x340 Byte3-High-Nibble** (42 Logs mit 0x340):
+  - Nach Zündung EIN läuft immer dieselbe Initfolge: 0x0 (3 s), dann 0x1/0x2/0x3 mit Bit 16 = 1
+    für 2 s, dann der Endzustand.
+  - Besetzt: 0x6 → nach **exakt 60,0 s** 0x2 + Bit 16, in allen 14 Fällen mit vollständigem Verlauf.
+  - Leer: 0xB (Gurt offen) bzw. 0x9 (Gurt gesteckt ohne Insasse; so sind die Solofahrten
+    geloggt, z. B. 18.09. 090404 "Gurt um den Pi").
+  - Deutung als Kontrollleuchten (im Nachtrag unten widerlegt): Bit 30 = PASSENGER AIRBAG ON (60 s nach Belegung), Bit 31 = OFF
+    (dauerhaft bei leerem Sitz), Bit 16 danach = Airbag scharf, Bit 28 = leer (in allen Logs
+    konsistent). Die Leuchten am Auto sind noch nicht angesehen.
+  - 7 Ein-/Ausstiege passen zu den Türereignissen (u. a. 18.09. 093544: B→6 bei 5,1 s, 2→B bei
+    763,7 s; 18.09. 170350: B→6 bei 122,6 s).
+- **`DriverSeatbelt_Buckled` (0x340 Bit 27):** in keinem der 312 928 Frames bei > 20 km/h offen.
+  Das Einstecken liegt 2,6-225 s nach Zündung, das Lösen am Fahrtende bzw. beim Tankstopp. Plausibel.
+
+### 4. C9: gemessenes Lambda und Kat-Temperatur
+
+`LambdaMeasured_CAN` (PID 0x34, alle 10 s) gegen das nächste `LambdaCommanded_CAN`-Sample
+(≤ 0,2 s) in 7 Logs vom 26.09.:
+
+| Zustand | n | Ist (Median) | Soll (Median) | Ist − Soll: Median (P10…P90) |
+|---|---|---|---|---|
+| Volllast (APP ≥ 90) | 12 | 0,874 | 0,874 | −0,003 (−0,018…+0,004) |
+| Teillast | 424 | 0,990 | 0,992 | +0,001 (−0,030…+0,058) |
+| Leerlauf/Rollen | 342 | 0,991 | 0,992 | 0,000 (−0,021…+0,026) |
+| Schub (FuelCut) | 118 | 2,000 | 2,000 | 0,000 |
+
+- Die Volllast-Anfettung (0,83-0,96) wird auf 0,02 genau getroffen.
+- In Teillast pendelt der Ist-Wert im geschlossenen Regelkreis um 1 (72 % innerhalb ±0,03),
+  ohne systematische Abweichung.
+- Im Schub stehen beide auf 2,0 (Anschlag der Sonde bzw. der Kodierung).
+- Größere Abweichungen sind Übergänge (Schubeintritt, Gasstoß) mit dem 10-s-Raster.
+
+`CatalystTemp_CAN`: 358-898 °C in den Fahrten (Maximum 120235 auf der Autobahn, ~12:22).
+
+- Anstieg unter Last (> 40 % Moment, kein Schub): Median +133 K/min.
+- In Schubphasen (> 80 % des Intervalls): −26 K/min.
+- Korrelation Anstieg ↔ mittleres Moment im Intervall r = 0,47 (876 Intervalle).
+- Ein Broadcast-Gegenstück gibt es nicht (Suche 26.09. abends: bestes Byte r = 0,66, und das
+  ist Geschwindigkeit); der Kanal geht nur über das Polling.
+
+### 5. `VehicleSpeed` liest 2,9 % zu hoch - betrifft das ganze Fahrleistungsmodell
+
+GPS-Geschwindigkeit / `VehicleSpeed` (dlg, OBD PID 0x0D, beide > 40 km/h, GPS-Verzug 0-3 s
+ausgeglichen) über **70 dlg-Logs** vom August und September: **Median 0,971** (IQR 0,970-0,972),
+August und September gleich. Der CAN-Wert 0x202 ist derselbe (0,966-0,970 an drei Logs vom
+26.09.). Der Tacho-/ECU-Wert rechnet also mit einem ~3 % zu großen Abrollumfang; bei 205/40 R17
+mit abgefahrenen Semi-Slicks plausibel.
+
+Alle Modellskripte nehmen `VehicleSpeed` als wahre Geschwindigkeit, keines nutzt GPS:
+`drivetrain_model_validation.py`, `top_speed_validation.py`, `partial_load_model.py`,
+`precise_vmax_validation_2026_09_12.py`, `coastdown_analysis.py`, `braking_model.py`,
+`corner_speed_model.py` und die CAN-Kurvenauswertung. `r_dyn` = 0,2985 m wurde über
+Drehzahl/`VehicleSpeed` "bestätigt" (Fehler 0,4-0,7 %). Das zeigt nur, dass der ECU-Wert mit
+diesem Radius rechnet.
+
+Wirkung (k = 0,971):
+
+| Größe | im `VehicleSpeed`-Rahmen | wahr |
+|---|---|---|
+| Geschwindigkeiten, Vmax, Strecken | +3,0 % | z. B. 236 → 229 km/h |
+| gemessene Längsbeschleunigung/Verzögerung | +3,0 % | −0,91 → −0,88 g |
+| Querbeschleunigung aus v·Gierrate | +3,0 % | |
+| μ bzw. a_lat aus v²/R (Kurvenmodell) | +6,1 % (k⁻²) | μ-Band 1,0-1,3 → 0,94-1,23 |
+| r_dyn | 0,2985 m | **≈ 0,290 m** |
+| CdA aus Ausrollversuch (Rahmenfehler) | CdA_fit = k · CdA_wahr | 0,647 → ~0,666 |
+| Crr aus Ausrollversuch | Crr_fit = Crr_wahr / k | 0,013 → ~0,0126 |
+| η bei festem Momentkennfeld | η_fit = η_wahr / k² | 0,93 → ~0,88 |
+
+- Innerhalb des Modells ist das weitgehend konsistent: Gangerkennung, Drehzahl ↔ v und relative
+  Vergleiche Modell/Messung laufen alle im selben Rahmen. Die Parameter η/CdA sind ohnehin nur
+  "gekoppelt plausibilisiert" und haben den Faktor aufgenommen.
+- **Schief wird es, wo absolute Größen herauskommen oder mit echter Geometrie gemischt wird:**
+  - Vmax-, 0-100- und Brems-g-Angaben liegen ~3 % zu hoch.
+  - Der μ-Wert aus dem Kurvenmodell liegt ~6 % zu hoch.
+  - Die Rundenzeitsimulation am Spreewaldring rechnet Modellkräfte aus dem v-Rahmen auf echten
+    Metern der Streckengeometrie.
+
+**Vorschlag, nicht umgesetzt** (validiertes Modell, Entscheidung beim Nutzer):
+- Eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle (Lade-Helfer für `VehicleSpeed`)
+  einführen.
+- Danach r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen und die
+  Validierungen (Gang 4, Vmax-Plateaus, Ausrollen, μ-Band) neu laufen lassen.
+- Bis dahin absolute Angaben mit 0,971 (Geschwindigkeit, Beschleunigung) bzw. 0,943 (μ)
+  umrechnen.
+
+### Sonst geändert
+
+- DBC nur Kommentare:
+  - `ReverseGear`, `Reverse_Flag_maybe`, `MT_Gear_Actual` und `CC_Mode_Related2`: Rückfahrschalter.
+  - `EmergencyStopSignal_maybe`, `HighDecel_maybe`, `PassengerSeatEmpty_maybe` und
+    `PassengerSeatPending_maybe`: Nachträge.
+- Keine neuen Signale, also kein Neudekodieren und kein Datalake-Lauf nötig.
+- DBC auf den Pi kopiert (md5 identisch).
+
+### Nachtrag: Beifahrer-Leuchte (Nutzer) und Ganganzeige im Dash (2026-09-26, ~21:00)
+
+**Beifahrer-Leuchte:** der Nutzer hat sie heute beobachtet. Sie geht beim Hinsetzen an und aus,
+sobald der Beifahrer angeschnallt ist - im 120235 also 7 s (538,5 → 545,1 s), nicht 60 s. Damit
+ist die Deutung oben (Bit 30 = Airbag-ON-Leuchte, Bit 31 = OFF-Leuchte) **falsch**.
+- Bit-Suche über alle IDs in beiden Einstiegen mit bekannter Reihenfolge (26.09. 120235 und
+  18.09. 170350, 122,6 → 130,3 s): nur das Gurtbit 26 selbst trennt das Fenster.
+- Die Leuchte hat kein eigenes HS-CAN-Bit; das Kombiinstrument bildet sie aus
+  "besetzt" (Bit 28 = 0) und "Gurt offen" (Bit 26 = 0).
+- Bit 30 bleibt "Klassifizierung läuft" (60 s), Bit 31 "leer bestätigt".
+- DBC-Kommentar und Katalog korrigiert.
+
+**Ganganzeige im Renncockpit (`dash_gui.py`):** bisher `MT_Gear_Actual` allein. Das zeigte im
+Stand, im Rückwärtsgang und bei getretener Kupplung "N" und direkt nach Zündung EIN "R" (Initwert
+7). Neu `_gear_label()`:
+1. `ReverseGear_IC` (0x09F Bit 0, neu in der DBC, 5 Hz) = 1 → **R**. Das ist ~0,3-0,5 s schneller
+   als 0x445 und stimmt in allen Logs bis auf Flanken mit dem PCM-Rückfahrschalter überein.
+2. `MT_Gear_Select` = Neutral → **N**, außer beim Rollen (> 3 km/h) mit getretener Kupplung. Das
+   sind Schaltvorgänge durch die Neutralgasse (0,2-0,3 s, Kupplung in 90 %, Drehzahl passt zu
+   keinem Gang); dann bleibt der letzte Gang stehen, die Anzeige ist ohnehin babyblau.
+3. `MT_Gear_Actual` 1-6 → dieser Gang.
+4. Gang drin und `MT_Gear_Position` ≥ 19 (Stand/Anfahren, Kupplung schleift) → **1**.
+   `MT_Gear_Position` ist keine Hebelposition, sondern übersetzungsartig (im 1. Gang 11-20 beim
+   Anfahren); 19/20 ohne Neutral heißt 1. Gang.
+5. sonst letzten Gang stehen lassen.
+
+Wiedergabe mit echten Frames und derselben cantools-Dekodierung wie `can_backend.py`
+(`decode_choices=True`, Select/Position kommen als Text "InGear"/"N/1st", Position 20 als Zahl),
+Logs 120235/142216/184447:
+- R in 99,6-100 % der Rückwärtszeit.
+- Beim Fahren gleich `MT_Gear_Actual` in 99,8-100 %; der Rest sind Schaltflanken von 0,1 s.
+- Anzeigewechsel 446 → 168 (142216).
+- Im Stand mit Gang "1" statt "N".
+
+Tests in `test_dash_gui.py` (Funktion + Halten beim Schalten), auf dem Pi grün, ebenso
+`test_can_backend.py`. Die Live-Liste "Rückwärtsgang" in `can_backend.py`, `status_gui.py` und
+`dash_gui.py` zeigt jetzt `ReverseGear_IC` statt des toten `Reverse_Flag_maybe`. Deployt, md5
+identisch (Backup `backup-2026-09-26d/`), `can_backend.py` und `dash_gui.py` um 21:01 neu
+gestartet. Live-Prüfung bei der nächsten Fahrt.
+
 ## Tempomat-Anzeige in der Gaspedal-Kachel des Dash (2026-09-26, Nutzerwunsch)
 
 **Anlass:** Nutzer will, dass die GASPEDAL-Kachel im Renncockpit bei aktivem Tempomat statt

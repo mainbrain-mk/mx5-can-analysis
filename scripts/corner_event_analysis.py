@@ -218,11 +218,17 @@ def analyze_log(db_path):
     rot = load_channel(conn, [yaw_channel(v_axis)])
     gps = load_channel(conn, ["Länge", "Breite"])
     speed = load_channel(conn, ["VehicleSpeed"])
+    if len(speed) == 0:
+        # dlg ganz ohne OBD (26.09.: Handy-Dongle gab wegen des Pi-Pollers auf) -
+        # vorher TypeError in np.interp auf der leeren Object-Spalte.
+        speed = load_channel(conn, ["GPS-Geschwindigkeit"])
     acc = load_channel(conn, ["Horz Genauigkeit"])
     conn.close()
 
     if len(gps) == 0:
         return {"file": db_file, "error": "kein GPS-Kanal in diesem Log"}
+    if len(speed) == 0:
+        return {"file": db_file, "error": "weder VehicleSpeed noch GPS-Geschwindigkeit"}
     if len(rot) == 0:
         return {"file": db_file, "error": f"kein {yaw_channel(v_axis)}-Kanal in diesem Log"}
 

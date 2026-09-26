@@ -4,6 +4,66 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-26)
 
+**Status 2026-09-26 abends — Fahrtag mit Fahrzeugtests ausgewertet, fünfter No-RTC-Fall
+korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.…").
+
+1. **Zeitkorrektur:** die sechs am 26.09. geholten Logs `candump-2026-09-19_235203`…`-20_020042`
+   waren die heutigen Fahrten (Pi ohne NTP, Anker vom 19.09.). Per KnockRetard 97,5-100 % bitgenau
+   gegen die dlg-Dateien neu datiert: `candump-2026-09-26_120029/120235/130440/135855/142216`,
+   `_154000` nur geschätzt (±1,5 min, kein externer Anker); zwei Abendfahrten ohne dlg als
+   `_180459`/`_184447` (geschätzt, bis ~2 min zu früh). Lokal und auf dem Pi umbenannt,
+   Datalake neu gebaut.
+2. **Dongle-Konflikt:** die schnelle Pollgruppe von `tpms_poller.py` (seit 19.09., ~170
+   Anfragen/s auf 0x7E0) verdrängt den Handy-Dongle auf demselben Header: 19-29 % seiner Anfragen
+   sehen zuerst unsere Antwort, 5-18 % bleiben unbeantwortet, die App fiel von ~19 auf 0
+   Anfragen/s (dlg 142514 ohne jeden OBD-Kanal). Fix: Drosselung auf 5 Runden/s, solange fremde
+   Anfragen auf 0x7DF/0x7E0 zu sehen sind - **am 26.09. um 18:57 auf den Pi deployt**, Wirkung an der nächsten Fahrt prüfen.
+3. **Neue Signale aus den Tests:** `DriverSeatbelt_Buckled` (0x340 Bit 27), Beifahrer-Belegungscode
+   (0x340 Byte3-High-Nibble, `PassengerSeatEmpty_maybe`/`PassengerSeatPending_maybe`),
+   `EmergencyStopSignal_maybe` (0x09A Bit 61), `AvgFuelConsumption` (0x4F3 Byte4-5, Bordcomputer).
+   `HighDecel_maybe` an zwei Vollbremsungen bestätigt.
+4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 **absolut 4834 Schritte je Liter** (Voll-bis-Voll
+   16.→26.09., 34,4 l getankt; der Bordcomputer rechnet mit 5025/l und zeigt 4 % zu wenig),
+   Tankgeber `Fuel_Tank` → Liter ≈ 3,0 + 1,10 · roh (voll = 45 l laut Mazda), Wegzähler 0x420 Byte1 =
+   0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
+   `VehicleSpeed` liegt ~3 % über GPS.
+5. **TPMS vorne geklärt:** Tire1 = vorne links, Tire2 = vorne rechts (Nutzer füllte VR mit weniger
+   Druck). Beifahrermasse 75 kg ist gewogen. Tankbeleg 34,4 l, siehe Logbuch.
+6. **Blaue Shiftlights** waren echte ECU-Eingriffe (Drosselklappe schließt bei vollem Pedal,
+   7121-7417/min, 0,2-0,8 s vor dem Schalten).
+7. **Offene Fragen geklärt (spätabends):**
+   - **Rückwärtsgang-Test C2** bestätigt `ReverseGear`. Die Quelle ist der
+     PCM-Rückfahrschalter 0x165 Bit 24/25; `MT_Gear_Actual`=7 ist nur ein Initwert, 0x21D ist
+     nicht beteiligt.
+   - **Langer Limiter-Aufenthalt:** eine Momentrampe auf ~0, gehalten bis zum Gaswegnehmen.
+     Kein Drehzahlregler und kein Kraftstoff-Cut; der Auslöser bleibt offen.
+   - `EmergencyStopSignal_maybe` und der Beifahrer-Belegungscode sind über alle Logs bestätigt,
+     die `HighDecel_maybe`-Schwelle liegt bei ~0,6 g.
+   - **Ganganzeige im Dash** zeigt jetzt R (0x09F Bit 0, neues `ReverseGear_IC`), N (Leerlaufschalter,
+     ohne Flackern beim Schalten) und den 1. Gang im Stand zuverlässig; deployt 21:01, Live-Prüfung offen.
+     Die Beifahrer-Leuchte hat kein eigenes CAN-Bit (Nutzerbeobachtung, Bit 30 ist keine Leuchte).
+   - C9: gemessenes Lambda folgt dem Soll ohne Versatz.
+   - **`VehicleSpeed` liest 2,9 % zu hoch** (70 dlg-Logs, GPS/VS = 0,971). Das betrifft
+     absolute Werte des Fahrleistungsmodells, siehe `status/performance-model.md`.
+
+**Status 2026-09-26 — Tempomat-Anzeige in der GASPEDAL-Kachel des Dash (Nutzerwunsch),
+Trigger belegt, deployt (26.09. abends).** Details im Logbuch ("Tempomat-Anzeige in der
+Gaspedal-Kachel…" und "Tempomat-Zustand gefunden…").
+
+1. **`dash_gui.py`:** regelt der Tempomat und ist das Pedal losgelassen (`APP` ≤ 2 %), zeigt die
+   Kachel die Drosselklappe `ETC_ACT` in **grüner Schrift** statt `APP`; Tempomat aus oder Fahrer
+   gibt Gas → wieder `APP` in Normalfarbe (`_gas_card_source`).
+2. **Trigger:** `0x165` `CC_Mode_Related` (357) **== 149** = Tempomat regelt bzw. übersteuert;
+   141 = aus/bereit, 302 = Bremse/Stand. Belegt an `candump-2026-09-26_184447` (Tempomat bei
+   ~52 und ~42 km/h) und `2026-09-19_163755` (bis 187 km/h). `CC_SetSpeed` bleibt dagegen nach dem
+   Abbrechen gespeichert. Das opendbc-Bit `0x21F` Byte2 Bit0 existiert beim ND nicht (immer 0).
+   Kein Backend-Zweig nötig: `0x165` liegt per DBC im Snapshot.
+3. **Nicht geklärt:** ob 149 auch "Tempomat an, aber noch nicht gesetzt" abdeckt (in den Logs nie
+   beobachtet: 149 kam immer erst mit dem Setzen).
+
+<details>
+<summary>Vorheriger Stand (2026-09-26, Offline-Ausbeute)</summary>
+
 **Status 2026-09-26 — Offline-Ausbeute: rund 30 neue bzw. korrigierte Signale allein aus den
 vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
 [`status/can-open-fields.md`](can-open-fields.md). Herleitung im Logbuch ("Offline-Ausbeute…").
@@ -26,20 +86,7 @@ vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
    `can_natural_events.py`, `can_anchor_sweep.py`, `can_field_inspect.py`, `can_open_fields.py`.
 6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
 
-**Status 2026-09-26 — Tempomat-Anzeige in der GASPEDAL-Kachel des Dash (Nutzerwunsch),
-Trigger jetzt belegt, noch nicht deployt.** Details im Logbuch ("Tempomat-Anzeige in der
-Gaspedal-Kachel…" und "Tempomat-Zustand gefunden…").
-
-1. **`dash_gui.py`:** regelt der Tempomat und ist das Pedal losgelassen (`APP` ≤ 2 %), zeigt die
-   Kachel die Drosselklappe `ETC_ACT` in **grüner Schrift** statt `APP`; Tempomat aus oder Fahrer
-   gibt Gas → wieder `APP` in Normalfarbe (`_gas_card_source`).
-2. **Trigger:** `0x165` `CC_Mode_Related` (357) **== 149** = Tempomat regelt bzw. übersteuert;
-   141 = aus/bereit, 302 = Bremse/Stand. Belegt an `candump-2026-09-26_184447` (Tempomat bei
-   ~52 und ~42 km/h) und `2026-09-19_163755` (bis 187 km/h). `CC_SetSpeed` bleibt dagegen nach dem
-   Abbrechen gespeichert. Das opendbc-Bit `0x21F` Byte2 Bit0 existiert beim ND nicht (immer 0).
-   Kein Backend-Zweig nötig: `0x165` liegt per DBC im Snapshot.
-3. **Nicht geklärt:** ob 149 auch "Tempomat an, aber noch nicht gesetzt" abdeckt (in den Logs nie
-   beobachtet: 149 kam immer erst mit dem Setzen).
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>
@@ -238,8 +285,8 @@ vertrauen, Details im Logbuch unten.
 
 - **Antrieb/Motor:** EngineRPM✓ (rpm), APP_Accelerator_Pedal_Position✓ (%, Gaspedal),
   CoolantTemp✓ (°C), IAT_Sensor_No1✓ (°C), MAP_Manifold_absolute_pressure_sensor (kPa,
-  Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-7, Gang, Reverse=7 noch nicht
-  zuverlässig bestätigt), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
+  Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-6, Gang aus Drehzahl/v; 0 auch
+  im Rückwärtsgang, 7 = Initwert ~2 s nach Zündung EIN), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
   Getriebe-Rohsignale), Clutch_Pedal_Position_raw✓ (0-199 roh, **kalibriert:**
   `CPP_PER_MZ% ≈ 0,4665·raw+0,56`, sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
   2026-09-14 über alle 4 Logs mit OBD-Traffic bestätigt, r=0,999), Fuel_Tank✓ (roh 0x09E,
@@ -376,10 +423,11 @@ vertrauen, Details im Logbuch unten.
   (`scripts/tpms_poller.py`, Header 0x720, Mode 0x22, Poll-Intervall bewusst 120s) abgefragt,
   Antwort auf `0x728` (BO_ 1832, DBC-Multiplex nach PID). Läuft automatisch als zweiter
   Kindprozess in `session_logger.py` bei jeder Fahrt mit; Kollision mit dem Handy-OBD-Adapter
-  am Y-Kabel geprüft und für unkritisch befunden (Handy sendet selbst durchgehend ~16-17
+  am Y-Kabel geprüft und für unkritisch befunden (gilt für TPMS/Öl; die schnelle PCM-Gruppe seit
+  19.09. war es NICHT, siehe Stand 2026-09-26 abends) (Handy sendet selbst durchgehend ~16-17
   Requests/s auf anderen Headern; eigene Zusatzlast nur ~0,005% der Busauslastung, siehe
   Logbuch). Werte erscheinen zusätzlich in vier GUI-Bildschirmecken (`TpmsCornersPanel` in
-  `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; Tire1/Tire2=Vorderachse,
+  `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; **Tire1=Vorne Links, Tire2=Vorne Rechts seit 26.09. bestätigt** (Nutzer füllte VR mit weniger Druck, normierte Differenz Tire1−Tire2 0,027 → 0,085 bar); vorher: Tire1/Tire2=Vorderachse,
   Reihenfolge weiterhin offen (im GUI mit "*" markiert). Temperatur-PIDs (0x2A0A-0D) nur vom
   Nutzer per OBD getestet, noch nicht per CAN bestätigt. **Erste echte Auswertung
   (2026-09-14, `scripts/tpms_log_decode.py`, 2 Fahrten):** physikalisch plausibel (Druck
@@ -524,7 +572,13 @@ OBD/CAN-Referenz gesucht werden muss):
   **Klopfen ausgeschlossen** (`KnockRetard_CAN` bleibt bei allen 5 Events im Nahe-Null-Band).
   **Radschlupf/DSC-Traktionseingriff ebenfalls ausgeschlossen** (Radgeschwindigkeits-Spread
   ≤2,3 km/h, unter dem 4,5-km/h-Rauschboden; `ABS_Active_CAN`/`DSC_Status_CAN` durchgehend 0).
-  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 2-4 nötig)** — auffällig ist die Gangabhängigkeit der
+  **Mechanik seit 26.09. spätabends klar** (langer Aufenthalt im 2. Gang, 2,5 s): das Moment
+  (0x167) läuft in 0,5-0,8 s (2. Gang) bzw. 0,9-1,4 s (3. Gang) auf ~0 und bleibt dort bis zum
+  Gaswegnehmen, auch als die Drehzahl 280/min unter das Maximum fällt. Das ist kein Drehzahlregler
+  und kein Kraftstoff-Cut (`FuelCut` 0, Lambda 0,85). Beginn im 2. Gang 7184-7366/min (n=8),
+  im 3. Gang ~7155/min. Das Moment zeigt den Eingriff ~0,25 s vor der Drosselklappen-PID
+  (Logbuch "Offene Fragen vom Fahrtag 26.09. geklärt").
+  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 3-4 bis in die Begrenzung nötig)** — auffällig ist die Gangabhängigkeit der
   Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
   festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:
   RPM>7000 & `APP`≥99% & `ETC_ACT`<90 → Shiftlights blinken blau, 8 Hz), deployt auf dem Pi.
@@ -536,7 +590,8 @@ OBD/CAN-Referenz gesucht werden muss):
   geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
 - ~~Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
   Kupplung~~ – **GELÖST 2026-09-26:** das Rückwärtsgang-Signal ist 0x445 Bit 7 (`ReverseGear`);
-  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`.
+  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`. Fahrzeugtest C2
+  am 26.09. bestätigt; Quelle ist der PCM-Rückfahrschalter 0x165 Bit 24/25 (~0,5 s vor 0x445).
 - **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
   Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
   angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
@@ -587,7 +642,7 @@ OBD/CAN-Referenz gesucht werden muss):
   OBD-Traffic-reichen Log erneut prüfen.
 - Wischer-Test (Testplan-Punkt) strukturell dekodierbar seit dem LIGHT-Bit-Fix, aber inhaltlich
   noch nicht ausgewertet.
-- TPMS-Vorderachsen-Zuordnung (Tire1 vs. Tire2 = vorne-links/-rechts) noch nicht getestet.
+- ~~TPMS-Vorderachsen-Zuordnung~~ – erledigt 26.09.: Tire1 = vorne links, Tire2 = vorne rechts.
 - Pi-GUI-Gauge-Lag-Fix (2026-09-14) deployt, aber noch nicht bei einer echten Fahrt live
   verifiziert.
 - ~~`SteeringAngle_related_3` braucht eine nichtlineare Umrechnung~~ – **erledigt/verworfen
@@ -602,8 +657,15 @@ OBD/CAN-Referenz gesucht werden muss):
   gewinnt der Dateiname. Vorher war ein umbenanntes Log im Datalake **weiterhin falsch
   datiert** – die beiden 09-14-Logs standen dort einen Tag lang unter dem alten
   13.09.-Zeitstempel.
+  **Seit 2026-09-26** versucht `run_daily_pipeline.py` (`fix_can_log_clocks()`) bei neuen
+  Logs mit Marker `korrigiert` den Offset selbst: VehicleSpeed gegen dlg-GPS-Speed, Boot-Gruppen
+  gemeinsam, bei eindeutigem Treffer Umbenennung lokal + Pi (±1 s genau), sonst Warnung. Am
+  Fahrtag hätte das 3 von 6 Logs automatisch korrigiert; kurze dlg (<300 GPS-Punkte) reichen
+  nicht. Siehe Logbuch "Automatische Uhrkorrektur in der Pipeline".
 
 ### Nächste Schritte
+- **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die
+   OBD-Rate im dlg prüfen (Ziel wieder ~39 Werte/s). Siehe `status/pi-runtime-state.md`.
 0. **Fahrzeugtest-Programm aus [`status/can-open-fields.md`](can-open-fields.md) Teil C**
    (Stand-Test mit Multimeter/Verbrauchern, Rückwärtsgang, Bordcomputer, Traktionseingriff auf
    rutschiger Fläche, Vollbremsung, Tempomat, Zusatz-PIDs 0x3C/0x34/0x2F) - löst die meisten
@@ -612,7 +674,7 @@ OBD/CAN-Referenz gesucht werden muss):
    direkt bei der Handlung drücken; fehlende Punkte (Blinker/Licht/Wischer, Tür links) ergänzen.
 2. Fahrmanöver aus Testplan-Abschnitt C: mehrere Vollbremsungen (Rollover-Test), Schaltvorgänge
    in verschiedenen Drehzahlbereichen, Kurven beidseitig.
-3. Vorderachsen-Zuordnung TPMS (Tire1/Tire2) per gezieltem Luftablass-Test klären.
+3. ~~Vorderachsen-Zuordnung TPMS~~ – erledigt 26.09. (Tire1 VL, Tire2 VR).
 4. Sobald weitere CAN-Logs mit begleitendem GPS-Track vorliegen: Paar in `CAN_GPS_PAIRS`
    (`scripts/build_datalake.py`) ergänzen und neu bauen.
 5. Perspektivisch: verifizierte CAN-Signale weiter ins Fahrleistungsmodell einspeisen, für die
