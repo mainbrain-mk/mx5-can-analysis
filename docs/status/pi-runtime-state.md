@@ -16,7 +16,7 @@ Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
 nicht aus `git log` ablesen, sondern nur durch Abgleich (mtime/md5sum) gegen
 das lokale Repo. Deshalb dieser Abschnitt.
 
-**md5sum-Abgleich der zentralen Skripte (2026-09-26, 11:40, nach Deploy):** alle unten genannten Dateien identisch mit dem Repo (Commit-Stand 899797e). Vorherige Pi-Stände gesichert in `/home/pi/canlogs/backup-2026-09-26/`.
+**md5sum-Abgleich der zentralen Skripte (2026-09-26, 11:40, nach Deploy):** alle unten genannten Dateien identisch mit dem Repo (Branch `can-offline-ausbeute`; DBC um 11:52 auf den Stand nach dem Merge mit `main` nachgezogen, `can_backend.py` erneut neu gestartet). Vorherige Pi-Stände gesichert in `/home/pi/canlogs/backup-2026-09-26/`.
 
 | Datei | Pi = lokales Repo? | Bemerkung |
 |---|---|---|

@@ -5779,3 +5779,37 @@ Auffaelligkeiten:
 - corner_event: 2026-09-19 233619 t=777-779s: a_lat_peak/mean-Verhaeltnis 2.4 > 2.0 (peak=-0.02g, mean=-0.01g) - moegliches Schleudern/Uebersteuern.
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+
+## Automatischer Lauf: 4 neue Logs verarbeitet (2026-09-26)
+
+- `2026-09-26 121414`, Dauer=3min, Masse=1168.1kg (FLI ~28.9%->~25.4%, kein CAN-Log gefunden (SOLO-Annahme))
+- `2026-09-26 130327`, Dauer=24min, Masse=1164.9kg (FLI ~20.3%->~14.6%, kein CAN-Log gefunden (SOLO-Annahme))
+- `2026-09-26 135743`, Dauer=22min, Masse=1164.9kg (FLI ~20.3%->~14.6%, kein CAN-Log gefunden (SOLO-Annahme))
+- `2026-09-26 142514`, Dauer=109min
+
+Auffaelligkeiten:
+- vibration: 2026-09-26 121414: Resonanz auf AccelerationX bei 25.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 121414: Resonanz auf AccelerationY bei 6.8 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 130327: Resonanz auf AccelerationZ bei 15.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 135743: Resonanz auf AccelerationY bei 13.6 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 135743: Resonanz auf AccelerationZ bei 14.8 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 142514: Resonanz auf AccelerationY bei 5.3 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-26 142514: Resonanz auf AccelerationZ bei 16.5 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (links): 1.15g (vorher 1.14g), candump-2026-09-20_002313 @ t=168.6s, v=42km/h - unverifizierter Kandidat, manuell pruefen.
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (rechts): 1.12g (vorher 1.09g), candump-2026-09-20_020042 @ t=1041.8s, v=47km/h - unverifizierter Kandidat, manuell pruefen.
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+- script_error: candump-2026-09-19_235203.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:17 auf gespeicherte 2026-09-19 23:51:49 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-19_235409.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:17 auf gespeicherte 2026-09-19 23:51:49 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-20_002313.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:01 auf gespeicherte 2026-09-20 00:22:49 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-20_004532.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:02 auf gespeicherte 2026-09-20 00:45:13 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-20_010853.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:02 auf gespeicherte 2026-09-20 00:45:13 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-20_020042.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:00 auf gespeicherte 2026-09-20 01:58:47 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: .venv/bin/python scripts/corner_event_analysis.py 2026-09-26 121414 2026-09-26 130327 2026-09-26 135743 2026-09-26 142514: exit code 1: 253, in analyze_log
+    v_ms = np.interp(t_common, speed_sub["t"].values, speed_sub["value"].values) / 3.6
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/manuel/claude/.venv/lib/python3.12/site-packages/numpy/lib/_function_base_impl.py", line 1686, in interp
+    return interp_func(x, xp, fp, left, right)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Cannot cast array data from dtype('O') to dtype('float64') according to the rule 'safe'
+
