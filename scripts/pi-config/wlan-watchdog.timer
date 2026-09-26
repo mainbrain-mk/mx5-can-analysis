@@ -1,0 +1,13 @@
+[Unit]
+Description=WLAN-Watchdog alle 15 Sekunden
+
+[Timer]
+# Erster Lauf nach NMs eigenem Verbindungsversuch (~20-28 s) und der Desktop-Ladephase;
+# danach kurz, damit beim Losfahren noch ein zweiter Versuch (und NTP) vor dem WLAN-Ende liegt.
+# Kosten je Lauf ~40 ms CPU. AccuracySec: systemd-Default ist 1 min Verzoegerungsspielraum.
+OnBootSec=30
+OnUnitActiveSec=15
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

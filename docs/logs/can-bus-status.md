@@ -4394,3 +4394,90 @@ durchgeführt, betrifft auch `CAN_SENTINELS["AmbientTemp"] = -6.3` in `build_dat
 Einschränkung: nur 6 Morgenpunkte, Annahme „über Nacht draußen", Garagenwert nur als Spanne bekannt.
 
 **Umsetzung (2026-09-26 nachts):** DBC `AmbientTemp` = `(0.25, 0)`, Sentinel in `build_datalake.py` `CAN_SENTINELS["AmbientTemp"]` von −6,3 auf 0,0. Die `*_decoded.csv` wurden nicht neu dekodiert (Aufwand), sondern nur die `AmbientTemp`-Zeilen per awk umgerechnet (`raw = (alt + 6,3)/0,35`, neu `raw·0,25`); Gegenprobe an `candump-2026-09-26_120029` gegen eine frische `can_log_parser.py`-Ausgabe: alle 184 `AmbientTemp`-Zeilen byteidentisch. Danach Datalake-Neuaufbau (Fingerabdruck der geänderten CSVs löst das Neueinlesen aus).
+
+
+## Bootzeit-Optimierung 27.09.2026
+
+Ausgangslage (Pi 4B, overlayroot): `systemd-analyze` 1:35 min, aber verzerrt - ohne CANable haelt `can-logger.service`
+(`BindsTo`/`After` `can0.device`, `WantedBy=multi-user`) `graphical.target` bis zum 90-s-Device-Timeout. Aussagekraeftig
+sind lightdm-Zeitpunkt (`ActiveEnterTimestampMonotonic`) bzw. der neue Dash-Erstframe in `boot_timing.log`.
+
+**Hauptbremse:** `systemd-journal-flush` 30,8 s (370 MB persistente Alt-Journals im ro-Unterbau werden bei jedem Boot
+durchgelesen; das Upper-Layer ist tmpfs, die Journals ueberleben also nie). Fix `Storage=volatile` -> sysinit.target
+36,1 s -> 9,7 s, lightdm 45,4 s -> 13,3 s. Nebeneffekt: der `can-logger` steht ~26 s frueher bereit (Zeit-/NTP-Pruefung
+in `restore_clock` laeuft frueher, im Auto ohne Netz egal).
+
+Weitere Schritte: Boot-Timer/Dienste abgeschaltet, ModemManager maskiert, `camera_auto_detect=0` (siehe `SETUP.md`,
+Abschnitt "Bootzeit-Optimierung"). Der Kamera-Schritt brachte messbar nichts: `bcm2835_isp/codec/v4l2` bleiben geladen
+(gehoeren zur Pi-4-Media-Hardware), wireplumber laedt libcamera weiterhin (1 Journalzeile).
+
+**Erste echte Messung (ohne CANable):** labwc startet bei 14,4 s, der Autostart (can_backend, dash_gui, panel) aber erst
+bei ~32,7 s, Dash-Erstframe bei 43,4 s (Kivy: 10,7 s vom Prozessstart bis zum ersten Frame).
+
+**Offen: 18 s zwischen labwc-Start und Autostart.** Im Leerlauf (Session-Neustart) betraegt die Luecke <1 s, mit
+geleertem Page-Cache 4 s; die SD-Karte ist mit 47 MB/s nicht der Engpass (ein erster Messwert von 7,7 MB/s war ein
+Artefakt). strace am labwc-Hauptthread zeigt mehrsekuendige syscall-freie Pausen (Rechenzeit/Page-Faults/Konkurrenz)
+waehrend Theme-/Icon-Laden. Kandidaten fuer den naechsten Test: `initial_turbo=30`, pipewire/wireplumber/xdg-desktop-portal/
+panel/pcmanfm nicht starten (Audio und Desktop werden im Auto nicht gebraucht).
+
+**Nachtrag 27.09.2026 (Turbo, Desktop-Autostart, I/O-Befund):**
+- `initial_turbo=30`: keine Wirkung (Prozessstart 33,0 s, Erstframe 43,9 s vs. 32,7/43,4), wieder entfernt.
+- `pcmanfm --desktop` + `wf-panel-pi` aus dem System-Autostart genommen: Dash-Erstframe 43,4 -> 39,5 s (Kivy
+  10,7 -> 6,4 s ab Prozessstart), RAM belegt 665 -> 519 MB, WLAN unbeeintraechtigt (nach Reboot verbunden).
+  Der Autostart-Start selbst bleibt bei ~33 s (32,7 / 33,0 / 33,1) - die ~18 s nach labwc-Start sind also nicht das Panel.
+- **Befund I/O-gebunden:** labwc hat bis zum Autostart nur 0,7 s CPU verbraucht, aber 82 MB von der SD gelesen; Gesamt-iowait
+  seit Boot 54 CPU-s bei 93 s Laufzeit (4 Kerne). Im Leerlauf mit kaltem Cache dauert dieselbe Session nur 4-5 s -> beim
+  Boot konkurriert alles parallel um die SD (Zufallslesen ~2450 IOPS/4k, sequenziell 47 MB/s, UHS DDR50). `read_ahead_kb`
+  128/1024/4096 bringt nichts (4,0/4,5/5,5 s). Hebel waeren schnellere Karte (A2) oder weniger gleichzeitiger Start.
+- Offen: wireplumber/pipewire registrieren die Bluetooth-A2DP-Endpoints erst bei ~28 s. Nur relevant, falls Bluetooth-Audio
+  gebraucht wird; sonst koennten pipewire/wireplumber (und die Portals) abgeschaltet werden - Nutzerentscheid zu BT-Nutzung offen.
+
+**Nachtrag 27.09.2026, ~00:50 (SD-Karte ist der Engpass - Korrektur):**
+- **Korrektur zur obigen Aussage "SD mit 47 MB/s nicht der Engpass, 7,7 MB/s Artefakt": es ist umgekehrt.** Die 47 MB/s
+  stammten aus unbeschriebenen Kartenbereichen (die Karte liefert dort ohne echten Flash-Zugriff). Auf belegten
+  Bereichen: `dd` Anfang p2 **5,1 MB/s** vs. leerer Bereich 46,5 MB/s; `cat libLLVM-15.so.1` (111 MB) kalt 15,4 s = 7,2 MB/s.
+  Zum Vergleich der No-Name-USB-2.0-Stick (`/home/pi/canlogs`): 19,6 MB/s auf echten Daten. Karte: SanDisk-IDs, "SD64G",
+  08/2024, UHS DDR50. So langsame Lesewerte auf belegten Daten sind fuer eine intakte Karte untypisch (Alterung/
+  Faelschung moeglich, nicht belegt) - auch ein Robustheitsthema, nicht nur Bootzeit.
+- Per-Prozess-Sampling: labwc liest beim Start ~37 MB (v.a. `libLLVM-15` 52 MB resident, `libgallium` 14 MB) per Page-Faults.
+- Boot-Preload (diese Bibliotheken frueh am Stueck lesen, 204 MB) getestet: **schlechter** (lightdm 13 s -> 40 s,
+  Erstframe 48 s), weil der Preload bei ~6 MB/s ~33 s die Karte belegt. Wieder entfernt.
+- Audio-Kette + polkit-Agent/pwrkey/pprompt abgeschaltet (Details `SETUP.md`). Erstframe-Verlauf ohne CANable:
+  43,4 -> 39,5 (Panel weg) -> 35,7/35,2 -> **34,6 s**. RAM belegt ~500 MB.
+- **WLAN-Regression gefunden+behoben:** Boot mit "4-Way Handshake failed" (Signal 89 %) -> NM fragt Passwort-Agenten, es gibt
+  ohne Panel keinen -> "no-secrets", Autoconnect gesperrt. Vorher hat vermutlich die Agent-Registrierung des Panels (Start
+  nach dem Fehler) die Sperre aufgehoben (abgeleitet aus dem NM-Verhalten, nicht nachgewiesen). Fix: `wlan-watchdog.timer`,
+  live getestet (verbunden -> nichts; `nmcli dev disconnect` -> wieder verbunden).
+- Groesster verbleibender Hebel: andere Karte (A1/A2, Markenware) oder USB-Boot; per Software ist nicht mehr viel zu holen.
+
+**Nachtrag 27.09.2026, ~00:45 (WLAN-Watchdog kuerzer, Uhrsprung im laufenden Log):**
+- Watchdog-Timer auf OnBootSec=30/OnUnitActiveSec=15/AccuracySec=1s (vorher 60/120 und implizit bis +1 min Verzug).
+  Kosten ~40 ms CPU/Lauf; Erstframe unveraendert 35,0 s; Laeufe im Journal bei 30,5 s und 46,5 s.
+- Analyse Uhrsprung: `candump -l` benennt die Datei einmal beim Start, der clockstate-Marker wird ebenfalls nur
+  beim Start geschrieben (`restore_clock()` laeuft einmal beim Start des Loggers). Kommt NTP erst waehrend der Fahrt,
+  springen die Frame-Zeitstempel mitten in der Datei um die Uhrabweichung nach vorn (keine Datenluecke, nur Zeitsprung).
+  `build_datalake.py` nimmt dann den ersten Frame als t0 (Name und erster Frame stimmen ueberein) -> Teil vor dem Sprung
+  falsch datiert, Teil danach richtig, dazwischen eine Scheinluecke. `fix_can_log_clocks()` greift nur bei Marker
+  "korrigiert" und verschiebt das ganze Log um EINEN Offset - passt bei Sprung im Log nicht. Seit der Bootbeschleunigung
+  startet der Logger (~10 s) fast immer vor dem NTP-Sync (~35-50 s) -> zu Hause ist das der Normalfall.
+  Live-Wirkung auf dem Pi harmlos (Poller feuern einmal sofort, REC-Timer im Dash springt).
+
+## Sprungkorrektur fuer Uhrspruenge mitten im Log (27.09.2026)
+
+`run_daily_pipeline.py`: `find_clock_jump()`/`fix_clock_jump()` laufen in `sync_can_logs_from_pi()` direkt nach dem
+Entpacken, vor `can_log_parser.py`. Eine Frame-Luecke > 5 s gilt als Uhrsprung (bei laufendem Bus kommen Frames im
+ms-Takt; Scan aller 48 lokalen Logs: groesste normale Luecke 1,27 s). Sprung = Luecke minus Frame-Abstand davor.
+Ablauf wie `fix_can_log_clocks()`: erst umbenennen (Pi + lokal, `_rename_can_log`), dann Zeitstempel vor dem Sprung
+ganzzahlig in us verschieben, Marker auf `ntp_sprung_korrigiert` (gilt in `_clockstate_warning` als ok, damit
+`fix_can_log_clocks` nicht ein zweites Mal korrigiert). Mehrere Spruenge oder Rueckwaertssprung -> nur Meldung.
+Originale Zeitstempel bleiben in der `.log.gz` (lokal und Pi).
+
+**Validierung am echten Fall:** Bestands-Scan findet genau einen Sprung, `candump-2026-09-11_201950` Zeile 43321,
++67588,875 s -> neuer Name `candump-2026-09-12_150619` = das bekannte Duplikat. Der korrigierte Teil vor dem Sprung
+endet bei 1789218396,712 s, `_150619` beginnt bei ...396,713 s: lueckenloser Anschluss auf 1 ms. Das Bestands-Log selbst
+bleibt unangetastet (steht in `KNOWN_CAN_LOG_DUPLICATES`, Korrektur wuerde mit `_150619` kollidieren).
+
+Nebenbei: `fix_can_log_clocks()` benennt nicht mehr um, wenn der ermittelte Offset den Namen nicht aendert (spaeteres Log
+desselben Boots nach NTP-Sync; der Marker stammt vom Logger-Start). Offener Rest dazu: `session_logger.write_clock_marker()`
+sollte den NTP-Zustand je Log neu pruefen - zusammen mit dem RTC-Einbau (Zustand "rtc") erledigen.
+Test: `scripts/test_run_daily_pipeline.py` (8/8).

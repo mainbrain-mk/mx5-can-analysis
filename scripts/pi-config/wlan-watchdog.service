@@ -1,0 +1,11 @@
+# Holt das Heim-WLAN zurueck, wenn NetworkManager nach einem Handshake-Fehler aufgegeben hat.
+# Hintergrund (2026-09-27): schlaegt der WPA-Handshake beim Boot einmal fehl, fragt NM einen
+# Passwort-Agenten; ohne Desktop-Panel gibt es keinen -> Verbindung "no-secrets", Autoconnect
+# gesperrt bis zum Reboot. Handelt nur bei "getrennt" UND sichtbarer SSID (im Auto: nichts).
+[Unit]
+Description=WLAN-Watchdog: Heimnetz nach NM-Aufgabe neu verbinden
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'nmcli -t -f GENERAL.STATE dev show wlan0 | grep -q "^GENERAL.STATE:30 " && nmcli -t -f SSID dev wifi list --rescan no | grep -qx wireless && nmcli -w 30 con up wireless; exit 0'
