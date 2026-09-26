@@ -4052,7 +4052,7 @@ Volllastwert bei 6700-7000/min, APP ≥ 99 %; Anfahr-/Schaltsequenzen ausgenomme
   - Besetzt: 0x6 → nach **exakt 60,0 s** 0x2 + Bit 16, in allen 14 Fällen mit vollständigem Verlauf.
   - Leer: 0xB (Gurt offen) bzw. 0x9 (Gurt gesteckt ohne Insasse; so sind die Solofahrten
     geloggt, z. B. 18.09. 090404 "Gurt um den Pi").
-  - Deutung als Kontrollleuchten: Bit 30 = PASSENGER AIRBAG ON (60 s nach Belegung), Bit 31 = OFF
+  - Deutung als Kontrollleuchten (im Nachtrag unten widerlegt): Bit 30 = PASSENGER AIRBAG ON (60 s nach Belegung), Bit 31 = OFF
     (dauerhaft bei leerem Sitz), Bit 16 danach = Airbag scharf, Bit 28 = leer (in allen Logs
     konsistent). Die Leuchten am Auto sind noch nicht angesehen.
   - 7 Ein-/Ausstiege passen zu den Türereignissen (u. a. 18.09. 093544: B→6 bei 5,1 s, 2→B bei
@@ -4139,3 +4139,44 @@ Wirkung (k = 0,971):
     `PassengerSeatPending_maybe`: Nachträge.
 - Keine neuen Signale, also kein Neudekodieren und kein Datalake-Lauf nötig.
 - DBC auf den Pi kopiert (md5 identisch).
+
+### Nachtrag: Beifahrer-Leuchte (Nutzer) und Ganganzeige im Dash (2026-09-26, ~21:00)
+
+**Beifahrer-Leuchte:** der Nutzer hat sie heute beobachtet. Sie geht beim Hinsetzen an und aus,
+sobald der Beifahrer angeschnallt ist - im 120235 also 7 s (538,5 → 545,1 s), nicht 60 s. Damit
+ist die Deutung oben (Bit 30 = Airbag-ON-Leuchte, Bit 31 = OFF-Leuchte) **falsch**.
+- Bit-Suche über alle IDs in beiden Einstiegen mit bekannter Reihenfolge (26.09. 120235 und
+  18.09. 170350, 122,6 → 130,3 s): nur das Gurtbit 26 selbst trennt das Fenster.
+- Die Leuchte hat kein eigenes HS-CAN-Bit; das Kombiinstrument bildet sie aus
+  "besetzt" (Bit 28 = 0) und "Gurt offen" (Bit 26 = 0).
+- Bit 30 bleibt "Klassifizierung läuft" (60 s), Bit 31 "leer bestätigt".
+- DBC-Kommentar und Katalog korrigiert.
+
+**Ganganzeige im Renncockpit (`dash_gui.py`):** bisher `MT_Gear_Actual` allein. Das zeigte im
+Stand, im Rückwärtsgang und bei getretener Kupplung "N" und direkt nach Zündung EIN "R" (Initwert
+7). Neu `_gear_label()`:
+1. `ReverseGear_IC` (0x09F Bit 0, neu in der DBC, 5 Hz) = 1 → **R**. Das ist ~0,3-0,5 s schneller
+   als 0x445 und stimmt in allen Logs bis auf Flanken mit dem PCM-Rückfahrschalter überein.
+2. `MT_Gear_Select` = Neutral → **N**, außer beim Rollen (> 3 km/h) mit getretener Kupplung. Das
+   sind Schaltvorgänge durch die Neutralgasse (0,2-0,3 s, Kupplung in 90 %, Drehzahl passt zu
+   keinem Gang); dann bleibt der letzte Gang stehen, die Anzeige ist ohnehin babyblau.
+3. `MT_Gear_Actual` 1-6 → dieser Gang.
+4. Gang drin und `MT_Gear_Position` ≥ 19 (Stand/Anfahren, Kupplung schleift) → **1**.
+   `MT_Gear_Position` ist keine Hebelposition, sondern übersetzungsartig (im 1. Gang 11-20 beim
+   Anfahren); 19/20 ohne Neutral heißt 1. Gang.
+5. sonst letzten Gang stehen lassen.
+
+Wiedergabe mit echten Frames und derselben cantools-Dekodierung wie `can_backend.py`
+(`decode_choices=True`, Select/Position kommen als Text "InGear"/"N/1st", Position 20 als Zahl),
+Logs 120235/142216/184447:
+- R in 99,6-100 % der Rückwärtszeit.
+- Beim Fahren gleich `MT_Gear_Actual` in 99,8-100 %; der Rest sind Schaltflanken von 0,1 s.
+- Anzeigewechsel 446 → 168 (142216).
+- Im Stand mit Gang "1" statt "N".
+
+Tests in `test_dash_gui.py` (Funktion + Halten beim Schalten), auf dem Pi grün, ebenso
+`test_can_backend.py`. Die Live-Liste "Rückwärtsgang" in `can_backend.py`, `status_gui.py` und
+`dash_gui.py` zeigt jetzt `ReverseGear_IC` statt des toten `Reverse_Flag_maybe`. Deployt, md5
+identisch (Backup `backup-2026-09-26d/`), `can_backend.py` und `dash_gui.py` um 21:01 neu
+gestartet. Live-Prüfung bei der nächsten Fahrt.
+

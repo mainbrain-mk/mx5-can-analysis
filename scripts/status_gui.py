@@ -94,7 +94,7 @@ LIVE_SIGNALS = [
     ("Tür rechts", 1086, "DoorLeft"),
     ("Kofferraum", 1086, "Trunk"),
     ("Parkbremse", 159, "Parking_Brake"),
-    ("Rückwärtsgang", 159, "Reverse_Flag_maybe"),
+    ("Rückwärtsgang", 159, "ReverseGear_IC"),
     ("Speed ABS (neu)", 535, "VehicleSpeed_ABS_raw"),
     ("Drehzahl 0x130 (neu)", 304, "EngineRPM_related_2"),
     ("Kupplung 0x166 (neu)", 358, "Clutch_Pedal_Position_related_2"),

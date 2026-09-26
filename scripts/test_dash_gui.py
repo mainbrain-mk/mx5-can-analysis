@@ -208,6 +208,40 @@ def test_limiter_blink_toggles_over_time():
     assert dash_gui._blink_on(0.0, hz) == dash_gui._blink_on(period, hz)
 
 
+def test_gear_label_shows_reverse_neutral_and_first_at_standstill():
+    """Werte wie sie can_backend.py liefert (decode_choices: Select/Position als Text, Position
+    ohne VAL_-Eintrag als Zahl). MT_Gear_Actual ist im Stand/R 0 und nach Zuendung EIN 7."""
+    label = dash_gui._gear_label
+    assert label(1, "InGear", 0, "N/1st") == "R"
+    assert label(0, "Neutral", 0, "N/1st") == "N"
+    assert label(0, "Neutral", 7, "N/1st") == "N"          # Initwert 7 ist kein R
+    assert label(0, "InGear", 0, "N/1st") == "1"            # 1. Gang im Stand
+    assert label(0, "InGear", 0, 20) == "1"                 # Anfahren, Kupplung schleift
+    assert label(0, "InGear", 3, "3rd") == "3"
+    assert label(0, "InGear", 0, 9) is None                 # Kupplung beim Schalten getreten
+    assert label(None, None, None, None) is None
+    assert label(0, "Neutral", 4, "N/1st", clutch_raw=150, speed=80) is None  # Schalten
+    assert label(0, "Neutral", 0, "N/1st", clutch_raw=150, speed=0) == "N"     # Ampel
+    assert label(0, "Neutral", 4, "N/1st", clutch_raw=0, speed=80) == "N"      # rollt in N
+
+
+def test_gear_display_keeps_last_gear_while_clutch_pressed():
+    client = FakeSnapshotClient()
+    client.set(357, "MT_Gear_Select", "InGear")
+    client.set(253, "MT_Gear_Actual", 2)
+    client.set(357, "MT_Gear_Position", "2nd")
+    screen = dash_gui.DriveScreen(client)
+    screen.refresh()
+    assert screen.gear_value.text == "2"
+    client.set(253, "MT_Gear_Actual", 0)
+    client.set(357, "MT_Gear_Position", 9)
+    screen.refresh()
+    assert screen.gear_value.text == "2"
+    client.set(159, "ReverseGear_IC", 1)
+    screen.refresh()
+    assert screen.gear_value.text == "R"
+
+
 if __name__ == "__main__":
     if dash_gui is None:
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
@@ -217,6 +251,8 @@ if __name__ == "__main__":
     test_testmode_has_priority_over_logging()
     test_prepare_replay_log_streams_without_buffering_all_lines()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
+    test_gear_label_shows_reverse_neutral_and_first_at_standstill()
+    test_gear_display_keeps_last_gear_while_clutch_pressed()
     test_fuel_gauge_smooths_out_tank_slosh()
     test_shiftlight_colors_cover_the_narrow_orange_zone()
     test_limiter_active_needs_all_three_conditions()

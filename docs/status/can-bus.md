@@ -39,6 +39,9 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
      Kein Drehzahlregler und kein Kraftstoff-Cut; der Auslöser bleibt offen.
    - `EmergencyStopSignal_maybe` und der Beifahrer-Belegungscode sind über alle Logs bestätigt,
      die `HighDecel_maybe`-Schwelle liegt bei ~0,6 g.
+   - **Ganganzeige im Dash** zeigt jetzt R (0x09F Bit 0, neues `ReverseGear_IC`), N (Leerlaufschalter,
+     ohne Flackern beim Schalten) und den 1. Gang im Stand zuverlässig; deployt 21:01, Live-Prüfung offen.
+     Die Beifahrer-Leuchte hat kein eigenes CAN-Bit (Nutzerbeobachtung, Bit 30 ist keine Leuchte).
    - C9: gemessenes Lambda folgt dem Soll ohne Versatz.
    - **`VehicleSpeed` liest 2,9 % zu hoch** (70 dlg-Logs, GPS/VS = 0,971). Das betrifft
      absolute Werte des Fahrleistungsmodells, siehe `status/performance-model.md`.
