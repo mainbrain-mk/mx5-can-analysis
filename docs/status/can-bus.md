@@ -27,20 +27,19 @@ vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
 6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
 
 **Status 2026-09-26 — Tempomat-Anzeige in der GASPEDAL-Kachel des Dash (Nutzerwunsch),
-noch nicht deployt, Trigger-Signal unverifiziert.** Details im Logbuch ("Tempomat-Anzeige in der
-Gaspedal-Kachel…").
+Trigger jetzt belegt, noch nicht deployt.** Details im Logbuch ("Tempomat-Anzeige in der
+Gaspedal-Kachel…" und "Tempomat-Zustand gefunden…").
 
 1. **`dash_gui.py`:** regelt der Tempomat und ist das Pedal losgelassen (`APP` ≤ 2 %), zeigt die
    Kachel die Drosselklappe `ETC_ACT` in **grüner Schrift** statt `APP`; Tempomat aus oder Fahrer
    gibt Gas → wieder `APP` in Normalfarbe (`_gas_card_source`).
-2. **Trigger:** `0x21F` Byte2 Bit0 (opendbc `CRZ_EVENTS.CRUISE_ACTIVE_CAR_MOVING`, PCM), roh in
-   `can_backend.py` extrahiert (`_CruiseActive_maybe_derived`). **Nie gegen ein eigenes Log
-   geprüft**, deshalb nicht in der DBC. Fehlermodi gutartig (Flag nie gesetzt → Anzeige wie
-   bisher).
-3. **Prüfwerkzeug `scripts/can_cruise_flag_check.py`:** bewertet alle Kandidaten (`0x21F` alle
-   64 Bits, `0x21C` Bit3, `0x165 CC_Mode_Related*`/`CC_SetSpeed`) gegen die Fahrsituation
-   "Pedal los + >40 km/h + Last an". **Offen:** auf dem Tempomat-Log vom 06.09.2026 laufen
-   lassen, dann DBC nachziehen und `dash_gui.py` + `can_backend.py` gemeinsam auf den Pi.
+2. **Trigger:** `0x165` `CC_Mode_Related` (357) **== 149** = Tempomat regelt bzw. übersteuert;
+   141 = aus/bereit, 302 = Bremse/Stand. Belegt an `candump-2026-09-26_184447` (Tempomat bei
+   ~52 und ~42 km/h) und `2026-09-19_163755` (bis 187 km/h). `CC_SetSpeed` bleibt dagegen nach dem
+   Abbrechen gespeichert. Das opendbc-Bit `0x21F` Byte2 Bit0 existiert beim ND nicht (immer 0).
+   Kein Backend-Zweig nötig: `0x165` liegt per DBC im Snapshot.
+3. **Nicht geklärt:** ob 149 auch "Tempomat an, aber noch nicht gesetzt" abdeckt (in den Logs nie
+   beobachtet: 149 kam immer erst mit dem Setzen).
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>
