@@ -14,16 +14,17 @@ vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
    doch ein Eingriff (0,26 s); der alte Rarity-Scan konnte so kurze Flags nicht sehen.
 2. **Rückwärtsgang gelöst:** 0x445 Bit 7 (`ReverseGear`), physikalisch bestätigt über das
    umgekehrte Gierraten-Vorzeichen (99,7 %). `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0.
-3. **Kraftstoff- und Wegzähler:** 0x420 Byte2-3 (~1800 Schritte/g, r bis 0,999) und Byte1
+3. **Kraftstoff- und Wegzähler:** 0x420 Byte2 (~7 Schritte/g, r bis 0,999) und Byte1
    (0,209 m/Schritt, r=1,000). Im Datalake jetzt `FuelRate_CAN` in g/s.
 4. **Außentemperatur war falsch dekodiert** (konstant 25,8 °C) - jetzt Byte7 von 0x420,
    vorläufig kalibriert. Außerdem: Bordnetz-, BCM-, Batteriesensor- und i-ELOOP-Kondensatorspannung,
    Batterie- und RCM-Temperatur, Kaltlauf-Leuchte (Schwelle exakt 55 °C), i-stop-Zustände
    (97 Stopps), Bremsschalter, Tür offen, starke Verzögerung, Kamera-Tempolimit, Spurkrümmung und
-   Querversatz in der Spur.
+   Querversatz in der Spur, **Fahrbahnsteigung** (0x49C, r bis 0,96) und **Service-Restdistanz**
+   (0x3D1, ersetzt das Müll-Signal `Mileage`).
 5. **Neue Werkzeuge:** `can_offline_lab.py` (gecachte Frames), `can_rare_bits.py`,
    `can_natural_events.py`, `can_anchor_sweep.py`, `can_field_inspect.py`, `can_open_fields.py`.
-6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 4.
+6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>

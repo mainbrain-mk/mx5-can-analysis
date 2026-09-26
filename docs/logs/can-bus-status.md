@@ -3021,3 +3021,24 @@ abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
   Wochenende). Innerhalb eines Logs wechseln sie nur im Stand bei offener Fahrertür bzw. nach
   Zündung AUS/Verdeckbewegung (093544: 5,1 s, 763,7 s, 2775,1 s). Hypothese Beifahrer-/Gurtstatus
   (opendbc: 0x340 `SEATBELT`), offline nicht entscheidbar -> Test C12 im Katalog.
+- **Korrektur Kraftstoffzähler:** nach dem ersten Datalake-Lauf hatte `FuelRate_CAN` Median 0 - die
+  Frame-Inkremente kommen nur in 256er-Schritten. Byte3 von 0x420 ist in allen Logs konstant 51/52;
+  der Zähler ist **nur Byte2** (8 Bit): ~7,0 Schritte/g, ~0,142 g bzw. ~0,19 ml je Schritt,
+  Leerlauf ~1,2 Schritte/s. Die Kalibrierung (Verhältnis zur Luftmasse) bleibt, nur durch 256 geteilt.
+  `FuelRate_CAN` wird jetzt über ein 2-s-Fenster gebildet (Mittelwert im synthetischen Test exakt).
+  Außerdem filtert `ingest_can()` Init-/Ungültig-Werte (Batterietemperatur 215 = Rohwert 255,
+  Außentemperatur -6,3 = Rohwert 0, Spannungen 0 V). `SCHEMA_VERSION` 5.
+- **0x4D9 Byte7:** meist 0, in 0,8 % der Zeit 1-21 (2544 Einsätze über alle Logs), in allen
+  ABS-/TCS-/Starkbrems-Ereignissen gesetzt. Einsatzwahrscheinlichkeit steigt mit |Längs-| (bis 9 %
+  bei < -0,6 g) und Querbeschleunigung; an den Einsätzen ist der Ruck doppelt so hoch wie zu
+  zufälligen Zeitpunkten (0,21 gegen 0,11 g/s). Hypothese: Bewertung von G-Wechseln (i-DM-artig).
+- **0x4FE** ist eine Tabellenübertragung (Byte0-1 = 10-Bit-Adresse, +1 je 0,3 s, ~1280 Einträge;
+  Byte2-7 sechs Werte je Adresse), kein Kilometerzähler (opendbc `MILAGE_MAYBE` passt nicht).
+- **Fahrbahnsteigung gefunden:** 0x49C (HS_IC) Byte7 Bit7..1 (`RoadIncline_maybe`, (raw-32) %), gegen
+  den abgeleiteten Steigungsanker r=0,82-0,96 in 16 von 19 Logs, gepoolt r=0,875 (n=232.412), ~1 % je
+  Stufe (Stufenmediane 0,6/1,6/2,8/3,8/4,5 %), + = bergauf. Gefunden erst mit dem synthetischen Anker
+  'slope' - die 0x49C-Bits standen am 26.09. schon auf der Soft-Limiter-Kandidatenliste (dort als
+  Zufall gewertet, zu Recht: die Steigung hat mit dem Limiter nichts zu tun).
+- **Bug unterwegs:** der neue PID-0x34-Dekoder bekam den Rohwert als float (`>>` schlug fehl) und
+  brach `can_log_parser.py` für Logs mit 0x34-Antworten (Einmal-Erhebung 15./16.09.) ab - behoben
+  (`int(r)`), betroffene Logs neu dekodiert.

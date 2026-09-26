@@ -111,7 +111,7 @@ OBD1_PIDS = {
     0x42: ("BatteryVoltage", 2, lambda raw: raw / 1000),
     0x11: ("ThrottlePosition_pct", 1, lambda raw: raw * 100 / 255),
     0x3C: ("CatalystTemp_B1S1_C", 2, lambda raw: raw / 10 - 40),
-    0x34: ("LambdaMeasured_B1S1", 4, lambda raw: (raw >> 16) / 32768),
+    0x34: ("LambdaMeasured_B1S1", 4, lambda raw: (int(raw) >> 16) / 32768),
     0x2F: ("FuelLevel_pct", 1, lambda raw: raw * 100 / 255),
 }
 OBD1_FAST_PIDS = {0x44, 0x11}
