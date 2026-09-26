@@ -3847,3 +3847,48 @@ Log, dlg mit verzögerter GPS-Spur).
 
 **Grenze:** Ein CAN-Log wird nur in dem Lauf geprüft, der es vom Pi holt. Kommt die dlg erst
 später über Google Drive, bleibt es bei der Warnung und der Handkorrektur.
+
+## Kraftstoff absolut: Voll-bis-Voll 16.09. → 26.09., Tankgeber-Literkennlinie (2026-09-26 abends)
+
+Nutzerangaben: 34,4 l getankt (Rechnung); beim Anfahren der Tankstelle zeigte das Auto 33 km
+Restreichweite; bei Reichweite 0 sind noch 9 l im Tank, die Tankanzeige steht dann schon auf 0.
+Und: das vorige Volltanken liegt ebenfalls in den CAN-Logs.
+
+**Vorige Volltankung:** zwischen `candump-2026-09-16_082929` (Ende 08:29, `Fuel_Tank` 4,6 roh) und
+`_083214` (36,2 roh = gesättigt). Dort setzte der Nutzer auch den Durchschnittsverbrauch zurück
+(0xFFFE in 0x4F3 bei 76,1 s, Wert davor 7,38). Beide Resets liegen direkt nach dem Tanken an der
+Zapfsäule, der Bordcomputer-Mittelwert kurz vor dem heutigen Reset deckt deshalb genau die
+Strecke zwischen den beiden Volltankungen ab - **einschließlich der Fahrten ohne Logger** (41 + 23
++ 2 km).
+
+- Kilometerstand an den Resets (letztes `C001_ODO`-Inkrement ± Wegzähler 0,1992 m/Schritt):
+  169 941,87 und 170 387,84 → **445,97 km**.
+- Bordcomputer vor dem heutigen Reset: 7,42 l/100km → **33,09 l**. Getankt: **34,4 l**.
+- → Der Bordcomputer zählt **4,0 % zu wenig**. Da er dem Zähler 0x420 Byte2 auf 2,6 ml folgt
+  (5025 Schritte je Anzeige-Liter), ist die echte Einheit **4834 Schritte je Liter = 0,207 ml je
+  Schritt** (6,49 Schritte/g bei 0,745 kg/l). Die MAF/Lambda-Schätzung (0,19 ml) lag ~8 % zu tief.
+  Unsicherheit v. a. der Füllstand beim Abschalten der Zapfpistole (~1-1,5 %).
+- `FUEL_COUNTS_PER_G` im Datalake auf 4834/745, `SCHEMA_VERSION` 8, DBC-Kommentare ergänzt.
+
+**Restreichweite als Plausibilität:** 33 km bei ~7,4 l/100km (Anzeige) sind 2,45 l Anzeige = 2,55 l
+echt über der 9-l-Reserve → vor dem Tanken ≈ 11,5 l, nach dem Tanken ≈ **46 l** (Nenninhalt 45 l +
+Einfüllstutzen) - passt zu "bis zum Abschalten getankt".
+
+**Tankgeber-Kennlinie:** für den ganzen Tank 16.→26.09. in 5-min-Fenstern (66 Stützpunkte aus 20
+Logs) den Median von `Fuel_Tank` gegen die bis dahin verbrauchten Liter (Bordcomputer-Mittelwert ×
+Strecke seit Reset × 1,04) aufgetragen: roh = 38,08 − 0,908 · verbraucht (Rest 0,5 roh), gesättigt
+bei 36,2 bis ~2,3 l nach dem Tanken. Mit voll = 46 l: **Liter ≈ 4,0 + 1,10 · roh**. Die Steigung
+entspricht der alten Formel FLI % = 2,486 · roh bei 45 l (1,12 l/roh), neu ist der Sockel von ~4 l
+unter "0 %". Tankanzeige 0 ↔ 9 l ↔ roh ≈ 4,6 (folgt aus den Nutzerangaben, keine unabhängige
+Probe). `run_daily_pipeline.py::compute_mass()` rechnet jetzt `4,0 + 1,10/2,486 · FLI%` statt
+`FLI% · 45 l` (≈ +2-3 kg je Fahrt); die vier heutigen Massen neu: 1245,9 / 1243,9 / 1242,7 / 1266,4 kg.
+Ältere Einträge in `data/log_mass_overrides.json` bleiben (Differenz ~0,2 %).
+
+**Restreichweite/Trip-km auf dem Bus:** gezielte Suche nach einem Feld, das beim Tanken von ~33 auf
+mehrere hundert springt (alle IDs, 8-16 Bit, beide Byte-Reihenfolgen, Skalen 0,1-10) - nur
+Zufallstreffer aus verschobenen Bitfenstern, keine echte Reichweite. Beide Werte leben offenbar nur
+im Kombiinstrument.
+
+**Nebenbei:** Die Parallelsession (automatische Neudatierung) lief im selben Arbeitsverzeichnis;
+mein Commit `4410007` hat einen Zwischenstand ihrer `run_daily_pipeline.py` mitgenommen, der Rest
+steht in `2c35136`. Inhaltlich vollständig, Tests grün.

@@ -48,7 +48,11 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 DRIVER_MASS_KG = 86.0
 EMPTY_MASS_KG = 1073.0
-TANK_LITERS = 45.0
+# Tankinhalt aus FLI (%): Kennlinie aus dem Tank 16.->26.09. (Voll-bis-Voll + CAN-Kraftstoffzaehler,
+# docs/logs/can-bus-status.md "Kraftstoff absolut"): Liter = 4,0 + 1,10 * Fuel_Tank_roh, und
+# FLI % = 2,486 * roh. Vorher FLI % * 45 l - gleiche Steigung, aber ohne die ~4 l unter "0 %".
+FUEL_L_AT_FLI0 = 4.0
+FUEL_L_PER_FLI_PCT = 1.10 / 2.486
 FUEL_DENSITY_KG_L = 0.745
 # Beifahrer-Zusatzmasse (2026-09-20, siehe DBC-Kommentar bei BO_832
 # PassengerSeatOccupied_maybe / docs/logs/can-bus-status.md): wird anteilig zum
@@ -538,7 +542,7 @@ def compute_mass(log_id):
         return None
     start_pct, end_pct = statistics.median(first10), statistics.median(last10)
     level_pct = (start_pct + end_pct) / 2
-    fuel_kg = (level_pct / 100 * TANK_LITERS) * FUEL_DENSITY_KG_L
+    fuel_kg = (FUEL_L_AT_FLI0 + FUEL_L_PER_FLI_PCT * level_pct) * FUEL_DENSITY_KG_L
     mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_kg
     note = f"FLI ~{start_pct:.1f}%->~{end_pct:.1f}%"
 

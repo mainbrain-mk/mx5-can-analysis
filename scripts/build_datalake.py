@@ -141,7 +141,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
 # Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
 # der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 
 MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
                         "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]

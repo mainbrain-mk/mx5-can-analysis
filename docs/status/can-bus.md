@@ -22,8 +22,10 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
    (0x340 Byte3-High-Nibble, `PassengerSeatEmpty_maybe`/`PassengerSeatPending_maybe`),
    `EmergencyStopSignal_maybe` (0x09A Bit 61), `AvgFuelConsumption` (0x4F3 Byte4-5, Bordcomputer).
    `HighDecel_maybe` an zwei Vollbremsungen bestätigt.
-4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 = 5025 Schritte je Anzeige-Liter (0,199 ml,
-   zwei Logs), Wegzähler 0x420 Byte1 = 0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
+4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 **absolut 4834 Schritte je Liter** (Voll-bis-Voll
+   16.→26.09., 34,4 l getankt; der Bordcomputer rechnet mit 5025/l und zeigt 4 % zu wenig),
+   Tankgeber `Fuel_Tank` → Liter ≈ 4,0 + 1,10 · roh (voll ≈ 46 l), Wegzähler 0x420 Byte1 =
+   0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
    `VehicleSpeed` liegt ~3 % über GPS.
 5. **TPMS vorne geklärt:** Tire1 = vorne links, Tire2 = vorne rechts (Nutzer füllte VR mit weniger
    Druck). Beifahrermasse 75 kg ist gewogen. Tankbeleg 34,4 l, siehe Logbuch.
