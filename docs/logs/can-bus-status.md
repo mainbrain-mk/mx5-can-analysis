@@ -3681,4 +3681,15 @@ startet 11.09., am 06.09. nur Handy-`.dlg`). Stattdessen:
   und `CC_SetSpeed` ergänzt, keine Signaländerung.
 - **Offen:** ob 149 auch "Tempomat an, noch nicht gesetzt" abdeckt (nie beobachtet), und die
   Bedeutung der Bits von 141/149/302 im Einzelnen (149 = 0x95, 141 = 0x8D).
+- **Verhalten nach dem Beenden (Nutzer hat heute Vormittag mit der Bremse beendet; ~50
+  149-Segmente in `candump-2026-09-26_130440` bis `_154000` ausgewertet):** Beim Abbrechen fällt
+  `CC_Mode_Related` von 149 auf 141 (bei Bremse zeitweise über 302, dann 141), `CC_SetSpeed`
+  bleibt **unverändert gespeichert** (z. B. 65/60/57/61/43 km/h Tacho), das Tempo rollt danach
+  frei aus (~2-4 km/h pro Sekunde), `APP` ist zunächst 0. Innerhalb eines 149-Segments ist
+  `BrakeSwitch_PCM` nie gesetzt. Segmente enden sowohl mit Bremse (Ende 302/310, `BrakeSwitch`=1)
+  als auch ohne (direkt 141, Auslöser aus dem Bus nicht erkennbar: Tempomat-Taste, Kupplung o. ä.).
+  Bei Übersteuern durch Gasgeben (`APP` bis 90 %) bleibt 149 stehen, dann zeigt der Dash wegen
+  `APP` > 2 % korrekt `APP` statt der Drosselklappe. Einmal (`154000`, ~98 s) wurde
+  `CC_SetSpeed` beim Beenden zusätzlich auf 0 gesetzt, vermutlich Hauptschalter aus; nicht geprüft.
+  **Für den Dash ändert sich nichts:** 141 = keine grüne Anzeige, egal was `CC_SetSpeed` sagt.
 
