@@ -3927,3 +3927,15 @@ gab es schon). Schnelle Runde jetzt 0x44/0x11/0x10 + 0x03EC: ohne Handy ~51 Rund
 vorher ~62), mit Handy gedrosselt auf 5 Runden/s = 20 Anfragen/s. Deployt 26.09. abends (md5
 identisch, vorige Version in `backup-2026-09-26b/tpms_poller.py.vor_maf`). Das Handy kann MAF damit
 abwählen; **als Sync-Referenz bleibt dort der Zündzeitpunkt** (95 % gegen 19 %, siehe oben).
+
+**Nachtrag: doppelte Abfragen aus dem Poller entfernt (26.09., ~20:25).** Nutzer hat im Handy
+Motordrehmoment, FuelLevel, KnockRetard und MAF abgewählt (bleibt: Zündzeitpunkt als
+Sync-Referenz). Im Pi-Poller entfallen PID 0x42 (Batteriespannung → Broadcast 0x08A
+`DCDC_Voltage`, r=0,998-1,000, 100 Hz) und PID 0x2F (Tankfüllstand → 0x09E `Fuel_Tank`, derselbe
+Geber). Das Renncockpit zeigt die Batterie jetzt aus `DCDC_Voltage` (`can_backend.py`: 0x08A in
+`NEEDED_CAN_IDS`; `dash_gui.py`: `c.get(138, "DCDC_Voltage")`, `BATTERY_STALE_S` entfällt).
+Verbleibende Abfragen: schnell 0x44/0x11/0x10 + DID 0x03EC, langsam (10 s) 0x3C/0x34 + DID 0x1310,
+TPMS alle 120 s. Tests lokal grün (`test_dash_gui.py` scheitert lokal auch ohne Änderung am
+fehlenden GL-Kontext), auf dem Pi `test_dash_gui.py`/`test_can_backend.py` grün. Deployt,
+`can_backend.py`/`dash_gui.py` auf dem Pi neu gestartet (20:24), Backup in `backup-2026-09-26c/`.
+Ältere Logs behalten ihre PID-0x42/0x2F-Werte (`can_log_parser.py` dekodiert sie weiter).

@@ -100,6 +100,9 @@ UDS_FAST_PIDS = {
 # sich kaum aendern, will man Drosselklappe+Lambda so oft wie moeglich sehen. Die erreichbare
 # Frequenz ist dabei nicht durch ein Intervall begrenzt, sondern einzig durch die
 # Antwortzeit der ECU (poll_group wartet pro PID auf die Antwort, dann sofort die naechste).
+# 0x42 (Batteriespannung) und 0x2F (Tankfuellstand) am 26.09. abends wieder entfernt: beide gibt es
+# als Broadcast (0x08A DCDC_Voltage r=0,998-1,000 mit 100 Hz; 0x09E Fuel_Tank, derselbe Geber) -
+# jede eingesparte Anfrage auf 0x7E0 entlastet den Handy-Dongle.
 # 0x3C/0x34/0x2F (2026-09-26, Fahrzeugtest C9 aus docs/status/can-open-fields.md): alle drei
 # laut probe-20260916-081915.csv unterstuetzt. 0x3C = Katalysatortemperatur B1S1 als Referenz fuer
 # die PCM-Modellgroessen in 0x4DA; 0x34 = GEMESSENES Lambda der vorderen Breitbandsonde (obere
@@ -108,11 +111,9 @@ UDS_FAST_PIDS = {
 # bei Bedarf in OBD1_FAST_PIDS verschieben.
 OBD1_PIDS = {
     0x44: ("LambdaCommanded", 2, lambda raw: raw / 32768),
-    0x42: ("BatteryVoltage", 2, lambda raw: raw / 1000),
     0x11: ("ThrottlePosition_pct", 1, lambda raw: raw * 100 / 255),
     0x3C: ("CatalystTemp_B1S1_C", 2, lambda raw: raw / 10 - 40),
     0x34: ("LambdaMeasured_B1S1", 4, lambda raw: (int(raw) >> 16) / 32768),
-    0x2F: ("FuelLevel_pct", 1, lambda raw: raw * 100 / 255),
     # 0x10 Luftmassenstrom (2026-09-26): einzige echte Luftmassen-Messung, kein Broadcast. Vorher
     # nur vom Handy abgefragt; jetzt selbst, damit das Handy sie abwaehlen kann (Dongle-Konflikt).
     0x10: ("MAF_gps", 2, lambda raw: raw / 100),

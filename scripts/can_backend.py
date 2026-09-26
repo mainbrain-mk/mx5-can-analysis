@@ -20,9 +20,9 @@ Werte, per UDP an 127.0.0.1 gesendet (Loopback, atomare Datagramme - kein
 Torn-Read-Risiko, kein Lock/Shared-Memory noetig). Das Frontend liest jeweils
 nur den neuesten Snapshot, unabhaengig von der tatsaechlichen CAN-Eingangsrate.
 
-Neu ggue. status_gui.py: pollt zusaetzlich Lambda (Soll, PID 0x44) und
-Batteriespannung (PID 0x42) ueber tpms_poller.poll_obd1 - selbes Muster wie
-die bestehende Oeltemp-Abfrage, selber Header, selber konservativer Takt.
+Neu ggue. status_gui.py: dekodiert zusaetzlich die Mode-1-Antworten von
+tpms_poller.py (Lambda-Soll, Drosselklappe ...) passiv mit. Batteriespannung kommt
+seit 26.09. aus dem Broadcast 0x08A (DCDC_Voltage, 100 Hz) statt aus PID 0x42.
 """
 import json
 import os
@@ -102,6 +102,7 @@ RCM_LONGITUDINAL_CAN_ID = 118
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274  # BO_ 1274 HS_PCM, Signal IAT_Sensor_No1
 LOAD_CAN_ID = 359   # BO_ 359 HS_PCM, Signal ActualEnginePercentTorque
+DCDC_CAN_ID = 138   # BO_ 138 HS_DCDC, Signal DCDC_Voltage (Bordnetzspannung, ersetzt PID 0x42)
 
 NEEDED_CAN_IDS = sorted({
     *(can_id for _, can_id, _ in LIVE_SIGNALS),
@@ -116,6 +117,7 @@ NEEDED_CAN_IDS = sorted({
     ABS_CAN_ID,
     IAT_CAN_ID,
     LOAD_CAN_ID,
+    DCDC_CAN_ID,
 })
 
 

@@ -56,7 +56,6 @@ LIVE_STALE_S = 2.0
 OIL_STALE_S = 25
 TPMS_STALE_S = 200
 LAMBDA_STALE_S = 25
-BATTERY_STALE_S = 25
 
 DRIVE_RPM_MAX = 8000
 DRIVE_RPM_YELLOW = 7000
@@ -705,7 +704,7 @@ class DriveScreen(Screen):
         self.coolant_card.set_value(c.get(COOLANT_TEMP_CAN_ID, "CoolantTemp"))
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))
         self.battery_card.set_value(
-            c.get(OIL_RESPONSE_KEY, "_BatteryVoltage_derived", max_age=BATTERY_STALE_S))
+            c.get(138, "DCDC_Voltage"))  # Broadcast 0x08A statt PID 0x42 (26.09.)
 
         for key, spec in (("VL", "Tire1"), ("VR", "Tire2"), ("HL", "Tire3"), ("HR", "Tire4")):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
