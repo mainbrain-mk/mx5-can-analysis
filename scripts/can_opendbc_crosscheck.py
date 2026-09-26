@@ -231,8 +231,10 @@ def self_test():
     assert sorted(signal_bit_indices(sig)) == [20, 21, 22], sorted(signal_bit_indices(sig))
 
     # dasselbe fuer ein Feld, das eine Bytegrenze NICHT ausgerichtet ueberquert (der urspruenglich
-    # gefundene Fall: SteeringWheelSpeed_related, 9 Bit ab DBC-Bit 54, quert Byte6/Byte7).
-    sig = {s.name: s for s in hs_db.get_message_by_frame_id(0x082).signals}["SteeringWheelSpeed_related"]
+    # gefundene Fall: SteeringWheelSpeed_related, 9 Bit ab DBC-Bit 54, quert Byte6/Byte7 - das Signal
+    # ist seit 2026-09-26 in der DBC durch SteeringRate_Abs_maybe ersetzt, daher als Testsignal von Hand gebaut).
+    import cantools
+    sig = cantools.database.can.Signal("t", start=54, length=9, byte_order="big_endian", is_signed=False)
     assert sorted(signal_bit_indices(sig)) == list(range(49, 58)), sorted(signal_bit_indices(sig))
     print("self-test ok")
 

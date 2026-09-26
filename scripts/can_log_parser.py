@@ -132,6 +132,14 @@ OBD_CHANNELS = {
     # im Y-Splitter-Log candump-2026-09-19_163755/dlg 2026-09-19 163857 - signed_int16(raw)/512
     # trifft 73% der App-Werte bitgenau, R²=0,958 (siehe scripts/tpms_poller.py UDS_FAST_PIDS).
     ("mode22", 0x03EC): ("KnockRetard_OBD", lambda r: (r - 65536 if r >= 32768 else r) / 512),
+    # PID 0x42 (2026-09-26 nachgezogen): Steuergeraete-Versorgungsspannung, pollt tpms_poller.py
+    # seit 2026-09-16 alle 10 s, landete bisher aber nur im Dash, nicht im Datalake.
+    ("mode1", 0x42): ("BatteryVoltage_OBD", lambda r: r / 1000),
+    # 2026-09-26 fuer den naechsten Fahrzeugtermin vorbereitet (tpms_poller.OBD1_PIDS, Test C9 in
+    # docs/status/can-open-fields.md): Katalysatortemperatur, gemessenes Lambda, Tankfuellstand.
+    ("mode1", 0x3C): ("CatalystTemp_OBD", lambda r: r / 10 - 40),
+    ("mode1", 0x34): ("LambdaMeasured_OBD", lambda r: (int(r) >> 16) / 32768),
+    ("mode1", 0x2F): ("FuelLevel_OBD", lambda r: r * 100 / 255),
 }
 
 

@@ -4,6 +4,28 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-26)
 
+**Status 2026-09-26 — Offline-Ausbeute: rund 30 neue bzw. korrigierte Signale allein aus den
+vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
+[`status/can-open-fields.md`](can-open-fields.md). Herleitung im Logbuch ("Offline-Ausbeute…").
+
+1. **Traktionskontrolle gefunden:** 0x211 Bit 40 (`TCS_Active_maybe`), die angeforderte
+   Momentgrenze 0x211 Byte2-3 und die blinkende DSC-Leuchte (0x415 Byte0). `ABS_Active` bleibt
+   dabei 0 - ein Traktionseingriff hat also ein eigenes Bit. Die am 15.09. verworfene Stelle war
+   doch ein Eingriff (0,26 s); der alte Rarity-Scan konnte so kurze Flags nicht sehen.
+2. **Rückwärtsgang gelöst:** 0x445 Bit 7 (`ReverseGear`), physikalisch bestätigt über das
+   umgekehrte Gierraten-Vorzeichen (99,7 %). `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0.
+3. **Kraftstoff- und Wegzähler:** 0x420 Byte2 (~7 Schritte/g, r bis 0,999) und Byte1
+   (0,209 m/Schritt, r=1,000). Im Datalake jetzt `FuelRate_CAN` in g/s.
+4. **Außentemperatur war falsch dekodiert** (konstant 25,8 °C) - jetzt Byte7 von 0x420,
+   vorläufig kalibriert. Außerdem: Bordnetz-, BCM-, Batteriesensor- und i-ELOOP-Kondensatorspannung,
+   Batterie- und RCM-Temperatur, Kaltlauf-Leuchte (Schwelle exakt 55 °C), i-stop-Zustände
+   (97 Stopps), Bremsschalter, Tür offen, starke Verzögerung, Kamera-Tempolimit, Spurkrümmung und
+   Querversatz in der Spur, **Fahrbahnsteigung** (0x49C, r bis 0,96) und **Service-Restdistanz**
+   (0x3D1, ersetzt das Müll-Signal `Mileage`).
+5. **Neue Werkzeuge:** `can_offline_lab.py` (gecachte Frames), `can_rare_bits.py`,
+   `can_natural_events.py`, `can_anchor_sweep.py`, `can_field_inspect.py`, `can_open_fields.py`.
+6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
+
 **Status 2026-09-26 — Tempomat-Anzeige in der GASPEDAL-Kachel des Dash (Nutzerwunsch),
 noch nicht deployt, Trigger-Signal unverifiziert.** Details im Logbuch ("Tempomat-Anzeige in der
 Gaspedal-Kachel…").
@@ -185,6 +207,10 @@ Byte-Sweep-Tool gebaut, das 3 neue CAN-Signale gefunden und die `SteeringAngle_r
 
 </details>
 
+**Offline-Ausbeute 2026-09-26:** die neuen Signale (TCS, Rückwärtsgang, Spannungen,
+Kraftstoff-/Wegzähler, i-stop, Kamera u. a.) stehen gesammelt in
+[`status/can-open-fields.md`](can-open-fields.md) Teil A; die Liste unten ist noch der Stand davor.
+
 ### Hardware & Infrastruktur
 - **Adapter:** DSD TECH SH-C31A (CANable 2.0) am OBD-Port, nur HS-CAN (`can0`), 500 kbit,
   R120=OFF (kein Busende, Adapter hängt nur als Stich am Bus).
@@ -268,7 +294,10 @@ vertrauen, Details im Logbuch unten.
   BARO_Barometric_pressure (kPa), WheelSpeed_1-4✓ (km/h, Sentinel 0xFFFF gefiltert),
   DSC_Status (nur System an/aus, kein Regelungseingriff), VehicleSpeed✓ (km/h).
 - **Lenkung:** Steering_Wheel_Absolute_Angle✓ (deg) – Nullpunkt per GPS bestätigt (0,0°
-  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. `SteeringAngle_EPAS` (0x86, EPAS, früher
+  Median-Offset), Lock-to-Lock-Range ±490° bestätigt. **`SteeringRate_Abs_maybe`/`SteeringRate_Dir_maybe`
+  (0x082 Byte5-7, NEU 2026-09-26):** Betrag (12 Bit, `44|12@1+`, 0,5 deg/s je LSB, nicht kalibriert)
+  und Vorzeichen (Byte7 Bit0) der Lenkgeschwindigkeit; r=0,988-0,998 gegen die Ableitung des
+  Winkels in allen 28 Logs, siehe Logbuch "Byte-Sweep-Neulauf…". `SteeringAngle_EPAS` (0x86, EPAS, früher
   `SteeringAngle_related`) – **2026-09-15 endgültig gelöst, die 09-14-Erklärung war falsch.**
   Das oberste Bit ist ein Gültigkeits-/Init-Flag (eigenes Signal `SteeringAngle_EPAS_Invalid`),
   kein Teil des Zahlenwerts; es ist nur in 0,0-0,5% der Frames gesetzt (Block am Logstart,
@@ -280,7 +309,7 @@ vertrauen, Details im Logbuch unten.
   `SteeringAngle_related_3` saß auf den falschen Bits (Byte4-5). Der echte zweite Kanal liegt
   auf 26|11 und ist nach Verwerfen der Invalid-Frames ebenfalls perfekt linear
   (`1,6·raw − 1600`, R²=0,9997-0,9999, RMSE 0,72-1,07° über 5 Logs) – eine grob aufgelöste
-  Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 bleibt unidentifiziert.
+  Zweitübertragung desselben Winkels, keine eigene Größe. Byte4-5 war Teil des Kanals (2026-09-26 aufgelöst: 15-Bit-Erweiterung, `SteeringAngle_EPAS_Abs_maybe`, nullpunktstabil, siehe Logbuch "0x086 Byte4-5 aufgelöst…").
   **`SteeringTorque_maybe` (0x240 Byte0, neu 2026-09-15)** – vermutlich das EPAS-Lenkmoment:
   Median exakt 0 im Stand und geradeaus, r gegen den Lenkwinkel nur 0,23-0,52 über das ganze
   Log aber 0,78-0,86 gefiltert auf >40 km/h (bei Parkiergeschwindigkeit dominiert der
@@ -288,7 +317,7 @@ vertrauen, Details im Logbuch unten.
   Einschränkung: nach Herausrechnen des Winkels bleiben nur r=0,14 gegen die
   Querbeschleunigung – keine unabhängige Querkraftmessung. Keine physikalische Einheit
   kalibrierbar, es gibt im Fahrzeug keinen Referenz-Momentenkanal.
-  **`SteeringWheelSpeed_related` (0x082 Bit 49, NEU 2026-09-20)** – Lenkraddrehrate direkt
+  **`SteeringWheelSpeed_related` (0x082 Bit 49, NEU 2026-09-20; 2026-09-26 in der DBC durch das feinere `SteeringRate_Abs_maybe` + Vorzeichen `SteeringRate_Dir_maybe` ersetzt, dieselbe Größe, r=0,99 zwischen beiden)** – Lenkraddrehrate direkt
   neben `Steering_Wheel_Absolute_Angle` in derselben SSU-Botschaft, gegen `STEER_SPD_EPS`
   (EPS-Modul-DID) über 4 Logs bestätigt (r=0,98-0,995, `≈2,0·raw`) – Rohwert-Durchreichung,
   physikalische Einheit offen (auch die Referenz-DID selbst ist unkalibriert).
@@ -310,7 +339,8 @@ vertrauen, Details im Logbuch unten.
   `raw = 173764 − ODO_km`) – kein Kalenderdatum, siehe "Bekannte offene Punkte" unten. Das
   alte `Mileage`-Signal an derselben Stelle war Müllwerte und wurde entfernt (kollidierte
   außerdem mit dem neuen Fund, siehe Logbuch). `Date` (0x3D1) bleibt unklar/vermutlich
-  bedeutungslos. `C0xx_VIN_*` (Fahrgestellnummer, byte-order-Fehler behoben),
+  bedeutungslos. Am 26.09. von der Offline-Ausbeute ein drittes Mal unabhängig gefunden (dort
+  zunächst `Service_DistanceRemaining_maybe`, beim Merge vereinheitlicht). `C0xx_VIN_*` (Fahrgestellnummer, byte-order-Fehler behoben),
   HUD_Height/HUD_Height_Moving/HUD_Bright (Head-Up-Display),
   Key_hold/Key_notfound/Key_Batt/Key_fob/IC_Buzz/INFO_SW/CRU_CON_SW1 (Schlüssel/Bedienelemente),
   SpeedUnit/StopVehicle (Anzeigeeinstellungen).
@@ -440,6 +470,12 @@ OBD/CAN-Referenz gesucht werden muss):
   Korrelationsmethode. Details/Regressionstests siehe Logbuch. `--correlate` mit dem Fix erneut
   über alle Logs gelaufen — Rest der priorisierten Liste (u.a. `0x4F7`/`0x415` gegen
   `DSC_Status`) noch nicht einzeln geprüft.
+- **NACHTRAG 2026-09-26 (Offline-Ausbeute):** ein Broadcast-Signal für die EINGESPRITZTE MENGE gibt
+  es doch: `FuelConsumption_Counter` = 0x420 Byte2, umlaufender Zähler, ~7 Schritte/g, Rate
+  r=0,99-0,999 gegen MAF/Lambda (Datalake `FuelRate_CAN`, siehe `status/can-open-fields.md`). Er
+  wurde bisher übersehen, weil alle Sweeps monotone Reihen verwarfen. Die MID-Anzeige selbst
+  (l/100km) ist damit nicht gefunden, lässt sich aber aus Zähler und Wegzähler (0x420 Byte1)
+  berechnen. Der folgende Stand vom 20.09. ist insoweit überholt:
 - **Momentanverbrauch (l/100km, Kombiinstrument-MID) – noch kein CAN-Signal gefunden, aber
   ein neuer, sauberer Kanal + ein vielversprechender Zusatzkandidat dabei entdeckt
   (2026-09-20, Auto bis 22.09. nicht verfügbar, daher Log-only-Kreativrunde):** weder
@@ -477,8 +513,10 @@ OBD/CAN-Referenz gesucht werden muss):
   "KnockingRetard-PID gefunden…". Läuft jetzt in `tpms_poller.py`s schneller Poll-Gruppe und
   wird generisch aus jedem CAN-Log dekodiert (`KnockRetard_CAN`). Zweite unabhängige
   Bestätigung am 2026-09-20 dazugekommen (81% bitgenau, r=0,997 — siehe Logbuch "Viertes
-  No-RTC-Vorkommnis…"). **Weiterhin offen:** Vorzeichen/physikalische Bedeutung ungeklärt
-  (Werte überwiegend ≤0, für einen "Retard" unerwartet).
+  No-RTC-Vorkommnis…"). **Vorzeichen 2026-09-25 per Indizien geklärt:** negativ = Zündrücknahme
+  (Anteil <-1° steigt mit Drehmoment von 0 % auf 28 %, Sägezahn-Signatur bei stationärer
+  Hochlast) — `TimingAdvance` (PID 0x0E) zeigt die Rücknahme aber nicht, siehe Logbuch
+  "KnockRetard-Vorzeichen…".
 - **ECU-Soft-Limiter im 2./3. Gang (2026-09-19/20):** schließt die Drosselklappe trotz
   `APP`=100% schon deutlich vor dem nominellen 7500er-Redline. **2026-09-20 Nachmittag an
   5 Eingriffen über beide letzten Logs vom 19.09. bestätigt** (7273/7281/7439/7429/7307
@@ -487,15 +525,19 @@ OBD/CAN-Referenz gesucht werden muss):
   **Klopfen ausgeschlossen** (`KnockRetard_CAN` bleibt bei allen 5 Events im Nahe-Null-Band).
   **Radschlupf/DSC-Traktionseingriff ebenfalls ausgeschlossen** (Radgeschwindigkeits-Spread
   ≤2,3 km/h, unter dem 4,5-km/h-Rauschboden; `ABS_Active_CAN`/`DSC_Status_CAN` durchgehend 0).
-  **Der tatsächliche Auslöser bleibt offen** — auffällig ist die Gangabhängigkeit der
+  **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 2-4 nötig)** — auffällig ist die Gangabhängigkeit der
   Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
   festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:
   RPM>7000 & `APP`≥99% & `ETC_ACT`<90 → Shiftlights blinken blau, 8 Hz), deployt auf dem Pi.
   Frühere Einzelbefunde (Log `150438`/`163857`, dritter Zug bei 7269 U/min ohne Eingriff)
   weiterhin gültig, siehe Logbuch "ECU begrenzt im 3. Gang…" und "Viertes
   No-RTC-Vorkommnis…".
-- Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
-  Kupplung – Hypothese noch nicht durch eine gezielte Testfahrt bestätigt.
+- **Sweep-Neulauf 2026-09-26 (alle 28 Logs, korrigierte Anker):** offene Kandidaten `0x20A` (22 Logs);
+  `0x086` Byte4-5 ist als zweite Winkelspur aufgelöst; `0x4DB` HS_DCDC ist als i-ELOOP-Rekuperationszustand
+  geklärt (siehe Logbuch "0x4DB…"). Tabelle im Logbuch "Byte-Sweep-Neulauf…". Der alte Konsolidierungsstand vom 14.09. ist überholt.
+- ~~Reverse-Gang (`MT_Gear_Actual=7`) registriert bisher nur bei stabiler, nicht rutschender
+  Kupplung~~ – **GELÖST 2026-09-26:** das Rückwärtsgang-Signal ist 0x445 Bit 7 (`ReverseGear`);
+  `MT_Gear_Actual` zeigt bei Rückwärtsfahrt 0. Siehe `status/can-open-fields.md`.
 - **Echte Beifahrersitz-Belegung (Gewichtssensor) noch nicht gefunden**, nur das
   Gurtschloss-Bit (siehe oben) – unterscheidet nicht zwischen "leer" und "sitzt, aber nicht
   angeschnallt". Braucht eine gezielte Testfahrt (Beifahrer sitzt kurz unangeschnallt bis zur
@@ -508,8 +550,10 @@ OBD/CAN-Referenz gesucht werden muss):
   beides gleichzeitig: ein echtes Ereignis (in allen früheren Logs blieb die Radspreizung
   beim Bremsen unter 2,2 km/h) **und** das richtige Vergleichsfenster (Regelphase gegen den
   Rest DERSELBEN Bremsung, nicht gegen den Rest des Logs).
-  **Weiterhin offen:** ob dasselbe Bit auch bei einem reinen DSC-/Traktionseingriff ohne
-  Bremsung gesetzt wird – dafür fehlt noch ein Ereignis. **Erster Kandidat 2026-09-15 geprüft
+  **2026-09-26 geklärt:** ein reiner Traktionseingriff setzt NICHT `ABS_Active`, sondern
+  0x211 Bit 40 (`TCS_Active_maybe`) plus Momentanforderung (Byte2-3) und DSC-Leuchte (0x415).
+  Der damals folgende Absatz ("erster Kandidat verworfen") ist überholt: die Stelle t=726 s war
+  ein 0,26-s-Eingriff. Frühere Einschätzung: **Erster Kandidat 2026-09-15 geprüft
   und verworfen** (Vollgas-Pull mit echtem Hinterradschlupf, Heimfahrt t=708–745 s): es gab
   dort gar keinen Eingriff – weder `ABS_Active`, noch Bremsdruck, noch ein Momenteneinbruch,
   und ein Rarity-Scan über alle 105 IDs × 64 Bits findet kein Ereignisbit. Siehe Logbuch,
@@ -549,7 +593,7 @@ OBD/CAN-Referenz gesucht werden muss):
   verifiziert.
 - ~~`SteeringAngle_related_3` braucht eine nichtlineare Umrechnung~~ – **erledigt/verworfen
   2026-09-15:** das Signal saß auf den falschen Bits. Der echte Kanal (26|11) ist linear
-  (`SteeringAngle_EPAS_Coarse`); Byte4-5 bleibt unidentifiziert, die frühere Einstufung als
+  (`SteeringAngle_EPAS_Coarse`); Byte4-5 ist seit 2026-09-26 aufgelöst (`SteeringAngle_EPAS_Abs_maybe`, 15 Bit, nullpunktstabile zweite Winkelspur), die frühere Einstufung als
   nichtlinearer Lenkwinkel ist nicht belegt.
 - Bei jedem CAN-only-Log ohne GPS-/OBD-Zeitanker: Datum mit Vorsicht behandeln – der
   Pi hat keine RTC, ohne NTP während der ganzen Session bleibt die Uhr durchgehend falsch,
@@ -561,6 +605,10 @@ OBD/CAN-Referenz gesucht werden muss):
   13.09.-Zeitstempel.
 
 ### Nächste Schritte
+0. **Fahrzeugtest-Programm aus [`status/can-open-fields.md`](can-open-fields.md) Teil C**
+   (Stand-Test mit Multimeter/Verbrauchern, Rückwärtsgang, Bordcomputer, Traktionseingriff auf
+   rutschiger Fläche, Vollbremsung, Tempomat, Zusatz-PIDs 0x3C/0x34/0x2F) - löst die meisten
+   `_maybe`-Skalen der Offline-Ausbeute vom 26.09.
 1. Standtests wiederholen: Zündung durchgehend auf ON/Motor an (nicht nur ACC), Start-Tap
    direkt bei der Handlung drücken; fehlende Punkte (Blinker/Licht/Wischer, Tür links) ergänzen.
 2. Fahrmanöver aus Testplan-Abschnitt C: mehrere Vollbremsungen (Rollover-Test), Schaltvorgänge
@@ -598,9 +646,8 @@ OBD/CAN-Referenz gesucht werden muss):
     Gesichtspunkt nochmal anzusehen – nicht als analoge Messwerte, sondern als Zustandsbits.
 13. ~~KnockRetard-PID identifizieren~~ – **erledigt 2026-09-20**, siehe oben (DID 0x03EC).
 14. ~~KnockRetard-Formel an einem zweiten Log bestätigen~~ – **erledigt 2026-09-20** (81%
-    bitgenau, r=0,997). Weiterhin offen: physikalische Bedeutung des überwiegend negativen
-    Vorzeichens klären (z.B. mit dem Nutzer/einer Mazda-Diagnoseanleitung abgleichen, ob
-    negativ tatsächlich "Zündung zurückgenommen" heißt oder umgekehrt).
+    bitgenau, r=0,997). **2026-09-25 per Indizien geklärt** (negativ = Zündrücknahme, siehe Logbuch
+    "KnockRetard-Vorzeichen…"); ein direkter Nachweis über einen Winkel nach Korrektur fehlt noch.
 15. **Bei jedem CAN-only-Log ohne begleitendes dlg/GPS: Dateiname NICHT blind vertrauen, wenn
     kein Widerspruch zu den Frame-Zeitstempeln vorliegt** — der 2026-09-20 gefundene Fall
     (`candump-2026-09-19_165600`→`_233436`) zeigt, dass Dateiname und Frame-Zeitstempel auch
