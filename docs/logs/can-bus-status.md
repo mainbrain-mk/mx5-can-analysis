@@ -2986,3 +2986,27 @@ abgeleitet aus dem Kraftstoffzähler. `SCHEMA_VERSION` 3 -> 4.
   (Median 0,850; Quantile 5/50/95 % = 0,841/0,850/0,971), bei 0-95 % Pedal Median 0,99 und
   höchstens 2 % unter 0,9. `ETC` >= 80 % allein: nur 52 % unter 0,9. Empfehlung: APP >= 95 % UND
   `LambdaCommanded_CAN` < 0,9.
+
+### Nachtrag: weitere Felder (2026-09-26, später)
+- **0x3D1 Byte5 + Byte6 Bit7..2 = Service-Restdistanz** (`Service_DistanceRemaining_maybe`, 14 Bit):
+  zählt 0,952 Schritte je km integrierter `VehicleSpeed` herunter (513 auf 538,8 km), über alle
+  29 Logs lückenlos stetig (Endwert = Startwert des nächsten Logs), 4008 km am 12.09. -> 3437 km
+  am 19.09.; einzige Lücke 41 km zwischen 16.09. und 17.09. (Fahrten ohne Logger). Das
+  Community-Signal `Mileage` (39|22) schloss Byte4 mit ein und lieferte deshalb Müll - ersetzt.
+  Nebenbefund: die ~5 % Differenz passt dazu, dass `VehicleSpeed` etwas über der Tachostrecke liegt.
+- **0x200 Byte2-3** (`PCM_TorqueLoss_raw_maybe`, raw-32768 wie Byte4-5): im Mittel -19..-26,
+  in der Rekuperation -30..-36, bei kaltem Motor in 2/3 Logs -40..-49, keine Korrelation mit
+  Pedal/Moment -> Hypothese Verlust-/Nebenaggregate-Lastmoment.
+- **0x20A Byte0 Bit1..0 + Byte1 Bit7..2** ist ein 8-Bit-Feld (`PCM_20A_Ramp_raw_maybe`), steigt bei
+  Volllast und im Schub, fällt bei Teillast, keine Ankerkorrelation. Die "117/118-Wechsel" von
+  `EngineState_raw_maybe` waren dessen oberste Bits -> `EngineState_raw_maybe` auf 7|6 gekürzt.
+- **0x09B Bit 2** (11-29 % der Zeit, ~10-s-Episoden): im Leerlauf sinkt dabei der
+  Batteriesensor-Strom in 6/6 Logs um ~100 Schritte und die Spannung leicht -> großer
+  elektrischer Verbraucher, vermutlich Kühlerlüfter. Bestätigt nebenbei die Stromrichtung von
+  `BattSensor_Current_raw_maybe` (kleiner = mehr Entladung).
+- **0x4DF (DCDC, ~1,6 Hz) Byte0/Byte5:** beim Kaltstart r=0,980/0,994 gegen die Ansaugluft, steigen je
+  Fahrt, aber 1,44 bzw. 2,24 K/Schritt - temperaturabhängig, keine Standardkodierung.
+- **Negativ:** 0x21D-Episoden (Stand, Kupplung) zeigen keinen Steigungsunterschied
+  (|Steigung| 0,0065 gegen 0,0057 g) -> keine Berganfahrhilfe; 0x4D4 gegen i-stop-Zeit,
+  Rekuperations-/Leerlauf-/Schubanteil und gleitende Mittel: Vorzeichen wechseln zwischen Logs,
+  offline nicht zu klären.

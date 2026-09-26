@@ -53,11 +53,14 @@ Spalte "Test" verweist auf Teil C.
 | `LaneCurvature_maybe` | 0x242 Byte3 | 0,3·(raw−127) 1/km | r=0,94–0,97 gegen Gierrate/v bei > 60 km/h | _maybe (Skala) | – |
 | `LaneOffset_Line1/2_maybe` | 0x242 3\|10, 9\|10 | raw − 686, ≈1 cm/LSB | Sägezahn bei 233 Spurwechseln, Sprung 335 ≈ Spurbreite | _maybe (Skala) | C10 |
 | `CAM581_Curvature2_raw_maybe`, `CAM581_LineDiff_raw_maybe` | 0x245 Byte4, Byte0 | roh | r=0,88 gegen Spurkrümmung bzw. Versatzdifferenz | _maybe | C10 |
+| `Service_DistanceRemaining_maybe` | 0x3D1 47\|14 | km | zählt 0,95/km herunter, über alle Logs lückenlos stetig (4008 → 3437 km) | _maybe (Deutung) | C11 |
 | `BatteryVoltage_OBD` (PID 0x42) | Diagnose | /1000 V | Standard-PID, pollt `tpms_poller.py` seit 16.09. | bestätigt | – |
 
 **Korrigierte Fehldeutungen:** `AmbientTemp` (war konstant 25,8 °C), `DSC_Status` (ist eine
 Kontrollleuchte, die nur beim Lampentest leuchtet; 0 = DSC aktiv), `Reverse_Flag_maybe` (0x9F,
-in keinem Log je gesetzt, tot), `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0 statt 7.
+in keinem Log je gesetzt, tot), `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0 statt 7,
+`Mileage` (0x3D1 39|22, lieferte Müllwerte) ist in Wahrheit die 14-Bit-Service-Restdistanz plus ein fremdes Byte - ersetzt,
+`EngineState_raw_maybe` (0x20A) auf 6 Bit gekürzt (die unteren 2 Bit gehören zu `PCM_20A_Ramp_raw_maybe`).
 
 ## B. Offene Werte mit beobachtetem Verhalten
 
@@ -68,8 +71,9 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | Feld | Verhalten | Hypothese | Test |
 |---|---|---|---|
 | 0x200 Byte4-5 (raw−32768) | Last-Domäne, r 0,72–0,94 gegen Pedal/Moment; gleiche Kodierung wie `TCS_TorqueRequest_maybe`, mit ihr r=0,84 | Fahrerwunsch- bzw. indiziertes Moment | C6 (Nm-Bezug über die TCS-Anforderung), C3 |
-| 0x200 Byte2 | Bits 16–22 nur 0–3 s nach Motorstart anders | Startphasen-Zustand | C1 (Startvorgang filmen/notieren) |
-| 0x20A Byte1-3 | analog, keine Korrelation mit den ~80 Ankern | unbekannt | C9 (Zusatz-PIDs) |
+| `PCM_TorqueLoss_raw_maybe` 0x200 Byte2-3 (raw−32768) | meist −40…+10, im Mittel −19…−26; in der Rekuperation −30…−36, bei kaltem Motor bis −49; keine Korrelation mit Pedal/Moment | Verlust-/Nebenaggregate-Lastmoment (gleiche Einheit wie Byte4-5) | C1: im Leerlauf Klima/Heckscheibenheizung schalten |
+| `PCM_20A_Ramp_raw_maybe` 0x20A 1\|8 | steigt stufenweise bei Volllast und im Schub, fällt bei Teillast; bisheriges `EngineState_raw_maybe` überdeckte zwei seiner Bits (jetzt 7\|6) | Adaption/Integrator | C9 |
+| 0x20A Byte2-3 | analog, keine Korrelation mit den ~80 Ankern | unbekannt | C9 (Zusatz-PIDs) |
 | 0x4DA Byte0/1/2/4 | Start bei 50, sinken in Schubphasen, steigen unter Last langsam | Katalysator-Modell (Temperatur/O₂-Speicher) | C9: PID 0x3C (Kat-Temperatur) mitloggen |
 | 0x4DA Byte3 Bit 6 | 1,4 % der Zeit, im Schub, nicht deckungsgleich mit FuelCut | Kat-Spül-/Diagnosezustand | C9 |
 | 0x42B B4-6 ≈ 0x4FA B0-2 | Duplikat, Zustandsbytes, wechseln bei Anfahren/Halt | Lastzuordnung/Leerlaufregelung | C1 (Verbraucher schalten) |
@@ -105,7 +109,7 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x3D0/0x3D1, 0x4F2 Byte2 | seltene Zustandswechsel | HUD/CMU-Einstellungen | – |
 | 0x21D | 50 Hz, Bytes ändern sich selten, Episoden im Stand bei Kupplung | Rangier-/Einparkzustand? | C2 |
 | 0x4FE | 10 Hz, opendbc `MILAGE_MAYBE` u. a., zählerartig | Kilometer-/Zeitzähler | – |
-| 0x09B Bit 2 | ~10-s-Episoden alle 50–100 s, v. a. im Stand | Lüfter/Klimakompressor-Takt | C1 (Klima an/aus) |
+| 0x09B Bit 2 | ~10-s-Episoden alle 50–100 s (11–29 % der Zeit), v. a. im Stand; im Leerlauf sinkt dabei `BattSensor_Current_raw_maybe` in 6/6 Logs um ~100 Schritte (mehr Entladung) und die Spannung leicht | großer el. Verbraucher, vermutlich Kühlerlüfter | C1: Lüfter hören/sehen, Zeit notieren |
 
 ### Fahrwerk / sonstige
 | Feld | Verhalten | Hypothese | Test |
@@ -148,6 +152,9 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
 10. **Kamera:** auf gerader Straße mit bekannter Spurbreite bewusst an die linke, dann die
     rechte Linie fahren; hinter einem vorausfahrenden Auto Abstand ändern. Für
     `LaneOffset_*`, 0x244, 0x246.
+
+11. **Wartungsanzeige** im MZD-Menü (Einstellungen > Fahrzeug > Wartung) ablesen: Restdistanz
+    gegen `Service_DistanceRemaining_maybe` (0x3D1).
 
 Aus dem vorherigen Stand weiterhin offen (siehe `status/can-bus.md`): Auslöser des
 ECU-Soft-Limiters (Vollgaszüge Gang 2-4), TPMS-Vorderachs-Zuordnung.

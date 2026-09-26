@@ -304,7 +304,7 @@ vertrauen, Details im Logbuch unten.
   LDWS_Status1/LDWS_Status2/LDWS_ON_Switch (Spurhalteassistent), SCBS_SBS_Status
   (Notbremsassistent), DSC_OFF_Switch/iStop_OFF_Switch (Deaktivierungsschalter),
   RoofGraphicStatus (Verdeckstatus).
-- **Sonstiges:** Mileage/Date (HS_CMU, multiplex-kodiert), `C001_ODO` (0x40A, exakter
+- **Sonstiges:** Service-Restdistanz (0x3D1, ersetzt das frühere Müll-Signal `Mileage`, siehe `status/can-open-fields.md`), Date (HS_CMU, ohne Inhalt), `C001_ODO` (0x40A, exakter
   Gesamtkilometerstand, gegen Kombiinstrument bestätigt), `C0xx_VIN_*` (Fahrgestellnummer,
   byte-order-Fehler behoben), HUD_Height/HUD_Height_Moving/HUD_Bright (Head-Up-Display),
   Key_hold/Key_notfound/Key_Batt/Key_fob/IC_Buzz/INFO_SW/CRU_CON_SW1 (Schlüssel/Bedienelemente),
