@@ -4375,3 +4375,22 @@ gemacht hat.
   130327, 52,5916 N / 13,2833 E) angepasst: **etwa 52,604 N / 13,256 E, Kurs ~120° (ESE)**, Unsicherheit
   ~1-2 km (Restabstand am Logende 0,7 km, Validierung über 40 s: 69 m). Bias-Empfindlichkeit: ±0,05°/s
   verschiebt den Punkt um ~5 km.
+
+### AmbientTemp gegen Morgenstarts und Garagenstart: Skala 0,25 °C/LSB, Offset 0 (2026-09-26 nachts)
+
+Alle Logs seit 11.09. gegen die 15-min-Temperatur von Open-Meteo (52,65 N / 13,25 E, Byte7 von 0x420):
+- **Morgenstarts** (08-09 Uhr, Auto über Nacht draußen, Sensor im Gleichgewicht; raw → Wetter): 50 → 11,5 °C,
+  55 → 14,0, 58 → 14,5, 69 → 17,2, 72 → 17,4, (48 → 12,6): T = 0,235·raw + 0,7, **RMSE 0,5 K**.
+  `raw/4` trifft dieselben Punkte gleich gut (12,5 / 13,8 / 14,5 / 17,3 / 18,0 / 12,0).
+- **Garagenstart** (Nutzer: 24-28 °C): `…09-14_163711` beginnt bei raw 103 und fällt in der Fahrt auf 76 (Wetter 17,9 °C):
+  Steigung 0,23-0,37 je nach Garagentemperatur. `raw/4` gibt 25,8 °C (im Bereich), die DBC-Formel 29,7 °C
+  (darüber) - 0,35 ist damit zu steil. Bestätigung: 15.09. 17:10, Wetter 24,4 °C, raw 100-104 (`raw/4` = 25-26).
+- **Anzeige 20 °C** bei raw 73-81: `raw/4` gibt 18,2-20,2 °C. Die Anzeige im Kombiinstrument ist träge (Nutzer) -
+  der CAN-Wert (Rohsensor) reagiert schneller; dieser Anker ist deshalb nur grob.
+- Alle Logs bei > 90 km/h gegen Wetter (raw_min, n=28): 0,193·raw + 3,6, r = 0,82, RMSE 1,5 K - streut mehr
+  (Sensor-Eigenwärme, Asphalt), spricht nicht gegen 0,25.
+Ergebnis: **T = raw/4 °C** passt zu allen drei Ankern; DBC steht noch auf 0,35·raw − 6,3 (Änderung nicht
+durchgeführt, betrifft auch `CAN_SENTINELS["AmbientTemp"] = -6.3` in `build_datalake.py` → 0,0).
+Einschränkung: nur 6 Morgenpunkte, Annahme „über Nacht draußen", Garagenwert nur als Spanne bekannt.
+
+**Umsetzung (2026-09-26 nachts):** DBC `AmbientTemp` = `(0.25, 0)`, Sentinel in `build_datalake.py` `CAN_SENTINELS["AmbientTemp"]` von −6,3 auf 0,0. Die `*_decoded.csv` wurden nicht neu dekodiert (Aufwand), sondern nur die `AmbientTemp`-Zeilen per awk umgerechnet (`raw = (alt + 6,3)/0,35`, neu `raw·0,25`); Gegenprobe an `candump-2026-09-26_120029` gegen eine frische `can_log_parser.py`-Ausgabe: alle 184 `AmbientTemp`-Zeilen byteidentisch. Danach Datalake-Neuaufbau (Fingerabdruck der geänderten CSVs löst das Neueinlesen aus).
