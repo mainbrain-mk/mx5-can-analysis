@@ -97,6 +97,16 @@ def test_knock_retard_formula():
     assert round(formula(65024), 6) == round((65024 - 65536) / 512, 6)  # negativer Bereich
 
 
+def test_fast_poll_delay_throttles_only_with_foreign_tester():
+    from tpms_poller import fast_poll_delay
+    # kein fremder Tester (letzte fremde Anfrage > 5 s her): sofort weiter wie bisher
+    assert fast_poll_delay(now=100.0, last_fast=99.99, last_foreign=90.0, period=0.2, hold=5.0) == 0.0
+    # Handy aktiv: bis 0,2 s nach der letzten Runde warten
+    assert round(fast_poll_delay(now=100.0, last_fast=99.95, last_foreign=99.0, period=0.2, hold=5.0), 3) == 0.15
+    # Handy aktiv, Runde ist schon ueberfaellig: nicht negativ warten
+    assert fast_poll_delay(now=100.0, last_fast=99.0, last_foreign=99.5, period=0.2, hold=5.0) == 0.0
+
+
 if __name__ == "__main__":
     test_build_request_frames_did_correctly()
     test_decode_response_extracts_raw_value()
@@ -110,5 +120,6 @@ if __name__ == "__main__":
     test_throttle_position_formula()
     test_fast_group_is_lambda_and_throttle_only()
     test_knock_retard_formula()
+    test_fast_poll_delay_throttles_only_with_foreign_tester()
     print("alle Tests ok")
     print("OK")

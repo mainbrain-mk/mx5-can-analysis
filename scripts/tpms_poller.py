@@ -116,6 +116,34 @@ OBD1_PIDS = {
 }
 OBD1_FAST_PIDS = {0x44, 0x11}
 
+# --- Ruecksicht auf den Handy-OBD-Dongle (2026-09-26) -------------------------------------
+# Die schnelle Gruppe (0x44/0x11/0x03EC ohne Pause) erreichte ~170 Anfragen/s auf 0x7E0 -
+# denselben Header, den der Handy-Dongle nutzt. Folge laut CAN-Logs 19.-26.09.: ~20-30 % der
+# Handy-Anfragen sahen zuerst UNSERE Antwort auf 0x7E8, 5-18 % blieben unbeantwortet, die App
+# fiel von ~19 auf 0-5 Anfragen/s zurueck und gab am 26.09. ganz auf (dlg 142514 ohne OBD).
+# Deshalb: sieht der Poller fremde Anfragen auf 0x7DF/0x7E0 (eigene Frames kommen bei
+# SocketCAN nicht zurueck), laeuft die schnelle Gruppe FOREIGN_TESTER_HOLD_S lang nur noch
+# alle FAST_PERIOD_SHARED_S. Ohne Handy bleibt sie ungebremst wie bisher.
+FOREIGN_TESTER_IDS = {0x7DF, 0x7E0}
+FOREIGN_TESTER_HOLD_S = 5.0
+FAST_PERIOD_SHARED_S = 0.2   # 5 Runden/s = 15 Anfragen/s; Kalibrierknopf: --fast-period-shared
+_last_foreign_request = 0.0
+# Nur Diagnoseverkehr in den Socket lassen (vorher jeder Frame, ~2000/s).
+DIAG_CAN_FILTERS = [
+    {"can_id": 0x7E0, "can_mask": 0x7F0},   # 0x7E0-0x7EF: PCM-Anfragen (Handy) + Antworten
+    {"can_id": 0x7DF, "can_mask": 0x7FF},   # funktionale OBD-Anfrage (Handy-Init)
+    {"can_id": 0x720, "can_mask": 0x7F0},   # TPMS 0x720/0x728
+]
+
+
+def fast_poll_delay(now, last_fast, last_foreign, period=FAST_PERIOD_SHARED_S,
+                    hold=FOREIGN_TESTER_HOLD_S):
+    """Sekunden, die vor der naechsten schnellen Runde zu warten sind: 0 ohne fremden
+    Tester, sonst bis zum Ablauf von `period` seit der letzten Runde."""
+    if now - last_foreign >= hold:
+        return 0.0
+    return max(0.0, last_fast + period - now)
+
 PIDS = {
     0x2A05: ("Tire1_Pressure_bar", 1, lambda raw: (raw * 1373 / 1000) / 100),
     0x2A06: ("Tire2_Pressure_bar", 1, lambda raw: (raw * 1373 / 1000) / 100),
@@ -167,6 +195,7 @@ def poll_group(bus, req_id, resp_range, pids, timeout=0.5, request_fn=build_requ
     damit dieselbe Poll-Schleife sowohl UDS-Mode-0x22-DIDs (Default) als auch
     OBD-Mode-1-PIDs (siehe poll_obd1) bedienen kann."""
     import can
+    global _last_foreign_request
 
     values = {}
     unexpected = []
@@ -177,6 +206,8 @@ def poll_group(bus, req_id, resp_range, pids, timeout=0.5, request_fn=build_requ
             msg = bus.recv(timeout=deadline - time.time())
             if msg is None:
                 break
+            if msg.arbitration_id in FOREIGN_TESTER_IDS:
+                _last_foreign_request = time.time()
             if msg.arbitration_id not in resp_range:
                 continue
             raw = decode_fn(did, msg.data, n_bytes)
@@ -233,11 +264,15 @@ def main():
     parser.add_argument("--no-oil", action="store_true",
                          help="Oeltemperatur NICHT pollen (sie laeuft ueber denselben Header "
                               "0x7E0 wie der Handy-OBD-Adapter)")
+    parser.add_argument("--fast-period-shared", type=float, default=FAST_PERIOD_SHARED_S,
+                         help="Mindestabstand der schnellen Runden, solange ein fremder Tester "
+                              f"(Handy-Dongle) auf 0x7DF/0x7E0 aktiv ist (Default {FAST_PERIOD_SHARED_S}s)")
     args = parser.parse_args()
 
-    bus = can.interface.Bus(channel=args.channel, interface="socketcan")
+    bus = can.interface.Bus(channel=args.channel, interface="socketcan", can_filters=DIAG_CAN_FILTERS)
     next_tpms = 0.0
     next_oil = 0.0
+    last_fast = 0.0
     try:
         while True:
             now = time.time()
@@ -270,7 +305,11 @@ def main():
             if not args.no_oil:
                 # Lambda + Drosselklappe: kein next_*-Gate wie oben, jede Schleifenrunde
                 # fragt sofort erneut ab - die Rate ergibt sich allein aus der Antwortzeit
-                # der ECU (poll_group blockiert je PID auf die Antwort).
+                # der ECU (poll_group blockiert je PID auf die Antwort) - ausser ein fremder
+                # Tester ist aktiv, siehe fast_poll_delay().
+                time.sleep(fast_poll_delay(time.time(), last_fast, _last_foreign_request,
+                                           args.fast_period_shared))
+                last_fast = time.time()
                 try:
                     values, _ = poll_obd1_fast(bus)
                     if values:

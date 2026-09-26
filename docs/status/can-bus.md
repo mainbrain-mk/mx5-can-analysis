@@ -4,6 +4,32 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-26)
 
+**Status 2026-09-26 abends — Fahrtag mit Fahrzeugtests ausgewertet, fünfter No-RTC-Fall
+korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.…").
+
+1. **Zeitkorrektur:** die sechs am 26.09. geholten Logs `candump-2026-09-19_235203`…`-20_020042`
+   waren die heutigen Fahrten (Pi ohne NTP, Anker vom 19.09.). Per KnockRetard 97,5-100 % bitgenau
+   gegen die dlg-Dateien neu datiert: `candump-2026-09-26_120029/120235/130440/135855/142216`,
+   `_154000` nur geschätzt (±1,5 min, kein externer Anker). Lokal und auf dem Pi umbenannt,
+   Datalake neu gebaut.
+2. **Dongle-Konflikt:** die schnelle Pollgruppe von `tpms_poller.py` (seit 19.09., ~170
+   Anfragen/s auf 0x7E0) verdrängt den Handy-Dongle auf demselben Header: 19-29 % seiner Anfragen
+   sehen zuerst unsere Antwort, 5-18 % bleiben unbeantwortet, die App fiel von ~19 auf 0
+   Anfragen/s (dlg 142514 ohne jeden OBD-Kanal). Fix: Drosselung auf 5 Runden/s, solange fremde
+   Anfragen auf 0x7DF/0x7E0 zu sehen sind - **lokal fertig, noch nicht auf dem Pi**.
+3. **Neue Signale aus den Tests:** `DriverSeatbelt_Buckled` (0x340 Bit 27), Beifahrer-Belegungscode
+   (0x340 Byte3-High-Nibble, `PassengerSeatEmpty_maybe`/`PassengerSeatPending_maybe`),
+   `EmergencyStopSignal_maybe` (0x09A Bit 61), `AvgFuelConsumption` (0x4F3 Byte4-5, Bordcomputer).
+   `HighDecel_maybe` an zwei Vollbremsungen bestätigt.
+4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 = 5025 Schritte je Anzeige-Liter (0,199 ml,
+   zwei Logs), Wegzähler 0x420 Byte1 = 0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
+   `VehicleSpeed` liegt ~3 % über GPS.
+5. **Blaue Shiftlights** waren echte ECU-Eingriffe (Drosselklappe schließt bei vollem Pedal,
+   7121-7417/min, 0,2-0,8 s vor dem Schalten).
+
+<details>
+<summary>Vorheriger Stand (2026-09-26, Offline-Ausbeute)</summary>
+
 **Status 2026-09-26 — Offline-Ausbeute: rund 30 neue bzw. korrigierte Signale allein aus den
 vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
 [`status/can-open-fields.md`](can-open-fields.md). Herleitung im Logbuch ("Offline-Ausbeute…").
@@ -25,6 +51,8 @@ vorhandenen Logs.** Vollständige Liste mit Formeln, Belegen und Fahrzeugtests:
 5. **Neue Werkzeuge:** `can_offline_lab.py` (gecachte Frames), `can_rare_bits.py`,
    `can_natural_events.py`, `can_anchor_sweep.py`, `can_field_inspect.py`, `can_open_fields.py`.
 6. **Datalake:** 19 neue Kanäle, `SCHEMA_VERSION` 5 (Init-/Ungültig-Werte gefiltert, `FuelRate_CAN` über 2-s-Fenster).
+
+</details>
 
 <details>
 <summary>Vorheriger Stand (2026-09-20, Nachmittag)</summary>
@@ -361,7 +389,8 @@ vertrauen, Details im Logbuch unten.
   (`scripts/tpms_poller.py`, Header 0x720, Mode 0x22, Poll-Intervall bewusst 120s) abgefragt,
   Antwort auf `0x728` (BO_ 1832, DBC-Multiplex nach PID). Läuft automatisch als zweiter
   Kindprozess in `session_logger.py` bei jeder Fahrt mit; Kollision mit dem Handy-OBD-Adapter
-  am Y-Kabel geprüft und für unkritisch befunden (Handy sendet selbst durchgehend ~16-17
+  am Y-Kabel geprüft und für unkritisch befunden (gilt für TPMS/Öl; die schnelle PCM-Gruppe seit
+  19.09. war es NICHT, siehe Stand 2026-09-26 abends) (Handy sendet selbst durchgehend ~16-17
   Requests/s auf anderen Headern; eigene Zusatzlast nur ~0,005% der Busauslastung, siehe
   Logbuch). Werte erscheinen zusätzlich in vier GUI-Bildschirmecken (`TpmsCornersPanel` in
   `status_gui.py`). Tire3=Hinten Links, Tire4=Hinten Rechts bestätigt; Tire1/Tire2=Vorderachse,
@@ -589,6 +618,8 @@ OBD/CAN-Referenz gesucht werden muss):
   13.09.-Zeitstempel.
 
 ### Nächste Schritte
+- **Zuerst: `tpms_poller.py` (Dongle-Drosselung) auf den Pi kopieren** und bei der nächsten Fahrt die
+   OBD-Rate im dlg prüfen (Ziel wieder ~39 Werte/s). Siehe `status/pi-runtime-state.md`.
 0. **Fahrzeugtest-Programm aus [`status/can-open-fields.md`](can-open-fields.md) Teil C**
    (Stand-Test mit Multimeter/Verbrauchern, Rückwärtsgang, Bordcomputer, Traktionseingriff auf
    rutschiger Fläche, Vollbremsung, Tempomat, Zusatz-PIDs 0x3C/0x34/0x2F) - löst die meisten

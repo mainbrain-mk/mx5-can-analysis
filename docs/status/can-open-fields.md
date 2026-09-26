@@ -1,6 +1,6 @@
 # CAN: neu identifizierte und noch offene Werte, mit Fahrzeugtest-Strategien
 
-**Stand 2026-09-26.** In-place pflegen. Herleitungen stehen im Logbuch
+**Stand 2026-09-26 abends** (Fahrzeugtests C3, C7, C12 vom 26.09. eingearbeitet, siehe Teil A2 und Logbuch "Fahrtag 26.09."). In-place pflegen. Herleitungen stehen im Logbuch
 [`logs/can-bus-status.md`](../logs/can-bus-status.md) (Abschnitt "Offline-Ausbeute…") und
 in den `CM_`-Kommentaren der DBC (`data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc`). Plan und
 Methoden: [`plans/can-offline-ausbeute-plan.md`](../plans/can-offline-ausbeute-plan.md).
@@ -27,7 +27,7 @@ Spalte "Test" verweist auf Teil C.
 | `TCS_Active_maybe` | 0x211 Bit 40 | Flag | 6 Episoden in 5 Logs, alle am Kurvenausgang mit Hinterachsschlupf; Motormoment fällt bei konstantem Pedal | _maybe | C6 |
 | `TCS_TorqueRequest_maybe` | 0x211 23\|16 BE | raw − 32768 (Einheit offen) | nur im Eingriff ≠ 0xFFFE, folgt dem Moment (r=0,77) | _maybe | C6 |
 | `TCS_RequestActive_maybe` | 0x211 Bit 53 | Flag | deckungsgleich mit der Anforderung | _maybe | C6 |
-| `HighDecel_maybe` | 0x211 Bit 43 | Flag | ab ≈0,55–0,6 g Verzögerung, 13 von 775 Bremsungen, unabhängig von v und Druck | _maybe | C7 |
+| `HighDecel_maybe` | 0x211 Bit 43 | Flag | ab ≈0,55–0,6 g Verzögerung, 13 von 775 Bremsungen, unabhängig von v und Druck; 26.09. beide Vollbremsungen (-0,87/-0,91 g) gesetzt ab ~-0,75 g, -0,55 g nicht | an 2 Testbremsungen bestätigt | C7 erledigt |
 | `DSC_Indicator_maybe` | 0x415 2\|2 | 3 = blinkt, 1 = Lampentest | 6 = Eingriff, 114 = Lampentest 2,5 s, 98 = Abstellen | _maybe | C1, C6 |
 | `ReverseGear` | 0x445 Bit 7 | Flag | Gierrate/Lenkwinkel-Vorzeichen umgekehrt in 99,7 % (n=1195) | **bestätigt** | C2 |
 | `ColdEngine_Indicator` | 0x4F7 5\|2 | 3 = kalt | schaltet in 21/21 Fällen exakt bei 55,0 °C Kühlwasser ab | bestätigt (Schwelle), Leuchte offen | C1 |
@@ -41,8 +41,8 @@ Spalte "Test" verweist auf Teil C.
 | `BCM_SupplyVoltage` | 0x43F 19\|10 | 0,016 V/LSB | r=0,998, konstant 0,68 V unter PCM/DCDC | **bestätigt** | C1 |
 | `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 1/512 V/LSB | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
 | `BattSensor_Temp_maybe` | 0x45A Byte3 | raw − 40 °C | Kaltstarts r=0,966; in der Fahrt fast konstant | _maybe | C1 |
-| `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | ≈7,0 Schritte/g (≈0,14 g bzw. 0,19 ml je Schritt) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Byte3 ist konstant 51/52 und gehört nicht dazu | **bestätigt** (Einheit ±10 %) | C3 |
-| `Travel_distance_related` | 0x420 Byte1 | 0,209 m/Schritt | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |
+| `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **5025 Schritte je Liter** (0,199 ml; 26.09. gegen den Bordcomputer, vorher ≈7,0 Schritte/g aus MAF/Lambda) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt (getankte Liter als absolute Probe offen) |
+| `Travel_distance_related` | 0x420 Byte1 | **0,1992 m/Schritt** (26.09. gegen ODO-Inkremente, 5 Logs; die 0,209 kamen aus dem ~5 % zu hohen VehicleSpeed) | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |
 | `AmbientTemp` (korrigiert) | 0x420 Byte7 | ≈0,35·raw − 6,3 °C | alte Formel war konstant 25,8 °C; Kaltstarts r=0,987 | Formel _maybe | C1 |
 | `RCM_Temperature_maybe` | 0x075 Byte6 | raw − 103 °C | Kaltstarts r=0,980, steigt 10–24 K je Fahrt | _maybe | C1 |
 | `EngineRunning` (+`_2`, `_3`) | 0x0FD Bit 0/6, 0x09F Bit 16 | Flag | P=1,000 / 0,03 über 97 i-stop-Stopps | **bestätigt** | – |
@@ -62,6 +62,17 @@ Kontrollleuchte, die nur beim Lampentest leuchtet; 0 = DSC aktiv), `Reverse_Flag
 in keinem Log je gesetzt, tot), `MT_Gear_Actual` zeigt beim Rückwärtsfahren 0 statt 7,
 `Mileage` (0x3D1 39|22, lieferte Müllwerte) ist in Wahrheit die 14-Bit-Service-Restdistanz plus ein fremdes Byte - ersetzt,
 `EngineState_raw_maybe` (0x20A) auf 6 Bit gekürzt (die unteren 2 Bit gehören zu `PCM_20A_Ramp_raw_maybe`).
+
+## A2. Aus den Fahrzeugtests vom 26.09. (neu)
+
+| Signal | Ort | Formel/Einheit | Beleg | Status |
+|---|---|---|---|---|
+| `AvgFuelConsumption` | 0x4F3 Byte4-5 BE | 0,01 l/100km, Update 60 s, 0xFFFE nach Reset | Reset beim Tanken 14:23:17 (candump-2026-09-26_142216), Verlauf 40,38 → 6,31, deckt sich mit Zähler/Weg auf 2,6 ml | **bestätigt** (C3) |
+| `DriverSeatbelt_Buckled` | 0x340 Bit 27 | Flag | Einstecken 12:11:21 vor Fahrertür zu 12:11:23 (Nutzer-Reihenfolge), ab/an beim Tankstopp | **bestätigt** (C12) |
+| `PassengerSeatEmpty_maybe` / `PassengerSeatPending_maybe` | 0x340 Bit 28 / Bit 30 (Byte3-High-Nibble: 0xB leer, 0x6 besetzt + Klassifizierung, 0x2 bestätigt) | Flags | Beifahrer setzt sich 12:11:33 (1 s nach Tür zu), Gurt 12:11:40, Bestätigung (+ Bit 16) genau 60 s später; Zustand "besetzt, nicht angeschnallt" damit gesehen | ein Ereignis + ein Zündungsstart, _maybe (C12 weitgehend erledigt) |
+| `EmergencyStopSignal_maybe` | 0x09A Bit 61 | Flag | Notbremssignal (Warnblinker 0,3-s-Takt) nach der zweiten Vollbremsung 12:16:17-12:16:19; nicht bei der ersten (Ende bei 24 km/h) | ein Ereignis, _maybe (C7) |
+
+Trip-Kilometerstand selbst: auf dem HS-CAN nicht gefunden (Suche über alle Felder, 26.09.).
 
 ## B. Offene Werte mit beobachtetem Verhalten
 
@@ -127,6 +138,17 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x082 Byte4 | ändert in 87 % der Frames | Prüfsumme? | – |
 
 ## C. Fahrzeugtest-Programm (nächster Termin, nach Nutzen sortiert)
+
+**Erledigt am 26.09.:** C3 (Bordcomputer, über den Durchschnittsverbrauch; Foto der Anzeige fehlt
+noch), C7 (zwei Vollbremsungen mit ABS und Notbremssignal), C12 (Ein-/Anschnallen Fahrer und
+Beifahrer), dazu Starts aus dem Stand mit TCS-Eingriffen (Teil von C6, aber auf trockener Straße)
+und ECU-Limiter-Eingriffe mit blauen Shiftlights. C9 (Zusatz-PIDs) lief mit (alle 10 s,
+beantwortet): Kat-Temperatur 25-780 °C, gemessenes Lambda, Tankfüllstand PID 0x2F = 90,6 % nach dem
+Tanken gegen 90 % aus `Fuel_Tank` - jetzt im Datalake (`CatalystTemp_CAN`, `LambdaMeasured_CAN`,
+`FuelLevel_CAN`). Ein Broadcast-Gegenstück zur Kat-Temperatur gibt es nicht: kein Byte/Bytepaar
+korreliert in allen fünf Logs besser als die Geschwindigkeit selbst (r≈0,66), 0x4DA schwächer.
+Nebenwirkung: die schnelle Pollgruppe hat am 26.09. den Handy-Dongle verdrängt (Fix lokal, siehe
+`status/can-bus.md`).
 
 Jeder Test braucht nur das laufende CAN-Logging und eine Zeitnotiz (Handy-Stoppuhr oder Foto
 mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
