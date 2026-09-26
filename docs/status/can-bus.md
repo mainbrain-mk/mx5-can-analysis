@@ -10,13 +10,14 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
 1. **Zeitkorrektur:** die sechs am 26.09. geholten Logs `candump-2026-09-19_235203`…`-20_020042`
    waren die heutigen Fahrten (Pi ohne NTP, Anker vom 19.09.). Per KnockRetard 97,5-100 % bitgenau
    gegen die dlg-Dateien neu datiert: `candump-2026-09-26_120029/120235/130440/135855/142216`,
-   `_154000` nur geschätzt (±1,5 min, kein externer Anker). Lokal und auf dem Pi umbenannt,
+   `_154000` nur geschätzt (±1,5 min, kein externer Anker); zwei Abendfahrten ohne dlg als
+   `_180459`/`_184447` (geschätzt, bis ~2 min zu früh). Lokal und auf dem Pi umbenannt,
    Datalake neu gebaut.
 2. **Dongle-Konflikt:** die schnelle Pollgruppe von `tpms_poller.py` (seit 19.09., ~170
    Anfragen/s auf 0x7E0) verdrängt den Handy-Dongle auf demselben Header: 19-29 % seiner Anfragen
    sehen zuerst unsere Antwort, 5-18 % bleiben unbeantwortet, die App fiel von ~19 auf 0
    Anfragen/s (dlg 142514 ohne jeden OBD-Kanal). Fix: Drosselung auf 5 Runden/s, solange fremde
-   Anfragen auf 0x7DF/0x7E0 zu sehen sind - **lokal fertig, noch nicht auf dem Pi**.
+   Anfragen auf 0x7DF/0x7E0 zu sehen sind - **am 26.09. um 18:57 auf den Pi deployt**, Wirkung an der nächsten Fahrt prüfen.
 3. **Neue Signale aus den Tests:** `DriverSeatbelt_Buckled` (0x340 Bit 27), Beifahrer-Belegungscode
    (0x340 Byte3-High-Nibble, `PassengerSeatEmpty_maybe`/`PassengerSeatPending_maybe`),
    `EmergencyStopSignal_maybe` (0x09A Bit 61), `AvgFuelConsumption` (0x4F3 Byte4-5, Bordcomputer).
@@ -618,7 +619,7 @@ OBD/CAN-Referenz gesucht werden muss):
   13.09.-Zeitstempel.
 
 ### Nächste Schritte
-- **Zuerst: `tpms_poller.py` (Dongle-Drosselung) auf den Pi kopieren** und bei der nächsten Fahrt die
+- **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die
    OBD-Rate im dlg prüfen (Ziel wieder ~39 Werte/s). Siehe `status/pi-runtime-state.md`.
 0. **Fahrzeugtest-Programm aus [`status/can-open-fields.md`](can-open-fields.md) Teil C**
    (Stand-Test mit Multimeter/Verbrauchern, Rückwärtsgang, Bordcomputer, Traktionseingriff auf

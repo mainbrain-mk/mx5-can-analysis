@@ -13,9 +13,12 @@ Tages lagen dort unter falschem Datum (No-RTC, Anker 19.09.) und wurden **auf de
 (`candump-2026-09-26_120029` … `_154000`, samt `clockstate-*`), siehe Logbuch "Fahrtag 26.09.".
 `last_known_time` steht noch auf "2026-09-20 02:31:42" (falscher Anker aus der letzten Session) -
 beim nächsten Start ohne NTP wird die Uhr darauf gestellt, der Marker warnt aber korrekt.
-**`tpms_poller.py` weicht jetzt ab:** lokal mit Dongle-Drosselung (siehe Tabelle), Deploy
-fehlgeschlagen, weil der Pi gegen 18:05 vom Netz ging (auf dem Pi wurde nichts verändert; beim
-Deploy vorher das alte Skript nach `backup-2026-09-26b/` sichern).
+**18:55 Uhr, Pi wieder online (Boot 18:53:41, NTP ok):** in der Offline-Zeit liefen zwei weitere
+Fahrten (ohne NTP, als `candump-2026-09-20_023215/_031203` benannt) - auf dem Pi umbenannt in
+`candump-2026-09-26_180459/_184447` (geschätzt, siehe Logbuch). `last_known_time` von der falschen
+"2026-09-20 03:18:16" auf "2026-09-26 18:53:00" gesetzt, damit der nächste Start ohne NTP
+wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo, altes Skript in
+`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler. Greift ab der nächsten Session.
 
 **Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
@@ -34,7 +37,7 @@ das lokale Repo. Deshalb dieser Abschnitt.
 | `dash_gui.py` | ✅ identisch | inkl. blau blinkender Shiftlights bei ECU-Limiter-Eingriff (siehe `status/can-bus.md`) |
 | `test_dash_gui.py` | ✅ identisch | |
 | `can_backend.py` | ✅ identisch | unverändert seit 16.09. (Kivy-Neubau) |
-| `tpms_poller.py` | ❌ **Pi veraltet** (lokal 26.09. abends: Drosselung der schnellen Gruppe auf 5 Runden/s bei aktivem Handy-Dongle + Kernel-Filter; Deploy ausstehend) - Stand 11:40: deployt | neu: PID 0x3C (Kat-Temperatur), 0x34 (gemessenes Lambda), 0x2F (Tankfüllstand) in der langsamen 10-s-Gruppe - Fahrzeugtest C9 aus `status/can-open-fields.md`. Greift ab der nächsten Logging-Session (Poller wird von `session_logger.py` je Fahrt neu gestartet). |
+| `tpms_poller.py` | ✅ identisch (deployt 26.09., 18:57) | Drosselung der schnellen Gruppe auf 5 Runden/s, solange der Handy-Dongle auf 0x7DF/0x7E0 fragt, + Kernel-Filter auf Diagnose-IDs (Dongle-Konflikt, siehe `status/can-bus.md`). Davor 11:40: PIDs 0x3C/0x34/0x2F. | neu: PID 0x3C (Kat-Temperatur), 0x34 (gemessenes Lambda), 0x2F (Tankfüllstand) in der langsamen 10-s-Gruppe - Fahrzeugtest C9 aus `status/can-open-fields.md`. Greift ab der nächsten Logging-Session (Poller wird von `session_logger.py` je Fahrt neu gestartet). |
 | `session_logger.py` | ✅ identisch (deployt 26.09.) | Kommentar-Drift vom 18.09. mitgenommen (nur Pfadangaben). `status_gui.py` und `uds_did_sweep.py` ebenso angeglichen. |
 | `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (deployt 26.09.) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die neuen Signale noch nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt weiterhin das tote `Reverse_Flag_maybe` statt `ReverseGear`. |
 

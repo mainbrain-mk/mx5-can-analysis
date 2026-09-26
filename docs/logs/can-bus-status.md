@@ -3735,9 +3735,31 @@ TCS-Eingriff, kein Limiter. Bestätigt die Limiterzone vom 19./20.09.
 `corner_event_analysis.py` brach für alle vier heutigen dlg ab (`np.interp` auf leerer
 Object-Spalte), weil 142514 keinen `VehicleSpeed` hat. Jetzt Rückfall auf die GPS-Geschwindigkeit.
 
+### Nachtrag 18:55: zwei Abendfahrten, Poller deployt
+
+Der Pi war ab ~18:05 offline und bootete um 18:53:41 wieder zu Hause (NTP). Dazwischen zwei
+weitere Sessions im selben Boot ohne NTP (Anker 02:31:42 = Ende von 154000):
+`candump-2026-09-20_023215` (383 s, km 170 467 → 471, bis 98 km/h) und `_031203` (413 s,
+km 471 → 475, bis 118 km/h), dazwischen 33 min Pause. Keine dlg dazu, also kein externer Anker.
+Obergrenze: Ende der zweiten Fahrt vor dem Pi-Boot 18:53:41 (KeyState OFF bei 413,5 s, gzip 4 s
+später, dann Strom weg). Angenommen 2 min bis zum Boot zu Hause → Offset +6 d 15:32:44 →
+`candump-2026-09-26_180459` und `_184447` (höchstens ~2 min zu früh, eher später falls der Pi
+länger stromlos war). Lokal und auf dem Pi umbenannt; auf dem Pi zusätzlich `last_known_time`
+auf "2026-09-26 18:53:00" gesetzt (stand auf dem falschen 20.09.), damit der nächste Start ohne
+NTP nicht wieder eine Woche zurückspringt. `tpms_poller.py` deployt (md5 identisch, Backup in
+`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler.
+
+Inhalt der Abendfahrten: keine Vollbremsung, kein Start aus dem Stand, ein Limiter-Eingriff im
+2. Gang bei 7349/min (Drosselklappe 2,3 s vor dem Gaswegnehmen zu), kein Handy-Verkehr auf dem Bus
+(App lief nicht). Datalake-Neubau Schema 7 danach komplett: 40 CAN-Logs, die neuen Kanäle in 38.
+Fallstrick: `build_datalake.py` trägt beim Lauf gefundene Logs selbst in `data/can_gps_pairs.json`
+ein - wer während eines laufenden Builds umbenennt, bekommt dort die alten Namen zurück (hier
+passiert, von Hand nachgezogen).
+
 ### Offen
-- `tpms_poller.py` auf den Pi kopieren (Pi war offline), danach bei der nächsten Fahrt prüfen, ob
-  die App wieder ~19 Anfragen/s schafft.
+- Bei der nächsten Fahrt mit Handy-Dongle prüfen, ob die App wieder ~19 Anfragen/s schafft
+  (dlg-OBD-Rate ~39 Werte/s).
+- Startzeiten der beiden Abendfahrten vom Nutzer bestätigen lassen.
 - Beifahrermasse (Default 75 kg) vom Nutzer erfragen; Startzeit von 154000 nur geschätzt.
 - `VehicleSpeed`-Voreilung (~3 % gegen GPS) im Fahrleistungsmodell berücksichtigen?
 - Handy-IMU: die dlg-Kurvenauswertung zeigte heute a_lat ≈ 0 bei 10-16 °/s Gierrate. Ursache ist

@@ -5813,3 +5813,64 @@ Auffaelligkeiten:
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 TypeError: Cannot cast array data from dtype('O') to dtype('float64') according to the rule 'safe'
 
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-09-26)
+
+- `candump-2026-09-20_023215`
+- `candump-2026-09-20_031203`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+- script_error: candump-2026-09-20_023215.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:54:00 auf gespeicherte 2026-09-20 02:31:42 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: gunzip data/can/candump-2026-09-20_031203.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-20_031203.log.gz: No such file or directory
+- script_error: .venv/bin/python scripts/build_datalake.py: exit code 1: ()
+  File "/home/manuel/claude/scripts/build_datalake.py", line 979, in main
+    run_build(force_full=args.full)
+  File "/home/manuel/claude/scripts/build_datalake.py", line 898, in run_build
+    con = duckdb.connect(DB_PATH)
+          ^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/shift_time_analysis.py: exit code 1: /manuel/claude/scripts/shift_time_analysis.py", line 230, in <module>
+    main()
+  File "/home/manuel/claude/scripts/shift_time_analysis.py", line 139, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/shift_traction_gap_analysis.py: exit code 1: cripts/shift_traction_gap_analysis.py", line 246, in <module>
+    main()
+  File "/home/manuel/claude/scripts/shift_traction_gap_analysis.py", line 160, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/clutch_ride_detection.py: exit code 1: nuel/claude/scripts/clutch_ride_detection.py", line 105, in <module>
+    main()
+  File "/home/manuel/claude/scripts/clutch_ride_detection.py", line 68, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/can_traction_circle.py: exit code 1: /manuel/claude/scripts/can_traction_circle.py", line 263, in <module>
+    main()
+  File "/home/manuel/claude/scripts/can_traction_circle.py", line 155, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-09-20_023215: exit code 1: de/scripts/can_corner_event_analysis.py", line 157, in <module>
+    main()
+  File "/home/manuel/claude/scripts/can_corner_event_analysis.py", line 130, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-09-20_031203: exit code 1: de/scripts/can_corner_event_analysis.py", line 157, in <module>
+    main()
+  File "/home/manuel/claude/scripts/can_corner_event_analysis.py", line 130, in main
+    con = duckdb.connect(DB_PATH, read_only=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.IOException: IO Error: Could not set lock on file "/home/manuel/claude/data/datalake.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 2915619) by user manuel. See also https://duckdb.org/docs/stable/connect/concurrency
+
