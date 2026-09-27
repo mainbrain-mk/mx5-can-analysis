@@ -334,7 +334,7 @@ def test_can_ingest():
             (0.03, 1, "HS_ABS", "WheelSpeed_1", "555.35"),
             (0.04, 1, "HS_ABS", "WheelSpeed_1", "80.0"),
             (0.05, 1, "HS_RCM", "Lateral_Acc_Raw", "0.5"),
-            (0.06, 1, "X", "AmbientTemp", "-6.3"),
+            (0.06, 1, "X", "AmbientTemp", "0.0"),
             (0.07, 1, "X", "AmbientTemp", "12.0"),
             (0.08, 1, "X", "Unbekannt", "7"),
             (0.09, 1, "HS_PCM", "EngineRPM", "kaputt"),

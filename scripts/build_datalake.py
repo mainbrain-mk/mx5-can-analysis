@@ -705,8 +705,11 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     # Python-Strings (etwa halbe Lesezeit, und alle Signal-Filter unten werden
     # Ganzzahl- statt String-Vergleiche). Die beiden hier erst entstehenden
     # Signalnamen muessen vorab als Kategorie existieren.
-    raw_decoded = pd.read_csv(decoded_csv_path, usecols=["t", "message", "signal", "value"],
-                              dtype={"message": "category", "signal": "category"})
+    # Kein usecols: pandas 3.0.5 wirft damit IndexError, sobald die gemischte
+    # value-Spalte eine DtypeWarning ausloest (grosse CSVs, z.B. candump-2026-09-19_163755).
+    raw_decoded = pd.read_csv(decoded_csv_path,
+                              dtype={"message": "category", "signal": "category"}
+                              ).drop(columns="can_id")
     new_signals = [s for s in ("VehicleSpeed_Display", "MT_Gear_Status")
                    if s not in raw_decoded["signal"].cat.categories]
     raw_decoded["signal"] = raw_decoded["signal"].cat.add_categories(new_signals)
