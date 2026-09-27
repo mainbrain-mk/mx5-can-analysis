@@ -111,6 +111,17 @@ ABS_CAN_ID = 529
 IAT_CAN_ID = 1274  # BO_ 1274 HS_PCM, Signal IAT_Sensor_No1
 LOAD_CAN_ID = 359   # BO_ 359 HS_PCM, Signal ActualEnginePercentTorque
 DCDC_CAN_ID = 138   # BO_ 138 HS_DCDC, Signal DCDC_Voltage (Bordnetzspannung, ersetzt PID 0x42)
+# OBD-Anfragen nur zaehlen, fuer die Zustandszeile: 0x7DF = Handy-Init, 0x7E0 = Pi-Poller
+# (per SocketCAN-Loopback sichtbar) + Handy. Anlass: 27.09., Dash zeigte bei laufendem OBD
+# Fusion ueberall "–" ausser TPMS, das Log dazu lag in /tmp und war nach dem Reboot weg.
+OBD_REQUEST_IDS = (0x7DF, 0x7E0)
+HEALTH_LOG_S = 10
+HEALTH_KEYS = {
+    "speed": "514:VehicleSpeed",
+    "lambda": f"{OIL_RESPONSE_ID}:_LambdaCommanded_derived",
+    "oel": f"{OIL_RESPONSE_ID}:_OilTemp_derived",
+    "tpms": f"{TPMS_CAN_ID}:Tire1_Pressure",
+}
 
 NEEDED_CAN_IDS = sorted({
     *(can_id for _, can_id, _ in LIVE_SIGNALS),
@@ -126,6 +137,7 @@ NEEDED_CAN_IDS = sorted({
     IAT_CAN_ID,
     LOAD_CAN_ID,
     DCDC_CAN_ID,
+    *OBD_REQUEST_IDS,
 })
 
 
@@ -213,6 +225,7 @@ class CanBackend:
         self.session_max_speed = 0.0
         self._frame_count = 0
         self.frames_per_sec = 0.0
+        self._obd_requests = dict.fromkeys(OBD_REQUEST_IDS, 0)  # seit der letzten Zustandszeile
         self._logging_since = None       # Wanduhr, nur noch fuer aeltere dash_gui.py-Staende
         self._logging_since_mono = None
         # /proc-Scans sind zwar reines Python (kein fork(), siehe process_running()-
@@ -335,6 +348,9 @@ class CanBackend:
                         continue
                     now = time.monotonic()
                     self._frame_count += 1
+                    if msg.arbitration_id in self._obd_requests:
+                        self._obd_requests[msg.arbitration_id] += 1
+                        continue
 
                     if msg.arbitration_id == BRAKE_PCT_CAN_ID and len(msg.data) == 8:
                         self._set(BRAKE_PCT_CAN_ID, "_BrakePedalPercent_derived",
@@ -365,6 +381,7 @@ class CanBackend:
                                     self.session_max_speed = speed
             except Exception as e:
                 self.error = f"Verbindung verloren ({e})"
+                print(f"{time.strftime('%F %T')} {self.error}", flush=True)
             finally:
                 try:
                     bus.shutdown()
@@ -377,6 +394,25 @@ class CanBackend:
             time.sleep(1.0)
             self.frames_per_sec = self._frame_count
             self._frame_count = 0
+
+    def health_line(self, now=None):
+        """Eine Zeile Zustand fuer das Log (respawn.sh -> applogs/can_backend.log): Framerate,
+        Fehler, Alter der Leitwerte in s (None = nie gesehen), OBD-Anfragen je ID."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            ages = {k: (round(now - self._values[key][1], 1) if key in self._values else None)
+                    for k, key in HEALTH_KEYS.items()}
+            n_values = len(self._values)
+        requests, self._obd_requests = self._obd_requests, dict.fromkeys(OBD_REQUEST_IDS, 0)
+        obd = " ".join(f"{cid:X}={n}" for cid, n in requests.items())
+        state = " ".join(k for k, v in self._proc_state.items() if v) or "-"
+        return (f"{time.strftime('%F %T')} fps={self.frames_per_sec:.0f} werte={n_values} "
+                f"alter={ages} obd/{HEALTH_LOG_S}s: {obd} status={state} fehler={self.error}")
+
+    def run_health_log(self, interval=HEALTH_LOG_S):
+        while True:
+            time.sleep(interval)
+            print(self.health_line(), flush=True)
 
     def run_publisher(self, port=UDP_PORT, hz=PUBLISH_HZ):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -398,4 +434,6 @@ if __name__ == "__main__":
     threading.Thread(target=backend.run_rate_counter, daemon=True).start()
     threading.Thread(target=backend.run_process_watch, daemon=True).start()
     threading.Thread(target=backend.run_publisher, daemon=True).start()
+    threading.Thread(target=backend.run_health_log, daemon=True).start()
+    print(f"{time.strftime('%F %T')} can_backend.py gestartet (Kanal {backend.channel})", flush=True)
     backend.run_decode_loop()

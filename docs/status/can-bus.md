@@ -13,6 +13,8 @@ rendert nur noch, wenn er sichtbar ist, Drehzahlbalken und LEDs ohne Canvas-Neua
 Dash gelesene Signal gegen Backend-Filter und DBC.
 
 
+**Status 2026-09-27 abends — sechster No-RTC-Fall per GPX korrigiert.** `candump-2026-09-27_144352`/`_150720` → `_163940`/`_170308` (+6948 s gegen `20260927-163740.gpx`, RMSE 1,6/3,5 km/h; NTP-Logs desselben Tages liefern ±0 s als Gegenprobe). Die Pipeline nimmt GPX jetzt als Zeitanker, ordnet Tracks nach Zeitüberlappung zu (ein Track kann mehrere Logs abdecken) und übernimmt keine `.log.gz.tmp` vom Pi mehr. GPX-Download aus dem Drive bleibt manuell. CAN-Logs ohne GPX bekommen jetzt das GPS der überlappenden dlg (18 Logs, alle auf ≤ 2 s geprüft; 5 per `DLG_GPS_EXCLUDE` ausgeschlossen, darunter `14_163711`, das 68 s falsch datiert ist). Logbuch: "Pipeline-Absturz an `.log.gz.tmp`…".
+
 **Status 2026-09-26 abends — Fahrtag mit Fahrzeugtests ausgewertet, fünfter No-RTC-Fall
 korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.…").
 

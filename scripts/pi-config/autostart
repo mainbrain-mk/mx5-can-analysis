@@ -2,6 +2,6 @@
 # die beiden respawn.sh-Zeilen darunter auskommentieren.
 # DISPLAY=:0 /home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/status_gui.py &
 
-# respawn.sh startet beide Prozesse nach einem Absturz neu (Ausgabe: /tmp/<skript>.log).
+# respawn.sh startet beide Prozesse nach einem Absturz neu (Ausgabe: /home/pi/canlogs/applogs/<skript>.log).
 DISPLAY=:0 /home/pi/canlogs/respawn.sh can_backend.py &
 DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1 /home/pi/canlogs/respawn.sh dash_gui.py &

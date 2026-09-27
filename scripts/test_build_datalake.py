@@ -278,6 +278,34 @@ def test_dlg_ingest_sorts_by_time_and_maps_names():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def test_dlg_gps_attaches_to_can_timeline():
+    """27.09.: GPS aus der Handy-dlg wird an ein CAN-Log ohne GPX gehaengt - Zuordnung per
+    GPS-Zeitueberlappung, Zeitachse auf den CAN-Start umgerechnet (dlg-Zeit = UTC-Ticks)."""
+    tmpdir = tempfile.mkdtemp()
+    orig_dir = bd.RAW_DLG_DIR
+    bd.RAW_DLG_DIR = tmpdir
+    bd._dlg_gps_span.cache_clear()
+    try:
+        t_can = 1_790_000_000  # CAN-Start (UTC-Epoch)
+        ticks = lambda epoch: int(epoch * 10**7) + bd.TICKS_OFFSET
+        gps = {1: "GPS-Geschwindigkeit", 2: "Breite", 3: "EngineRPM"}
+        _write_dlg(tmpdir, "hit.dlg", [(ticks(t_can + dt), uid, 50.0 + dt) for dt in (-30, 10, 200)
+                                       for uid in gps], gps)
+        _write_dlg(tmpdir, "edge.dlg", [(ticks(t_can + dt), 1, 1.0) for dt in (280, 900)], gps)  # nur 20 s
+        can = os.path.join(tmpdir, "c.log")
+        with open(can, "w") as f:
+            f.write(f"({t_can}.000000) can0 202#00\n({t_can + 300}.000000) can0 202#00\nGARBAGE(99999999999.9)\n")
+        assert bd._can_log_duration_s(can) == 300.0
+        hit = bd._find_overlapping_dlg(can, t_can)
+        assert os.path.basename(hit) == "hit.dlg", hit
+        out = bd.ingest_dlg_gps(hit, t_can)
+        assert set(out["channel"]) == {"GPS-Geschwindigkeit", "Breite"}  # kein EngineRPM
+        assert sorted(set(out["t_elapsed_s"].round(3))) == [-30.0, 10.0, 200.0]
+    finally:
+        bd.RAW_DLG_DIR = orig_dir
+        bd._dlg_gps_span.cache_clear()
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
 def test_derive_gear_status():
     raw = pd.DataFrame({
         "t": [0, 0, 1, 1, 2, 2, 3, 3, 4, 4],

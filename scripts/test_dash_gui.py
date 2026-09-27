@@ -75,6 +75,13 @@ def test_logging_without_rpm_stays_on_drive():
     assert app.drive_screen.refreshed  # beim Umschalten sofort gefuellt
 
 
+def test_health_line_shows_what_the_tiles_display():
+    client = FakeSnapshotClient()
+    client.set(514, "VehicleSpeed", 87.4)
+    line = dash_gui.dash_health_line(client, "drive")
+    assert "screen=drive" in line and "'speed': 87.4" in line and "'lambda': None" in line, line
+
+
 def test_drive_tick_renders_only_while_drive_screen_is_visible():
     app = FakeApp({})
     dash_gui.MX5DashApp._drive_tick(app, 1 / 30)
@@ -481,4 +488,5 @@ if __name__ == "__main__":
     test_gas_card_shows_throttle_in_green_only_while_cruise_holds_the_pedal()
     test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165()
     test_metric_card_set_value_applies_color_and_resets_to_dim_on_none()
+    test_health_line_shows_what_the_tiles_display()
     print("ok")
