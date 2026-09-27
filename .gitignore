@@ -35,3 +35,6 @@ __pycache__/
 
 # Editor/OS
 .DS_Store
+
+# Laufzeit-Artefakt von dash_gui.py (Erstframe-Messung), entsteht bei lokalen Laeufen
+/scripts/boot_timing.log

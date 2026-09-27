@@ -23,6 +23,14 @@ nur den neuesten Snapshot, unabhaengig von der tatsaechlichen CAN-Eingangsrate.
 Neu ggue. status_gui.py: dekodiert zusaetzlich die Mode-1-Antworten von
 tpms_poller.py (Lambda-Soll, Drosselklappe ...) passiv mit. Batteriespannung kommt
 seit 26.09. aus dem Broadcast 0x08A (DCDC_Voltage, 100 Hz) statt aus PID 0x42.
+
+Zeitbasis (27.09.): Wert-Zeitstempel und REC-Timer laufen auf CLOCK_MONOTONIC statt
+auf der Wanduhr. Der Pi hat keine RTC, und seit der Bootbeschleunigung kommt der
+NTP-Sync fast immer erst waehrend der Fahrt - die Wanduhr springt dann um Stunden
+bis Tage (Logbuch "Bootzeit-Optimierung 27.09."). Mit Wanduhr-Stempeln wurden danach
+alle langsamen Werte (TPMS, Oel) bis zum naechsten Poll als veraltet verworfen bzw.
+bei einem Rueckwaertssprung nie mehr, und der REC-Timer sprang. CLOCK_MONOTONIC ist
+systemweit, dash_gui.py vergleicht also mit derselben Uhr (Snapshot-Feld "clock").
 """
 import json
 import os
@@ -205,7 +213,8 @@ class CanBackend:
         self.session_max_speed = 0.0
         self._frame_count = 0
         self.frames_per_sec = 0.0
-        self._logging_since = None
+        self._logging_since = None       # Wanduhr, nur noch fuer aeltere dash_gui.py-Staende
+        self._logging_since_mono = None
         # /proc-Scans sind zwar reines Python (kein fork(), siehe process_running()-
         # Docstring in status_gui.py), aber bei 50Hz Publish-Rate trotzdem unnoetige
         # Arbeit - werden deshalb nur 1x/s in run_process_watch() aktualisiert statt
@@ -219,16 +228,35 @@ class CanBackend:
     def snapshot(self):
         with self._lock:
             values = dict(self._values)
+        now_mono = time.monotonic()
+        since_mono = self._logging_since_mono
         return {
             "t": time.time(),
+            "t_mono": now_mono,
+            "clock": "monotonic",  # Zeitbasis der Wert-Stempel in "values", siehe Modul-Docstring
             "values": values,
             "error": self.error,
             "dbc_ok": self.db is not None,
             "frames_per_sec": round(self.frames_per_sec, 1),
             "session_max_speed": round(self.session_max_speed, 1),
             "logging_since": self._logging_since,
+            "logging_elapsed": None if since_mono is None else round(now_mono - since_mono, 1),
             **self._proc_state,
         }
+
+    def _update_logging_edge(self, logging_now):
+        """Beginn/Ende einer Logging-Session (== Zuendung an, siehe session_logger.py).
+        Beim Beginn startet der REC-Timer und VMAX wird zurueckgesetzt - der Backend-Prozess
+        laeuft seit dem Desktop-Login, zu Hause auch ueber mehrere Fahrten hinweg, und
+        VMAX zeigte sonst den Hoechstwert irgendeiner frueheren Fahrt."""
+        if logging_now:
+            if self._logging_since_mono is None:
+                self._logging_since_mono = time.monotonic()
+                self._logging_since = time.time()
+                self.session_max_speed = 0.0
+        else:
+            self._logging_since_mono = None
+            self._logging_since = None
 
     def run_process_watch(self):
         # Nur fuer Tests ohne echten can0-Adapter (z.B. vcan0-Replay - dessen
@@ -272,12 +300,7 @@ class CanBackend:
                     "logging": process_running("candump -l"),
                     "session_logger_running": process_running("session_logger.py"),
                 }
-            logging_now = self._proc_state["logging"]
-            if logging_now:
-                if self._logging_since is None:
-                    self._logging_since = time.time()
-            else:
-                self._logging_since = None
+            self._update_logging_edge(self._proc_state["logging"])
             time.sleep(1.0)
 
     def run_decode_loop(self):
@@ -310,7 +333,7 @@ class CanBackend:
                     msg = bus.recv(timeout=1.0)
                     if msg is None:
                         continue
-                    now = time.time()
+                    now = time.monotonic()
                     self._frame_count += 1
 
                     if msg.arbitration_id == BRAKE_PCT_CAN_ID and len(msg.data) == 8:
