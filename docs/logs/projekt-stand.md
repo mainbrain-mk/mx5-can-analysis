@@ -5959,3 +5959,30 @@ Offen/bewusst nicht gemacht:
 - Zweiter Lauf: **151 identisch, 0 abweichend**, 1 nicht geprueft
   (`candump-2026-09-11_201521`, 30 Byte, leere Session - wie erwartet).
   TODO von oben damit erledigt.
+
+## Automatischer Lauf: 6 neue CAN-Logs uebernommen (2026-09-27)
+
+- `candump-2026-09-27_112539`
+- `candump-2026-09-27_113615`
+- `candump-2026-09-27_114812`
+- `candump-2026-09-27_125452`
+- `candump-2026-09-27_144352`
+- `candump-2026-09-27_150720`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 5 -> 4 (downshift): 0.98s (vorher 0.98s), candump-2026-09-27_125452 @ t=5029.6s.
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+- script_error: candump-2026-09-27_144352.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:31 auf gespeicherte 2026-09-27 14:41:35 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+- script_error: candump-2026-09-27_150720.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:31 auf gespeicherte 2026-09-27 14:41:35 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+
+## Automatischer Lauf: 1 neue Logs verarbeitet (2026-09-27)
+
+- `2026-09-27 112512`, Dauer=23min
+
+Auffaelligkeiten:
+- vibration: 2026-09-27 112512: Resonanz auf AccelerationX bei 16.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-27 112512: Resonanz auf AccelerationY bei 16.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- vibration: 2026-09-27 112512: Resonanz auf AccelerationZ bei 16.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
