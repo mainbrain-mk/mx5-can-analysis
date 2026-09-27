@@ -5943,3 +5943,19 @@ Offen/bewusst nicht gemacht:
   mehrere Kanaele auf einmal lesen.
 - DuckDBs `sqlite`-Extension fuer .dlg (ganz ohne pandas) - hier nicht
   testbar (Extension-Download gesperrt).
+
+### Nachtrag 2026-09-27: --verify auf dem echten Datalake, pandas-Absturz behoben
+
+- Erster `--verify`-Lauf lokal (pandas 3.0.5) brach bei
+  `candump-2026-09-19_163755` mit `IndexError` in `pd.read_csv` ab: pandas-Bug,
+  wenn `usecols` mit einer DtypeWarning zusammenfaellt (gemischte `value`-Spalte,
+  tritt erst bei grossen CSVs mit mehreren Lese-Chunks auf - die synthetischen
+  Testdaten waren zu klein). Ein normaler Bau waere an derselben Stelle
+  abgebrochen. Fix in `ingest_can()`: ohne `usecols` lesen, `can_id` danach
+  verwerfen - damit auch exakt dieselbe chunkweise Typinferenz wie der alte Code.
+- `test_can_ingest` erwartete noch den AmbientTemp-Sentinel -6,3; der Branch war
+  vor 56ac523 (Sentinel 0,0) abgezweigt, Merge ohne Konflikt. Test auf 0,0
+  angepasst, 12/12 Tests gruen.
+- Zweiter Lauf: **151 identisch, 0 abweichend**, 1 nicht geprueft
+  (`candump-2026-09-11_201521`, 30 Byte, leere Session - wie erwartet).
+  TODO von oben damit erledigt.
