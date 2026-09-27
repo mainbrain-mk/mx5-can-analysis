@@ -10,7 +10,8 @@ kein Git läuft (siehe unten).
 > `can_backend.py` (446e6f1c), `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh` (a17ca9a2),
 > labwc-`autostart` (e66c54c6, per `overlayroot-chroot tee` in den Unterbau) = Repo `830bcaf`.
 > Nach Reboot laufen Backend/Dash über `respawn.sh`, beide Tests ok, Selbstneustart geprüft
-> (`kill` der Dash-PID → nach 2 s neu). Live mit CAN geprüft (1249 Hz). Vorstände (= Git
+> (`kill` der Dash-PID → nach 2 s neu). Live-CAN beim Deploy NICHT geprüft (can0 fehlte; der Screenshot
+> mit "CAN 1249 Hz" um 11:04 war vermutlich die Vcan-Simulation). Vorstände (= Git
 > `a66ec59`/`8a3663a` + alter autostart) in `backup-2026-09-27-dash/`; Rollback: zurückkopieren,
 > autostart wieder per `overlayroot-chroot tee`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
 > Pi im WLAN war an dem Tag 192.168.0.248 (DHCP, `car` löste darauf auf, Verbindung wackelig);
