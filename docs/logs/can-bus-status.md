@@ -4571,3 +4571,109 @@ Arbeitsumgebung nicht; der Decode-Pfad selbst ist unverändert bis auf den Zeits
 
 Bewusst nicht geändert: Tacho-Korrektur (`VehicleSpeed` liest 2,9 % zu hoch, Anzeige bleibt wie im Kombiinstrument,
 Nutzerentscheid offen) und das Layout.
+
+## 2026-09-27 abends: Pipeline-Absturz an `.log.gz.tmp`, sechster No-RTC-Fall per GPX korrigiert
+
+**Absturz:** Der Tageslauf brach mit `FileNotFoundError …150720.log.gz.log` ab. Auf dem Pi lag neben
+`candump-2026-09-27_150720.log` eine halbe `….log.gz.tmp` (43 MB, Stand 16:42:48). Das Packen durch
+`session_logger.py` war durch das Abschalten abgebrochen, die Rohdatei war intakt. Das Find-Muster
+`candump-*.log*` hat die `.tmp` mitgenommen. Fix: `sync_can_logs_from_pi()` übernimmt nur noch `.log`,
+`.log.gz` und `.txt`. Auf dem Pi habe ich das Packen von Hand nachgeholt (gzip → `gzip -t` → mv → rm,
+152 MB).
+
+**GPX als Zeitanker:** Die BasicAirData-Tracks `20260927-115642.gpx` (11:56-14:43) und
+`20260927-163740.gpx` (16:37-18:41) lagen im Drive. Der Abgleich von CAN-VehicleSpeed mit der
+GPX-Geschwindigkeit nutzt `_offset_candidates` und dieselben Schwellen wie der dlg-Abgleich:
+
+| CAN-Log | GPX | RMSE | Offset | n |
+|---|---|---|---|---|
+| 114812 (NTP) | 115642 | 1,74 km/h | ±0 s | 3276 |
+| 125452 (NTP) | 115642 | 2,07 km/h | ±0 s | 6444 |
+| 144352 (kein NTP, Anker 14:41:35) | 163740 | 1,61 km/h | +6948 s | 1199 |
+| 150720 (kein NTP) | 163740 | 3,51 km/h | +6947 s | 5705 |
+
+Bei den NTP-Logs liegt der Offset genau bei 0. Damit gilt die Methode samt `GPS_SPEED_LAG_S` auch
+für GPX. Umbenannt (Pi + lokal): `144352 → candump-2026-09-27_163940` und
+`150720 → candump-2026-09-27_170308`. Das ist der sechste No-RTC-Fall. 112539 und 113615 liegen vor
+dem ersten Track, laufen aber mit NTP. Ihr GPS steckt in der dlg `2026-09-27 112512` (GPS 11:25:15-11:48:07).
+Gegenprobe gegen die dlg: 112539 RMSE 2,83 km/h bei +1 s (n=502), 113615 RMSE 1,91 km/h bei -1 s
+(n=677), beide eindeutig, also im 1-s-Raster deckungsgleich. Im Datalake bleibt das GPS wie bisher
+unter der dlg-log_id. Deren `timestamp_local` ist wegen des bekannten Mislabelings UTC, für einen Join
+mit CAN also +2 h rechnen.
+
+**Pipeline-Änderungen:**
+- `_find_clock_offset` durchsucht jetzt auch `data/can/*.gpx`.
+- `_find_matching_gpx` wählt den Track mit der größten Zeitüberlappung. Die Zeiten kommen aus dem
+  GPX-Inhalt, nicht mehr aus dem Namen mit ±180 s. Ein Track deckt jetzt mehrere Logs ab, auch
+  wenn candump vor dem Track startet.
+- `build_datalake._build_can_target` schneidet den GPS-Teil auf den Zeitraum des CAN-Logs zu.
+  Die Altpaare 11./12.09. bleiben unverändert.
+
+Die GPX-Dateien holt die Pipeline weiterhin **nicht** automatisch aus dem Drive (nur `.dlg`),
+diesmal habe ich sie von Hand nach `data/can/` kopiert.
+
+**Nachtrag: GPS aus der dlg direkt am CAN-Log.** Wenn ein CAN-Log keinen GPX-Track hat, hängt
+`build_datalake._build_can_target` jetzt die GPS-Kanäle (Breite/Länge/Höhe/GPS-Geschwindigkeit) der dlg
+mit der längsten GPS-Zeitüberlappung an. Nötig sind mindestens 60 s Überlappung, sonst würden
+Randsekunden einer Nachbarfahrt zählen. Die Zeitachse wird auf den CAN-Start umgerechnet, die dlg-Ticks
+sind UTC. Die Daten liegen damit doppelt im Datalake, das ist so gewollt. `SCHEMA_VERSIONS["can"]` ist
+auf 9 erhöht.
+
+Alle 23 Kandidatenpaare habe ich vorher per Speed-Kreuzkorrelation geprüft. Der Rest-Offset ist
+Offset minus (Name − Frames):
+- ≤ 2 s bei 14 Paaren, im Abgleich eindeutig.
+- `17_081218`, `18_090404` und `18_161130` liegen bei 0/−1 s, aber mit RMSE 6-7,6 km/h knapp über
+  der Schwelle. Angehängt.
+- Insgesamt sind damit 18 Logs angehängt.
+- `26_120235` hat nur 150 GPS-Punkte in der dlg. Die KnockRetard-Datierung ist bitgenau, daher
+  angehängt.
+- **Ausgeschlossen** (`DLG_GPS_EXCLUDE`):
+  - `14_163711`: wahrer Start **+68 s** später als der Name, die Umbenennung vom 15.09. war ungenau.
+  - `14_173057`: −26 s bei nur 174 Punkten.
+  - `18_165510` und `18_170350`: kein passender Offset, bestes RMSE 18,8 km/h.
+  - `26_154000`: nur geschätzt datiert, bestes RMSE 26,8 km/h.
+
+Nebenfund: `_can_log_duration_s` musste Müll am Ende von `candump-2026-09-16_090826` (Stromverlust)
+ignorieren, sonst ergab sich eine Dauer von 10^16 s.
+
+**Offen:** `candump-2026-09-14_163711` um +68 s nachdatieren (→ `_163819`)? Das habe ich nicht
+gemacht. `18_165510`/`_170350` sind möglicherweise falsch datiert: Sie liefen ohne NTP, der Marker
+steht auf "korrigiert", aber das GPS passt nicht.
+
+## Tankstopp 27.09. zwischen `_163940` und `_170308`: 18,67 l, Tankgeber-Kennlinie bestätigt (2026-09-27 abends)
+
+Nutzerangabe: 18,67 l zwischen den beiden Nachmittags-Logs getankt (16:59:38 → 17:03:08).
+
+- **Tankgeber (`Fuel_Tank`):** Median der letzten 2 min von `_163940` = 20,0 roh → nach der Kennlinie
+  vom 26.09. (Liter ≈ 3,0 + 1,10 · roh) **25,0 l**. Median der ersten 2 min von `_170308` = 36,2 roh,
+  also gesättigt.
+- **Zähler 0x420 seit der Volltankung 26.09. (14:19-14:22):** `FuelRate_CAN` integriert über die 9 Logs
+  `26_142216` … `27_163940` ergibt **19,41 l** auf 328 geloggten km (5,92 l/100 km). Laut ODO fehlen 9 km
+  ohne Logger (432→437, 476→478, 492→493, 705→706), bei gleichem Verbrauch ≈ 0,53 l. Verbraucht also
+  ≈ **19,9 l** → vor dem Tanken 45 − 19,9 = **25,1 l**.
+- Die zwei unabhängigen Wege liegen 0,1 l auseinander. Das bestätigt die Kennlinie (Steigung und
+  3,0-l-Sockel bei 45 l voll) und die Zählerkalibrierung 4834 Schritte/l.
+- Nach dem Tanken ≈ 25,0 + 18,67 = **43,7 l**, also ~1,3 l unter voll. Entweder wurde nicht bis zum
+  Abschalten getankt, oder die Zapfpistole hat früher abgeschaltet. Offen, Nutzer fragen. Nur bei
+  "bis zum Abschalten" taugt der Stopp als neuer Voll-Anker.
+
+**Nachtrag, gleicher Abend: Nutzer hat bis zum Abschalten getankt (wie immer, kein Nachdrücken), der
+Stopp ist also ein zweites Voll-bis-Voll-Intervall 26.09. → 27.09.**
+
+- Den Bordcomputer-Mittelwert hat der Nutzer beim Tanken zurückgesetzt (`_170308` bei 113 s, 5,74 →
+  11,49). Der Wert davor lautet **5,74 l/100 km** auf 170 387,84 → ~170 724,5 km = 336,7 km, also
+  **19,33 l Anzeige**. Das schließt die 9 km ohne Logger ein.
+- Getankt wurden 18,67 l. Die Anzeige liegt diesmal **3,5 % zu hoch**, im Intervall 16.→26.09. lag sie
+  4,0 % zu tief (33,09 gegen 34,4 l). Aus dem Zähler direkt: 19,41 l geloggt (bei 4834/l) plus ~0,5 l
+  ungeloggt, das ist ebenso ~7 % über den getankten Litern.
+- Eine Spreizung von 7,5 % zwischen zwei Intervallen kann nicht vom Zähler kommen, der folgt der
+  Anzeige auf 2,6 ml. Sie entspricht ~1,3 l Unterschied im Füllstand beim Abschalten. Das kurze
+  Intervall mit 18,67 l reagiert darauf fast doppelt so stark.
+- **Gepoolt** (52,42 l Anzeige gegen 53,07 l getankt) liegt die Anzeige 1,2 % zu tief, das entspricht
+  **≈ 4963 Schritten/l** statt 4834. Unsicherheit ±2-3 %, solange nur zwei Intervalle vorliegen.
+  **Entscheid Nutzer (27.09.): 4963/l vorerst nur hier notiert, NICHT integriert.** Datalake
+  (`FUEL_COUNTS_PER_G = 4834/745` in `build_datalake.py`), DBC-Kommentare und Status-Doku rechnen
+  weiter mit 4834/l. Neu bewerten, sobald weitere Voll-bis-Voll-Intervalle vorliegen.
+  Mit 4963/l wären vor dem Tanken 45 − 19,4 = 25,6 l im Tank gewesen (Tankgeber: 25,0 l).
+- Die Übereinstimmung Tankgeber/Zähler von oben (0,1 l) ist damit teils Zufall. Sie hängt an denselben
+  45 l "voll", die hier streuen.

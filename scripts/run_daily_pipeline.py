@@ -25,7 +25,7 @@ import statistics
 import subprocess
 import sys
 import zoneinfo
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -43,6 +43,7 @@ CAN_GPS_PAIRS_OVERRIDE_PATH = "data/can_gps_pairs.json"
 PI_HOST = "pi@192.168.0.247"
 PI_CANLOGS_DIR = "/home/pi/canlogs"
 GPX_PAIR_TOLERANCE_S = 180
+GPX_TIME_SPEED_RE = re.compile(r"<time>([^<]+)</time><speed>([^<]+)</speed>")
 PYTHON = ".venv/bin/python"
 LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
@@ -141,33 +142,53 @@ def pi_reachable():
     return res.returncode == 0
 
 
+def _gpx_speed_1hz(gpx_path):
+    """GPS-Geschwindigkeit aus einer BasicAirData-GPX als {UTC-Epoch-Sekunde: km/h}."""
+    with open(gpx_path, encoding="utf-8") as f:
+        rows = GPX_TIME_SPEED_RE.findall(f.read())
+    idx = [int(datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()) for t, _ in rows]
+    return pd.Series([float(v) * 3.6 for _, v in rows], index=idx, dtype=float).groupby(level=0).mean()
+
+
+def _can_log_span(log_id):
+    """(Start, Ende) als Epoch: Start aus dem (ggf. korrigierten) Namen, Dauer aus erster/letzter
+    candump-Zeile - der Name ist nach einer Uhrkorrektur verlaesslicher als die Frames."""
+    start = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
+    stamps = []
+    with open(os.path.join(CAN_DIR, f"{log_id}.log"), "rb") as f:
+        head = f.readline()
+        f.seek(max(0, os.path.getsize(f.name) - 4096))
+        for line in [head, *f.read().splitlines()]:
+            try:
+                stamps.append(_candump_ts_us(line.decode()) / 1e6)
+            except (ValueError, UnicodeDecodeError):
+                pass  # abgeschnittene Zeile
+    return start, start + (max(stamps) - stamps[0] if stamps else 0)
+
+
 def _find_matching_gpx(log_id):
-    """Sucht data/can/*.gpx mit gleichem Datum wie log_id (candump-YYYY-MM-DD_HHMMSS)
-    und Startzeit innerhalb GPX_PAIR_TOLERANCE_S (die bestehenden, handkuratierten
-    CAN_GPS_PAIRS-Paare in build_datalake.py liegen 9-17s auseinander). None, falls
-    kein Treffer - der CAN-Log wird dann ohne GPS-Track (CAN-only) registriert."""
-    m = re.match(r"candump-(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})", log_id)
-    if not m:
+    """GPX in data/can/, die sich zeitlich am laengsten mit dem CAN-Log ueberlappt (ein Track
+    kann mehrere CAN-Logs abdecken und spaeter als candump starten, 27.09.: 115642.gpx deckt
+    _114812 und _125452 ab). Zeiten aus dem GPX-Inhalt (UTC), nicht aus dem Dateinamen.
+    None, falls keine Ueberlappung - der CAN-Log wird dann ohne GPS-Track (CAN-only) registriert."""
+    if not re.match(r"candump-\d{4}-\d{2}-\d{2}_\d{6}$", log_id):
         return None
-    y, mo, d, h, mi, s = m.groups()
-    date_prefix = f"{y}{mo}{d}"
-    log_s = int(h) * 3600 + int(mi) * 60 + int(s)
-    best, best_diff = None, None
-    for gpx_path in glob.glob(f"{CAN_DIR}/{date_prefix}-*.gpx"):
-        gm = re.match(rf"{date_prefix}-(\d{{2}})(\d{{2}})(\d{{2}})\.gpx$", os.path.basename(gpx_path))
-        if not gm:
+    c0, c1 = _can_log_span(log_id)
+    best, best_overlap = None, 0
+    for gpx_path in glob.glob(f"{CAN_DIR}/*.gpx"):
+        g = _gpx_speed_1hz(gpx_path)
+        if g.empty:
             continue
-        gh, gmi, gs = gm.groups()
-        diff = abs((int(gh) * 3600 + int(gmi) * 60 + int(gs)) - log_s)
-        if diff <= GPX_PAIR_TOLERANCE_S and (best_diff is None or diff < best_diff):
-            best, best_diff = os.path.basename(gpx_path), diff
+        overlap = min(c1, g.index.max()) - max(c0, g.index.min())
+        if overlap > best_overlap:
+            best, best_overlap = os.path.basename(gpx_path), overlap
     return best
 
 
 def _find_matching_can_log(dlg_log_id):
     """Sucht data/can/candump-*.log mit gleichem Datum wie dlg_log_id (Format
     'YYYY-MM-DD HHMMSS') und Startzeit innerhalb GPX_PAIR_TOLERANCE_S (dieselbe
-    Toleranz wie bei _find_matching_gpx - der Pi startet candump typischerweise
+    Toleranz wie frueher bei _find_matching_gpx - der Pi startet candump typischerweise
     einige Sekunden vor der OBD-Fusion-App, siehe z.B. candump-2026-09-18_090404
     vs. dlg '2026-09-18 090449', 45s Abstand). None, falls kein Treffer - dann
     bleibt compute_mass() bei der reinen SOLO-Annahme."""
@@ -324,6 +345,12 @@ def _find_clock_offset(log_id, gps_cache):
         if dlg_path not in gps_cache:
             gps_cache[dlg_path] = _dlg_gps_speed_1hz(dlg_path)
         cands += [(*c, os.path.basename(dlg_path)) for c in _offset_candidates(can_s, gps_cache[dlg_path])]
+    for gpx_path in sorted(glob.glob(f"{CAN_DIR}/*.gpx")):  # BasicAirData-Track, 27.09.: einzige Quelle nachmittags
+        if gpx_path not in gps_cache:
+            gps_cache[gpx_path] = _gpx_speed_1hz(gpx_path)
+        if gps_cache[gpx_path].empty or gps_cache[gpx_path].index.max() < claimed:
+            continue  # Standzeit verschiebt nur nach vorn
+        cands += [(*c, os.path.basename(gpx_path)) for c in _offset_candidates(can_s, gps_cache[gpx_path])]
     good = [c for c in cands if c[0] <= CLOCK_FIX_MAX_RMSE_KMH]
     if not good:
         return None
@@ -536,7 +563,9 @@ def sync_can_logs_from_pi(errors):
         errors.append(("ssh find (Pi CAN-Logs)", f"exit code {res.returncode}: {res.stderr[-300:]}"))
         return []
 
-    remote_files = [l for l in res.stdout.splitlines() if l.strip()]
+    # nur fertige Dateien: .log.gz.tmp (Kompression von session_logger.py lief bzw.
+    # wurde per Stromausfall abgebrochen, 27.09.) wuerde sonst als Log behandelt
+    remote_files = [l for l in res.stdout.splitlines() if l.endswith((".log", ".log.gz", ".txt"))]
     local_logs = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/candump-*.log")}
     local_clockstates = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/clockstate-*.txt")}
 
