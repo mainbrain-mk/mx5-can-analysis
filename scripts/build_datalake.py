@@ -129,6 +129,7 @@ docs/logs/projekt-stand.md, "build_datalake.py: Laufzeitoptimierung".
 Aufruf: python build_datalake.py [--full | --verify]
 """
 import argparse
+import functools
 import glob
 import json
 import os
@@ -166,7 +167,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # CANONICAL_UNIT/UNIT_CONVERSIONS wirken auf dlg UND csv -> dann beide.
 # Alle starten bei "8" (= der letzten gemeinsamen Version), damit die
 # Umstellung selbst keinen Re-Ingest ausloest.
-SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "8"}
+SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "9"}  # can 9: dlg-GPS an CAN-Logs (27.09.)
 
 # Was die ingest_*()-Funktionen liefern. Tabelle `measurements` = log_id,
 # source_file, source_format + diese Spalten; die ersten drei sind pro Log
@@ -807,6 +808,79 @@ def ingest_gps(gpx_path, t0_epoch):
     return pd.concat(long_parts, ignore_index=True)[INGEST_COLUMNS]
 
 
+DLG_GPS_MIN_OVERLAP_S = 60  # sonst Sekunden-Ueberlappung am Rand einer Nachbarfahrt (17.09. 084511)
+# Per CAN-Speed/GPS-Speed-Kreuzkorrelation (27.09.) NICHT deckungsgleich -> kein dlg-GPS anhaengen,
+# sonst laege die Position falsch zur Fahrt. Alle uebrigen Paare: Rest-Offset <= 2 s.
+DLG_GPS_EXCLUDE = {
+    "candump-2026-09-14_163711.log",  # wahrer Start 68 s spaeter als der Name (Umbenennung 15.09. ungenau)
+    "candump-2026-09-14_173057.log",  # -26 s, nur 174 Punkte - unsicher
+    "candump-2026-09-18_165510.log",  # kein passender Offset (bestes RMSE 18,8 km/h)
+    "candump-2026-09-18_170350.log",  # kein passender Offset
+    "candump-2026-09-26_154000.log",  # Datierung nur geschaetzt, kein Offset passt (RMSE 26,8 km/h)
+}
+DLG_GPS_CHANNELS = {"Breite": "deg", "Länge": "deg", "Höhe": "m", "GPS-Geschwindigkeit": "km/h"}  # wie ingest_gps()
+
+
+@functools.lru_cache(maxsize=None)
+def _dlg_gps_span(dlg_path):
+    """(erste, letzte) GPS-Zeit einer dlg als UTC-Epoch, None ohne GPS. Gecacht: wird fuer
+    jedes CAN-Log gegen alle dlg geprueft."""
+    conn = sqlite3.connect(dlg_path)
+    try:
+        row = conn.execute("""SELECT min(Time), max(Time) FROM PidDataEntry WHERE UniqueId IN
+            (SELECT UniqueId FROM PidMetadataEntry WHERE PidName = 'GPS-Geschwindigkeit')""").fetchone()
+    finally:
+        conn.close()
+    return None if row[0] is None else tuple((t - TICKS_OFFSET) / 1e7 for t in row)
+
+
+def _can_log_duration_s(can_path):
+    """Letzte minus erste candump-Zeit (nur Kopfzeile + letzte 4 KB gelesen)."""
+    stamps = []
+    with open(can_path, "rb") as f:
+        head = f.readline()
+        f.seek(max(0, os.path.getsize(can_path) - 4096))
+        for line in [head, *f.read().splitlines()]:
+            try:
+                stamps.append(float(line.split(b")", 1)[0].strip(b"(")))
+            except ValueError:
+                pass  # abgeschnittene Zeile
+    # Muell am Ende eines per Stromverlust abgeschnittenen Logs (candump-2026-09-16_090826) parst
+    # sonst als Zeit in ferner Zukunft -> nur Zeiten binnen eines Tages nach Start zaehlen
+    ok = [t for t in stamps if 0 <= t - stamps[0] <= 86400] if stamps else []
+    return max(ok) - stamps[0] if ok else 0.0
+
+
+def _find_overlapping_dlg(can_path, t0_epoch):
+    """dlg mit der laengsten GPS-Zeitueberlappung zum CAN-Log, sonst None. Fuer CAN-Logs ohne
+    GPX: das GPS steckt dann in der Handy-dlg (27.09.: 112539/113615 in dlg 112512, per
+    Speed-Kreuzkorrelation +-1 s deckungsgleich)."""
+    t1 = t0_epoch + _can_log_duration_s(can_path)
+    best, best_overlap = None, DLG_GPS_MIN_OVERLAP_S
+    for dlg_path in sorted(glob.glob(f"{RAW_DLG_DIR}/*.dlg")):
+        span = _dlg_gps_span(dlg_path)
+        overlap = min(t1, span[1]) - max(t0_epoch, span[0]) if span else 0
+        if overlap > best_overlap:
+            best, best_overlap = dlg_path, overlap
+    return best
+
+
+def ingest_dlg_gps(dlg_path, t0_epoch):
+    """GPS-Kanaele einer dlg auf die Zeitachse des CAN-Logs umgerechnet (Gegenstueck zu
+    ingest_gps()). ingest_dlg()'s timestamp_local ist in Wahrheit UTC (bekanntes Mislabeling),
+    hier daher als UTC-Epoch gelesen."""
+    df = ingest_dlg(dlg_path)
+    df = df[df["channel"].isin(DLG_GPS_CHANNELS)].copy()
+    df["channel"] = df["channel"].astype(str)
+    df["channel_original"] = df["channel_original"].astype(str)
+    df["unit"] = df["channel"].map(DLG_GPS_CHANNELS)  # dlg-Ingest laesst die GPS-Einheiten leer
+    epoch = (df["timestamp_local"] - pd.Timestamp("1970-01-01")).dt.total_seconds()
+    df["t_elapsed_s"] = epoch - t0_epoch
+    t0_local = datetime.fromtimestamp(t0_epoch, tz=LOCAL_TZ).replace(tzinfo=None)
+    df["timestamp_local"] = t0_local + pd.to_timedelta(df["t_elapsed_s"], unit="s")
+    return df[INGEST_COLUMNS]
+
+
 def _build_can_target(can_name, gpx_name):
     """Bestimmt (log_id, Ziel-Eintrag wie in build_targets()) fuer ein
     CAN(+GPS)-Paar, oder None wenn das Log gar nicht als Ziel infrage kommt
@@ -826,14 +900,18 @@ def _build_can_target(can_name, gpx_name):
         print(f"CAN-Log ohne eine einzige candump-Zeile (leere Session), uebersprungen: {can_name}")
         return None
     has_gpx = bool(gpx_path and os.path.exists(gpx_path))
-    paths = [can_path, decoded_csv_path] + ([gpx_path] if has_gpx else [])
+    dlg_path = None if has_gpx or can_name in DLG_GPS_EXCLUDE else _find_overlapping_dlg(can_path, t0_epoch)
+    gps_path = gpx_path if has_gpx else dlg_path
+    paths = [can_path, decoded_csv_path] + ([gps_path] if gps_path else [])
 
     def ingest():
         print(f"lade (can): {can_name}")
         combined = ingest_can(can_path, decoded_csv_path, t0_epoch)
-        if has_gpx:
-            print(f"lade (gps): {gpx_name}")
-            gps_df = ingest_gps(gpx_path, t0_epoch)
+        if gps_path:
+            print(f"lade (gps): {os.path.basename(gps_path)}")
+            gps_df = ingest_gps(gpx_path, t0_epoch) if has_gpx else ingest_dlg_gps(dlg_path, t0_epoch)
+            if not combined.empty:  # ein Track kann mehrere CAN-Logs abdecken (27.09.) -> nur der eigene Zeitraum
+                gps_df = gps_df[gps_df["t_elapsed_s"].between(0, combined["t_elapsed_s"].max())]
             combined = pd.concat([combined, gps_df], ignore_index=True)
         else:
             print(f"kein begleitender GPS-Track gefunden fuer: {can_name}")
@@ -848,7 +926,7 @@ def _build_can_target(can_name, gpx_name):
             return None
         return combined
 
-    source_file, source_format = (f"{can_name} + {gpx_name}", "can+gps") if has_gpx else (can_name, "can")
+    source_file, source_format = (f"{can_name} + {os.path.basename(gps_path)}", "can+gps") if gps_path else (can_name, "can")
     return log_id, {"paths": paths, "ingest": ingest, "format": "can",
                     "source_file": source_file, "source_format": source_format}
 

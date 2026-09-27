@@ -220,6 +220,35 @@ def test_fix_clock_jump_shifts_part_before_ntp_and_renames():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_find_matching_gpx_by_overlap():
+    """27.09.: ein GPX (Start 11:56:42, Ende 14:43:03) deckt zwei CAN-Logs ab, das erste startet
+    8,5 min VOR dem Track - Zuordnung ueber Zeitueberlappung aus dem GPX-Inhalt, nicht den Namen."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR
+    rdp.CAN_DIR = tmp
+    try:
+        def write_can(log_id, dur_s):
+            t0 = int(datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=rdp.LOCAL_TZ).timestamp())
+            with open(os.path.join(tmp, f"{log_id}.log"), "w") as f:
+                f.write(f"({t0}.000000) can0 202#00\n({t0 + dur_s}.000000) can0 202#00\n")
+
+        def write_gpx(name, t_from, t_to):
+            with open(os.path.join(tmp, name), "w") as f:
+                f.writelines(f"<trkpt><time>{t}</time><speed>10.0</speed></trkpt>\n" for t in (t_from, t_to))
+
+        write_gpx("20260927-115642.gpx", "2026-09-27T09:56:42Z", "2026-09-27T12:43:03Z")
+        write_gpx("20260927-163740.gpx", "2026-09-27T14:37:40Z", "2026-09-27T16:41:18Z")
+        write_can("candump-2026-09-27_114812", 3780)
+        write_can("candump-2026-09-27_125452", 6440)
+        write_can("candump-2026-09-27_112539", 500)   # vor jedem Track
+        assert rdp._find_matching_gpx("candump-2026-09-27_114812") == "20260927-115642.gpx"
+        assert rdp._find_matching_gpx("candump-2026-09-27_125452") == "20260927-115642.gpx"
+        assert rdp._find_matching_gpx("candump-2026-09-27_112539") is None
+    finally:
+        rdp.CAN_DIR = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
