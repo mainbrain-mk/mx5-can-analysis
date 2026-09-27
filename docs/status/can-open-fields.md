@@ -204,5 +204,6 @@ mit Uhrzeit). Nichts davon verlangt Eingriffe in Steuergeräte.
 
 Aus dem vorherigen Stand weiterhin offen (siehe `status/can-bus.md`): Auslöser des
 ECU-Soft-Limiters. Seit dem langen Aufenthalt am 26.09. klar: Momentrampe auf ~0, gehalten bis zum
-Gaswegnehmen, kein Kraftstoff-Cut, kein Drehzahlregler. Gebraucht werden Vollgaszüge im 3. und
-4. Gang bis in die Begrenzung, im 4. Gang möglichst lange gehalten. TPMS-Vorderachs-Zuordnung am 26.09. geklärt (Tire1 VL, Tire2 VR).
+Gaswegnehmen, kein Kraftstoff-Cut, kein Drehzahlregler. Der 4.-Gang-Zug vom 27.09. ist erledigt:
+Einsatz bei ~7235/min nach ~1,55 s über 7000, der Zeitgeber ist widerlegt, gangabhängige Schwellen sind wahrscheinlich
+(Logbuch "Soft-Limiter im 4. Gang"). Sinnvoll wären weitere Züge im 3. Gang zur Bestätigung der niedrigen Schwelle. TPMS-Vorderachs-Zuordnung am 26.09. geklärt (Tire1 VL, Tire2 VR).
