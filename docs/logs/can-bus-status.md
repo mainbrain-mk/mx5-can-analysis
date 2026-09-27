@@ -4572,6 +4572,47 @@ Arbeitsumgebung nicht; der Decode-Pfad selbst ist unverändert bis auf den Zeits
 Bewusst nicht geändert: Tacho-Korrektur (`VehicleSpeed` liest 2,9 % zu hoch, Anzeige bleibt wie im Kombiinstrument,
 Nutzerentscheid offen) und das Layout.
 
+## Dash "–" bei laufendem OBD Fusion: Analyse + Zustandslogs auf SSD (27.09.2026)
+
+**Beobachtung (Nutzer):** erste Fahrt mit dem neuen Dash/Backend (11:25-11:47, OBD Fusion am
+Handy-Dongle aktiv): während der Fahrt standen alle Kacheln auf "–", nur TPMS zeigte Werte.
+CAN-Adapter zweimal abgezogen/neu gesteckt (= die Lücken 11:34:16-11:36:15 und 11:47:38-11:48:12
+zwischen `candump-2026-09-27_112539`/`_113615`/`_114812`, **keine** Zündungswechsel); der erste
+Neustart half nicht, nach dem zweiten + Trennen von Fusion lief alles stabil (bis 16:42).
+
+**Lesart des Symptoms:** TPMS hat im Dash 200 s Veraltungsgrenze, alles andere 2 s (Öl/Lambda
+25 s). Snapshots kamen also an (sonst "BACKEND ANTWORTET NICHT"), aber ohne frische Werte.
+
+**Ausgeschlossen (alle Tests mit den echten Frames von 11:25-11:47):**
+- Bus: Broadcasts durchgehend (0x202 mit 100 Hz, keine ID-Lücke, keine Fehler-Frames).
+  Fusion (Log `2026-09-27 112512.dlg`, 11:25:12-11:48:08) fragte Mode-01-Multi-PID ab
+  (`05/06 01 0D …` + Flow-Control `30`, Init auf 0x7DF) und bekam durchgehend 14-17 Werte/s.
+- Pi-Poller: gedrosselt wie vorgesehen (~13 statt ~170 Anfragen/s, 92 % beantwortet), schnelle
+  PIDs im Median alle 0,2 s (max. 3,2 s), Öl max. 21 s. Reaktionszeit Antwort→nächste Anfrage
+  0,5 ms Median wie danach - kein CPU-Engpass.
+- Backend: Echtzeit-Replay 11:26-11:31 auf vcan0 in eine zweite Instanz - alle Leitwerte ≤ 2,6 s
+  alt, kein Fehler. Alle 0x7E8-Payloads beider Logs durch die Poller-Decoder: keine Exception,
+  keine Fehldeutung als Pi-Wert.
+- Dash: komplette Dongle-Phase → echte Backend-Decodierung → echte `DriveScreen.refresh()`
+  (auf dem Pi, 23.621 Durchläufe): keine Exception.
+- Adapter weg/wieder da sowie `down`/`up` (vcan0 del/add): Backend verbindet sich nach 2-3 s neu.
+- Ein kaputter Backend-Socket hätte der erste Adapter-Neustart behoben → eher ein Zustand, der
+  an laufendem Fusion hing und nur live auftritt. **Ursache offen.**
+
+**Warum kein Log:** `respawn.sh` schrieb nach `/tmp` (RAM); der Pi läuft im Auto am Akku und
+startet je Fahrt neu. **Geändert + deployt (27.09. ~20:00):** Logs nach
+`/home/pi/canlogs/applogs/<skript>.log` (eigener Ordner, weil `session_logger.py` jede `*.log`
+in `canlogs/` gzippt; Pipeline holt nur `-maxdepth 1`), Rotation ab 5 MB beim (Neu-)Start.
+`can_backend.py` schreibt alle 10 s `health_line()` (Framerate, Anzahl Werte, Alter von
+Speed/Lambda/Öl/TPMS, Anzahl Frames auf 0x7DF/0x7E0 - dafür beide IDs im Kernelfilter, werden
+nur gezählt), dazu eine Zeile bei "Verbindung verloren"; `dash_gui.py` alle 10 s
+`dash_health_line()` (Snapshot-Alter, was die Kacheln mit ihren Grenzen tatsächlich anzeigen).
+Nächster Schritt: kontrollierter Repro im Stand mit Fusion; beim nächsten Auftreten auf
+"CAN … Hz" in der Statuszeile achten (hoch = Frames kommen an, werden aber keine Werte).
+
+Nebenbefund: der Screenshot "CAN 1249 Hz" beim Deploy 11:04 war vermutlich die Vcan-Simulation
+(can0 fehlte, kein candump aus der Zeit) - Status-Doku korrigiert.
+
 ## 2026-09-27 abends: Pipeline-Absturz an `.log.gz.tmp`, sechster No-RTC-Fall per GPX korrigiert
 
 **Absturz:** Der Tageslauf brach mit `FileNotFoundError …150720.log.gz.log` ab. Auf dem Pi lag neben
