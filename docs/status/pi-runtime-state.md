@@ -6,27 +6,15 @@ das die Ersteinrichtung/Reproduzierbarkeit beschreibt). **In-place aktualisieren
 bei jedem Deploy/Neustart auf dem Pi** — sonst veraltet das schnell, weil hier
 kein Git läuft (siehe unten).
 
-> **Offener Deploy (Repo-Stand 2026-09-27, Dash-Überarbeitung, noch NICHT auf dem Pi):**
-> `dash_gui.py`, `can_backend.py`, `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh`,
-> geänderter labwc-`autostart`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
-> **`dash_gui.py` und `can_backend.py` nur zusammen deployen** (neues Backend + altes Dash = überall "–").
-> ```bash
-> PI=pi@192.168.0.247; D=/home/pi/canlogs
-> ssh $PI "mkdir -p $D/backup-2026-09-27-dash && cp $D/dash_gui.py $D/can_backend.py $D/backup-2026-09-27-dash/ \
->          && cp /home/pi/.config/labwc/autostart $D/backup-2026-09-27-dash/labwc-autostart"
-> scp scripts/dash_gui.py scripts/can_backend.py scripts/test_dash_gui.py scripts/test_can_backend.py \
->     scripts/pi-config/respawn.sh $PI:$D/
-> ssh $PI "chmod +x $D/respawn.sh"
-> # autostart liegt auf der SD (overlayroot) -> in den Unterbau schreiben, dann pruefen:
-> cat scripts/pi-config/autostart | ssh $PI "sudo overlayroot-chroot tee /home/pi/.config/labwc/autostart >/dev/null"
-> ssh $PI "cat /media/root-ro/home/pi/.config/labwc/autostart; findmnt -no OPTIONS /media/root-ro"
-> ssh $PI "sudo reboot"   # die laufenden Prozesse haengen noch nicht an respawn.sh
-> # nach dem Boot:
-> ssh $PI "pgrep -af respawn.sh; tail -3 /tmp/dash_gui.log /tmp/can_backend.log; \
->          cd $D && venv/bin/python3 test_can_backend.py"
-> ```
-> Rollback: Dateien aus `backup-2026-09-27-dash/` zurückkopieren (autostart wieder per `overlayroot-chroot tee`).
-> Danach diesen Kasten entfernen und die Tabelle unten nachziehen.
+> **Dash-Überarbeitung deployt (2026-09-27, ~10:55-11:10 Uhr):** `dash_gui.py` (md5 45299806),
+> `can_backend.py` (446e6f1c), `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh` (a17ca9a2),
+> labwc-`autostart` (e66c54c6, per `overlayroot-chroot tee` in den Unterbau) = Repo `830bcaf`.
+> Nach Reboot laufen Backend/Dash über `respawn.sh`, beide Tests ok, Selbstneustart geprüft
+> (`kill` der Dash-PID → nach 2 s neu). Live mit CAN geprüft (1249 Hz). Vorstände (= Git
+> `a66ec59`/`8a3663a` + alter autostart) in `backup-2026-09-27-dash/`; Rollback: zurückkopieren,
+> autostart wieder per `overlayroot-chroot tee`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
+> Pi im WLAN war an dem Tag 192.168.0.248 (DHCP, `car` löste darauf auf, Verbindung wackelig);
+> per LAN-Kabel 192.168.0.247.
 
 **Nachtrag 2026-09-26, ~17:30-18:15 Uhr:** Pi lief ab 16:12:42 (`uptime -s`) am Heimnetz **ohne
 CAN-Adapter** (`lsusb` ohne CANable, `can-logger.service` "dependency failed"); jemand hatte um
@@ -58,9 +46,9 @@ das lokale Repo. Deshalb dieser Abschnitt.
 
 | Datei | Pi = lokales Repo? | Bemerkung |
 |---|---|---|
-| `dash_gui.py` | ⚠️ Repo neuer (27.09. Dash-Überarbeitung, siehe Kasten oben). Pi: deployt 26.09. nachts, 27.09. ~00:05 um die Erstframe-Messung ergänzt (md5 4a7c1a56) | Pi-Stand: Tempomat-Trigger `0x0FD` Bit 61 `CruiseActive_Inv` mit Rückfall auf `0x165 == 149`, Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`. Vorherige Versionen: `backup-boot-2026-09-26/dash_gui.py.94b3dc87`, `backup-2026-09-26e/dash_gui.py`. |
+| `dash_gui.py` | ✅ identisch (27.09. ~10:55, Dash-Überarbeitung, md5 45299806, siehe Kasten oben) | Vorversion (md5 4a7c1a56, 27.09. ~00:05 um Erstframe-Messung ergänzt) in `backup-2026-09-27-dash/`. Davor: Tempomat-Trigger `0x0FD` Bit 61 `CruiseActive_Inv` mit Rückfall auf `0x165 == 149`, Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`. Vorherige Versionen: `backup-boot-2026-09-26/dash_gui.py.94b3dc87`, `backup-2026-09-26e/dash_gui.py`. |
 | `test_dash_gui.py` | – | läuft nicht auf dem Pi (Tests liegen nur im Repo) |
-| `can_backend.py` | ⚠️ Repo neuer (27.09., monotone Zeitstempel + VMAX-Reset, siehe Kasten oben); Pi-Stand davor identisch | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
+| `can_backend.py` | ✅ identisch (27.09. ~10:55, monotone Zeitstempel + VMAX-Reset, md5 446e6f1c) | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
 | `tpms_poller.py` | ✅ identisch (deployt 26.09., 18:57; status_gui.py + DBC um ~19:25 ebenfalls, TPMS-Vorderachse bestätigt) | Drosselung der schnellen Gruppe auf 5 Runden/s, solange der Handy-Dongle auf 0x7DF/0x7E0 fragt, + Kernel-Filter auf Diagnose-IDs (Dongle-Konflikt, siehe `status/can-bus.md`). ~20:25: PID 0x42/0x2F entfernt (Broadcast), `can_backend.py`/`dash_gui.py` zeigen die Batterie aus 0x08A `DCDC_Voltage` - beide deployt und neu gestartet (Backup `backup-2026-09-26c/`). Abends zusätzlich PID 0x10 (MAF) in der schnellen Gruppe (Backup `backup-2026-09-26b/tpms_poller.py.vor_maf`). Davor 11:40: PIDs 0x3C/0x34/0x2F. 21:01: `dash_gui.py` (neue Ganganzeige R/N/1), `test_dash_gui.py`, `can_backend.py`/`status_gui.py` (Live-Liste `ReverseGear_IC`) und DBC deployt, Backend/Dash neu gestartet (Backup `backup-2026-09-26d/`). |
 | `session_logger.py` | ✅ identisch (deployt 26.09.) | Kommentar-Drift vom 18.09. mitgenommen (nur Pfadangaben). `status_gui.py` und `uds_did_sweep.py` ebenso angeglichen. |
 | `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (26.09. nachts um `CruiseActive_Inv`, `CruiseMainSwitch_maybe` und CM_-Kommentare ergänzt, md5 b402ed43; 27.09. nachts um `AmbientTemp` = raw/4 ergänzt, md5 f33be565, Backup `backup-2026-09-27a/`, Backend nicht neu gestartet (nutzt das Signal nicht), strikt geladen 151 Botschaften, `can_backend.py` neu gestartet PID 3694; Vorversion `backup-2026-09-26e/`; davor: deployt 26.09., abends um CM_-Kommentare zu `CC_Mode_Related`/`CC_SetSpeed` ergänzt, Vorversion `backup-2026-09-26/*.vor-cm`) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die meisten neuen Signale nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt seit 26.09. 21:01 `ReverseGear_IC`. |
@@ -76,14 +64,14 @@ done
 
 ## Laufende Prozesse
 
-- **`can_backend.py`** (26.09.: nach dem Deploy per SSH neu gestartet, PID 2440, gleicher Aufruf wie im Autostart, Ausgabe nach `/tmp/can_backend_restart.log` - geht beim nächsten Reboot wieder über den Autostart; vorher PID 1056, läuft seit Boot 13:37 Uhr) — Decode-Daemon,
+- **`can_backend.py`** (seit Boot 27.09. ~11:08, über `respawn.sh`, Log `/tmp/can_backend.log`) — Decode-Daemon,
   publiziert UDP-Snapshot auf Port 51234. Läuft immer, unabhängig von `can0`
   (zeigt bei fehlendem Bus nur `self.error` im Snapshot).
-- **`dash_gui.py`** (PID 2198, seit 13:55 Uhr — **gerade neu gestartet** für
-  das Shiftlight-Feature) — Kivy-Frontend, liest den UDP-Snapshot.
+- **`dash_gui.py`** (über `respawn.sh`, Log `/tmp/dash_gui.log`) — Kivy-Frontend, liest den UDP-Snapshot.
 - Beide über `/home/pi/.config/labwc/autostart` (Repo-Kopie `scripts/pi-config/autostart`) beim
-  Desktop-Login gestartet (**nicht** über systemd). Nach dem offenen Deploy (Kasten oben) über
-  `respawn.sh`, das sie nach einem Absturz neu startet.
+  Desktop-Login gestartet (**nicht** über systemd), jeweils in einer `respawn.sh`-Schleife, die sie
+  nach einem Absturz neu startet. Von Hand neu starten: nur die Python-PID beenden (nicht
+  `pkill -f dash_gui.py`, das trifft auch die Schleife).
 
 **Screenshot vom laufenden Dashboard (2026-09-20, 14:44 Uhr, per `grim` über
 Wayland/labwc):**
