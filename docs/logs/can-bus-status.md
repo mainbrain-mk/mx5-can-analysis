@@ -4481,3 +4481,36 @@ Nebenbei: `fix_can_log_clocks()` benennt nicht mehr um, wenn der ermittelte Offs
 desselben Boots nach NTP-Sync; der Marker stammt vom Logger-Start). Offener Rest dazu: `session_logger.write_clock_marker()`
 sollte den NTP-Zustand je Log neu pruefen - zusammen mit dem RTC-Einbau (Zustand "rtc") erledigen.
 Test: `scripts/test_run_daily_pipeline.py` (8/8).
+
+## Kupplungspedal "haengt" beim Launch 14:39:14 (26.09.2026, Analyse 27.09.2026)
+
+Anlass: Nutzer liess beim besten Start aus dem Stand (candump-2026-09-26_142216, t=1018,8 s) nach dem Bisspunkt das
+Pedal nach eigener Wahrnehmung fallen; das Pedal blieb in zwei Stufen stehen und schlug am Ende gegen die Schuhsohle,
+danach roch die Kupplung deutlich. Nachstellen mit weniger Last gelang nicht.
+
+Befund aus `Clutch_Pedal_Position_raw` (50 Hz, % = 0,4665*raw+0,56), Motordrehzahl und Hinterraedern (1. Gang,
+130,2 1/min je km/h, aus eingekuppeltem Zustand bestimmt):
+- Anfahrt 90 % → 45 % in 0,35 s, dann **Plateau 1 ≈43 % (raw 91-92) 0,5 s**, langsam auf 33 %,
+  **Plateau 2 = 33 % (raw 69,0 ohne jede Aenderung) 0,56 s**, dann 33 → 23 % in 0,24 s und 23 → 0 % in 60 ms
+  (am Ende ≈0,8 m/s am Pedal = so schnell wie ein im Stand fallen gelassenes Pedal, 14:41:33: 0,9 m/s).
+- Kein Sensor-Artefakt: die Kupplung rutschte waehrend beider Plateaus wirklich (Schlupf 4600 → 2400 1/min,
+  Motor 6000-6300 1/min, 0,5-0,7 g). Reibleistung aus Laengsbeschleunigung (1180,7 kg, r 0,2985 m, eta 0,9)
+  bis 75 kW, **≈88 kJ in 1,5 s**, Kupplungsmoment 130-180 Nm.
+- Plateau 2 endet bei t≈1,44 s, genau als der Kupplungsschlupf endet: die Hinterraeder brechen bei 1,3-1,4 s durch
+  (hinten 49-51 km/h, vorn 29-31 km/h) und drehen die Kupplungsausgangsseite auf Motordrehzahl; ab 1,28 s
+  TCS-Momentenanforderung, Laengsbeschleunigung 0,7 → 0,5 g.
+- Einzigartig im Datalake: laengste Episode "Pedal 20-120 raw bei >4500 1/min" aller CAN-Logs seit 12.09. und die
+  einzige davon mit Vollgas. Zwischengas-Rueckschaltungen bei 6000-6800 1/min (15:05:04, 15:45:54; APP 0,
+  kaum Moment) zeigen ein sauber folgendes Pedal ohne Plateaus → Drehzahl allein loest es an diesem Auto nicht aus.
+- Nachstellversuch 14:41:33 (Stand, Leerlauf, 750 1/min): 198 → 0 raw in 0,28 s, kein Haenger. Die Starts
+  14:07:22/14:12:33 (135855) und 14:41:47 liefen bei ~2000 1/min mit wenig Schlupfenergie.
+
+Recherche: NHTSA PE 11-024 (Ford Mustang 2011-12) beschreibt "clutch stay-out" bei >4000 1/min, Ursache
+"rotating inertia of the clutch components", Abhilfe neue Pedalteile (TSB 10-19-4). Fuer den ND weder TSB noch
+bekanntes Fehlerbild gefunden; Werkstatthandbuch (mx5manual.com) zeigt keine Verzoegerungsdrossel in der
+Kupplungsleitung und einen "clutch stroke sensor" am Pedal (i-stop). Allgemeine Ursachen fuer ein haengendes Pedal:
+schwergaengiger Geber-/Nehmerkolben, korrodiertes Fuehrungsrohr des Ausruecklagers (wird bei Hitze schlimmer).
+
+Offen: Fuss/Sohle, Stay-out oder Reibung im Ausruecksystem lassen sich aus den CAN-Daten nicht trennen.
+Entscheidend waere eine Fussraumkamera beim naechsten Start mit viel Schlupf; bis dahin Pedal, Druckstange und
+Kupplungsfluessigkeit (Stand, Farbe, Leckage am Nehmer) sichtpruefen.
