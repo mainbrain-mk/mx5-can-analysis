@@ -48,6 +48,11 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
      nicht beteiligt.
    - **Langer Limiter-Aufenthalt:** eine Momentrampe auf ~0, gehalten bis zum Gaswegnehmen.
      Kein Drehzahlregler und kein Kraftstoff-Cut; der Auslöser bleibt offen.
+   - **27.09., 4. Gang:** zwei Eingriffe bei 7237/7233/min, erst nach ~1,55 s über 7000; ein
+     Kontrollzug (7129/min, 0,68 s über 7000) ohne Eingriff. Damit ist ein reiner Zeitgeber
+     widerlegt. Die beste Beschreibung sind jetzt gangabhängige Schwellen (Gang 2 ~7260-7410,
+     Gang 3 ~7150-7190, Gang 4 ~7235). Die Momentuntergrenze beim Halten liegt bei 20-30 %
+     statt 6,6 %. Logbuch "Soft-Limiter im 4. Gang".
    - `EmergencyStopSignal_maybe` und der Beifahrer-Belegungscode sind über alle Logs bestätigt,
      die `HighDecel_maybe`-Schwelle liegt bei ~0,6 g.
    - **Ganganzeige im Dash** zeigt jetzt R (0x09F Bit 0, neues `ReverseGear_IC`), N (Leerlaufschalter,

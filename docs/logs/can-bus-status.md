@@ -4718,3 +4718,37 @@ Stopp ist also ein zweites Voll-bis-Voll-Intervall 26.09. → 27.09.**
   Mit 4963/l wären vor dem Tanken 45 − 19,4 = 25,6 l im Tank gewesen (Tankgeber: 25,0 l).
 - Die Übereinstimmung Tankgeber/Zähler von oben (0,1 l) ist damit teils Zufall. Sie hängt an denselben
   45 l "voll", die hier streuen.
+
+## Soft-Limiter im 4. Gang: langer Aufenthalt, kein reiner Zeitgeber (27.09.2026)
+
+Log `candump-2026-09-27_170308`, alle Züge mit `APP` >= 99 %. Beginn = erstes `ActualEnginePercentTorque`
+(0x167) <= 70 % bei > 6900/min. "Über 7000" = Zeit seit dem ersten Überschreiten von 7000/min.
+
+| t [s] | Gang | Beginn | über 7000 | Anstieg | Max. | Öl/KW/IAT [°C] | v (VS, ~3 % hoch) |
+|---|---|---|---|---|---|---|---|
+| 1264,66 | 4 | 7237/min | 1,56 s | 146/min/s | 7269 | 113/90/26 | 178 km/h |
+| 4268,60 | 4 | 7233/min | 1,54 s | 150/min/s | 7259 | 107/89/27 | 178 km/h |
+| 2941,20 | 3 | 7189/min | 0,60 s | 358/min/s | 7227 | 96/87/26 | 138 km/h |
+| 5533,00 | 2 | 7409/min | 0,52 s | 847/min/s | 7427 | 103/88/25 | 97 km/h |
+| 2944-2951 | 4 | **kein Eingriff** | 0,68 s | ~190/min/s | 7129 | | 175 km/h |
+
+**Langer Aufenthalt im 4. Gang (1264,6-1268,2 s, 3,6 s):**
+- Moment 76 % → 61 % in 0,25 s, dann ~20-30 % mit Pendeln (min. 18,7 %).
+- Drosselklappe 92 → 21-36 %, MAP 100 → 37-58 kPa.
+- Kein Kraftstoff-Cut; Lambda soll bleibt 0,85, `TCS_Active` bleibt 0.
+- Die Drehzahl fällt von 7269 auf 7110/min, die Geschwindigkeit von 179 auf 175 km/h. Die ECU gibt trotzdem kein Moment frei.
+- Danach Gaswegnehmen und Schalten in den 5. Gang.
+
+Das deckt sich mit dem Befund vom 26.09.: gehalten bis zum Gaswegnehmen, kein Drehzahlregler. Die Momentuntergrenze liegt hier aber bei ~20-30 % statt 6,6 % im 2. Gang. Sie ist also nicht fest. Offen ist, ob sie von der Last abhängt (179 km/h Luftwiderstand) oder vom Gang.
+
+`KnockRetard_CAN` springt beim ersten Zug zeitgleich mit dem Beginn von 0,15 auf 0,00. Beim zweiten Zug und beim Kontrollzug gibt es solche Wechsel ohne Eingriff (-0,3/-0,85). Das ist also kein Auslöser.
+
+**Folgerungen:**
+- **Zeitgeber widerlegt:** im 4. Gang kommt der Eingriff erst nach 1,55 s über 7000. Der Kontrollzug blieb 0,68 s über 7000 ohne Eingriff, im 2./3. Gang griff die ECU schon nach 0,52/0,60 s ein.
+- **Anstiegsrate erklärt es nicht:** die Beginndrehzahl ist nicht monoton im Anstieg (847 → 7409, 358 → 7189, 148 → 7235).
+- **Beste Beschreibung jetzt:** gangabhängige Drehzahlschwellen.
+  - Gang 2: ~7260-7410 (hier 7409, 26.09. Median 7262)
+  - Gang 3: ~7150-7190 (am 26.09. und heute am niedrigsten)
+  - Gang 4: ~7235, beide Züge auf 4/min gleich
+- Der Kontrollzug (7129) liegt unter der 4.-Gang-Schwelle und passt dazu.
+- Eine Tabelle pro Gang (Momentbegrenzung pro Gang) ist plausibel, aber nicht bewiesen. Die Streuung im 2. Gang (7184-7409) ist deutlich größer als im 4. Gang.
