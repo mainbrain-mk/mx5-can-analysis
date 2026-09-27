@@ -14,6 +14,10 @@ kein Git läuft (siehe unten).
 > mit "CAN 1249 Hz" um 11:04 war vermutlich die Vcan-Simulation). Vorstände (= Git
 > `a66ec59`/`8a3663a` + alter autostart) in `backup-2026-09-27-dash/`; Rollback: zurückkopieren,
 > autostart wieder per `overlayroot-chroot tee`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
+> **~20:00: Zustandslogs auf SSD** (Logbuch "Dash '–' bei laufendem OBD Fusion…"): `can_backend.py`
+> (md5 30fdb8e9), `dash_gui.py` (566903b0), Tests, `respawn.sh` (8c6fbdef), autostart-Kommentar
+> (f51ed5d4) deployt, Tests auf dem Pi ok, Reboot, beide loggen nach `canlogs/applogs/`.
+> Vorstände in `backup-2026-09-27-healthlog/`.
 > Pi im WLAN war an dem Tag 192.168.0.248 (DHCP, `car` löste darauf auf, Verbindung wackelig);
 > per LAN-Kabel 192.168.0.247.
 
@@ -47,9 +51,9 @@ das lokale Repo. Deshalb dieser Abschnitt.
 
 | Datei | Pi = lokales Repo? | Bemerkung |
 |---|---|---|
-| `dash_gui.py` | ✅ identisch (27.09. ~10:55, Dash-Überarbeitung, md5 45299806, siehe Kasten oben) | Vorversion (md5 4a7c1a56, 27.09. ~00:05 um Erstframe-Messung ergänzt) in `backup-2026-09-27-dash/`. Davor: Tempomat-Trigger `0x0FD` Bit 61 `CruiseActive_Inv` mit Rückfall auf `0x165 == 149`, Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`. Vorherige Versionen: `backup-boot-2026-09-26/dash_gui.py.94b3dc87`, `backup-2026-09-26e/dash_gui.py`. |
+| `dash_gui.py` | ✅ identisch (27.09. ~20:00, Zustandslog, md5 566903b0; davor ~10:55 Dash-Überarbeitung 45299806) | Vorversion (md5 4a7c1a56, 27.09. ~00:05 um Erstframe-Messung ergänzt) in `backup-2026-09-27-dash/`. Davor: Tempomat-Trigger `0x0FD` Bit 61 `CruiseActive_Inv` mit Rückfall auf `0x165 == 149`, Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`. Vorherige Versionen: `backup-boot-2026-09-26/dash_gui.py.94b3dc87`, `backup-2026-09-26e/dash_gui.py`. |
 | `test_dash_gui.py` | – | läuft nicht auf dem Pi (Tests liegen nur im Repo) |
-| `can_backend.py` | ✅ identisch (27.09. ~10:55, monotone Zeitstempel + VMAX-Reset, md5 446e6f1c) | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
+| `can_backend.py` | ✅ identisch (27.09. ~20:00, Zustandslog + 0x7DF/0x7E0-Zähler, md5 30fdb8e9; davor ~10:55 monotone Zeitstempel 446e6f1c) | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
 | `tpms_poller.py` | ✅ identisch (deployt 26.09., 18:57; status_gui.py + DBC um ~19:25 ebenfalls, TPMS-Vorderachse bestätigt) | Drosselung der schnellen Gruppe auf 5 Runden/s, solange der Handy-Dongle auf 0x7DF/0x7E0 fragt, + Kernel-Filter auf Diagnose-IDs (Dongle-Konflikt, siehe `status/can-bus.md`). ~20:25: PID 0x42/0x2F entfernt (Broadcast), `can_backend.py`/`dash_gui.py` zeigen die Batterie aus 0x08A `DCDC_Voltage` - beide deployt und neu gestartet (Backup `backup-2026-09-26c/`). Abends zusätzlich PID 0x10 (MAF) in der schnellen Gruppe (Backup `backup-2026-09-26b/tpms_poller.py.vor_maf`). Davor 11:40: PIDs 0x3C/0x34/0x2F. 21:01: `dash_gui.py` (neue Ganganzeige R/N/1), `test_dash_gui.py`, `can_backend.py`/`status_gui.py` (Live-Liste `ReverseGear_IC`) und DBC deployt, Backend/Dash neu gestartet (Backup `backup-2026-09-26d/`). |
 | `session_logger.py` | ✅ identisch (deployt 26.09.) | Kommentar-Drift vom 18.09. mitgenommen (nur Pfadangaben). `status_gui.py` und `uds_did_sweep.py` ebenso angeglichen. |
 | `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (26.09. nachts um `CruiseActive_Inv`, `CruiseMainSwitch_maybe` und CM_-Kommentare ergänzt, md5 b402ed43; 27.09. nachts um `AmbientTemp` = raw/4 ergänzt, md5 f33be565, Backup `backup-2026-09-27a/`, Backend nicht neu gestartet (nutzt das Signal nicht), strikt geladen 151 Botschaften, `can_backend.py` neu gestartet PID 3694; Vorversion `backup-2026-09-26e/`; davor: deployt 26.09., abends um CM_-Kommentare zu `CC_Mode_Related`/`CC_SetSpeed` ergänzt, Vorversion `backup-2026-09-26/*.vor-cm`) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die meisten neuen Signale nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt seit 26.09. 21:01 `ReverseGear_IC`. |
@@ -65,10 +69,10 @@ done
 
 ## Laufende Prozesse
 
-- **`can_backend.py`** (seit Boot 27.09. ~11:08, über `respawn.sh`, Log `/tmp/can_backend.log`) — Decode-Daemon,
+- **`can_backend.py`** (seit Boot 27.09. ~11:08, über `respawn.sh`, Log `/home/pi/canlogs/applogs/can_backend.log`) — Decode-Daemon,
   publiziert UDP-Snapshot auf Port 51234. Läuft immer, unabhängig von `can0`
   (zeigt bei fehlendem Bus nur `self.error` im Snapshot).
-- **`dash_gui.py`** (über `respawn.sh`, Log `/tmp/dash_gui.log`) — Kivy-Frontend, liest den UDP-Snapshot.
+- **`dash_gui.py`** (über `respawn.sh`, Log `/home/pi/canlogs/applogs/dash_gui.log`) — Kivy-Frontend, liest den UDP-Snapshot.
 - Beide über `/home/pi/.config/labwc/autostart` (Repo-Kopie `scripts/pi-config/autostart`) beim
   Desktop-Login gestartet (**nicht** über systemd), jeweils in einer `respawn.sh`-Schleife, die sie
   nach einem Absturz neu startet. Von Hand neu starten: nur die Python-PID beenden (nicht

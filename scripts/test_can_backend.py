@@ -88,9 +88,21 @@ def test_snapshot_values_are_stamped_on_the_monotonic_clock():
     assert abs(snap["t_mono"] - ts) < 1.0
 
 
+def test_health_line_reports_value_ages_and_resets_obd_request_counts():
+    backend = _backend_without_dbc()
+    now = time.monotonic()
+    backend._set(514, "VehicleSpeed", 42.0, now - 3.0)
+    backend._obd_requests[0x7DF] = 7
+    line = backend.health_line(now)
+    assert "'speed': 3.0" in line and "'lambda': None" in line, line
+    assert "7DF=7 7E0=0" in line, line
+    assert "7DF=0" in backend.health_line(now)   # Zaehler je Zeile zurueckgesetzt
+
+
 if __name__ == "__main__":
     test_kill_processes_terminates_matching_process()
     test_kill_processes_ignores_non_matching()
     test_new_logging_session_resets_vmax_and_starts_monotonic_timer()
     test_snapshot_values_are_stamped_on_the_monotonic_clock()
+    test_health_line_reports_value_ages_and_resets_obd_request_counts()
     print("ok")

@@ -62,6 +62,7 @@ LIVE_STALE_S = 2.0
 BACKEND_STALE_S = 3.0
 OIL_STALE_S = 25
 TPMS_STALE_S = 200
+HEALTH_LOG_S = 10  # Zustandszeile ins Log, Gegenstueck zu can_backend.py health_line()
 LAMBDA_STALE_S = 25
 
 DRIVE_RPM_MAX = 8000
@@ -247,6 +248,25 @@ _NO_BACKEND_SNAPSHOT = {
     "session_logger_running": False, "frames_per_sec": 0, "session_max_speed": 0,
     "logging_since": None, "logging_elapsed": None, "backend_down": True,
 }
+
+
+def dash_health_line(client, screen_name):
+    """Was das Dash gerade tatsaechlich anzeigt (mit denselben Veraltungsgrenzen wie die
+    Kacheln) - zusammen mit der Backend-Zeile laesst sich "Backend hat keine Werte" von
+    "Dash verwirft sie" trennen. Anlass: 27.09., "–" ueberall ausser TPMS bei OBD Fusion."""
+    snap = client.snapshot()
+    received = getattr(client, "_received_mono", None)
+    snap_age = None if received is None else round(time.monotonic() - received, 1)
+    shown = {
+        "speed": client.get(514, "VehicleSpeed"),
+        "lambda": client.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S),
+        "oel": client.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S),
+        "tpms": client.get(TPMS_CAN_ID, "Tire1_Pressure", max_age=TPMS_STALE_S),
+    }
+    shown = {k: (None if v is None else round(v, 2)) for k, v in shown.items()}
+    return (f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} screen={screen_name} "
+            f"snapshot_alter={snap_age} backend_down={snap.get('backend_down', False)} "
+            f"fps={snap.get('frames_per_sec')} angezeigt={shown} fehler={snap.get('error')}")
 
 
 class SnapshotClient:
@@ -1364,6 +1384,9 @@ class MX5DashApp(App):
         self._in_testmode = False
         Clock.schedule_interval(self.update_state, POLL_INTERVAL_S)
         Clock.schedule_interval(self._drive_tick, 1.0 / DRIVE_REFRESH_HZ)
+        Clock.schedule_interval(
+            lambda dt: print(dash_health_line(self.client, self.sm.current), flush=True),
+            HEALTH_LOG_S)
         return self.sm
 
     def _drive_tick(self, dt):
