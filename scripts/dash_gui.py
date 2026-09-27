@@ -599,9 +599,10 @@ class StatusBar(BoxLayout):
         self.can_label = self._make_label()
         self.dbc_label = self._make_label()
         self.gps_label = self._make_label()
+        self.ntp_label = self._make_label()
         self.log_label = self._make_label()
         self.clock_label = self._make_label()
-        for w in (self.can_label, self.dbc_label, self.gps_label):
+        for w in (self.can_label, self.dbc_label, self.gps_label, self.ntp_label):
             self.add_widget(w)
         self.add_widget(Widget())  # Spacer
         self.add_widget(self.log_label)
@@ -628,6 +629,12 @@ class StatusBar(BoxLayout):
         else:
             self.log_label.text = "LOG  --"
             self.log_label.color = TEXT_DIM
+        # timesyncd legt die Datei (tmpfs) erst beim ersten Sync nach dem Boot an -
+        # ohne RTC heisst UNSYNC: Uhrzeit/Log-Zeitstempel sind noch nicht verlaesslich.
+        # Nur ein stat(), kein Fork (vgl. pgrep-Lag im alten status_gui.py).
+        ntp_ok = os.path.exists("/run/systemd/timesync/synchronized")
+        self.ntp_label.text = "NTP  SYNC" if ntp_ok else "NTP  UNSYNC"
+        self.ntp_label.color = GOOD if ntp_ok else RED
         self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
         self.clock_label.color = TEXT
 
