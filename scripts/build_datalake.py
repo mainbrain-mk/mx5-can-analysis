@@ -94,7 +94,8 @@ run_daily_pipeline.py). Jeder Lauf bestimmt stattdessen die Ziel-Menge an
 log_ids (billiger Dateisystem-Scan, wie vorher), vergleicht sie gegen die
 in `logs.content_fingerprint`/`logs.schema_version` gespeicherten Werte und
 laedt nur neue/geaenderte Logs (mtime+size-Fingerabdruck geaendert, oder
-SCHEMA_VERSION wurde hochgezaehlt) tatsaechlich neu ein.
+die SCHEMA_VERSIONS des jeweiligen Quellformats wurde hochgezaehlt)
+tatsaechlich neu ein.
 
 WICHTIG - das Entfernen-Aequivalent ist kein Optimierungsdetail, sondern
 der eigentliche Grund, warum das frueher nicht inkrementell ging: der
@@ -111,9 +112,21 @@ alles wegwerfen und neu bauen"-Schutz.
 
 `--full` erzwingt einen kompletten Re-Ingest aller Logs (z.B. direkt nach
 einer Aenderung an NAME_ALIASES/CAN_SIGNAL_MAP/Einheiten-Umrechnung, statt
-SCHEMA_VERSION hochzuzaehlen). Rohdateien werden nie veraendert.
+SCHEMA_VERSIONS hochzuzaehlen). Rohdateien werden nie veraendert.
 
-Aufruf: python build_datalake.py [--full]
+`--verify` schreibt nichts, sondern liest alle als unveraendert geltenden Logs
+neu ein und vergleicht sie zeilengenau (inkl. Reihenfolge je Kanal) mit der
+DB - Nachweis nach Aenderungen am Ingest-Code, bzw. Fund einer vergessenen
+SCHEMA_VERSIONS-Erhoehung. Siehe run_verify().
+
+LAUFZEIT (2026-09-26): ingest_dlg() ohne SQLite-JOIN/-Sortierung, CAN-CSV mit
+usecols/Categoricals, _derive_gear_status() vektorisiert, INSERT ueber
+_insert_measurements() (Konstanten als Parameter, Strings per Code-Tabelle).
+Jeder Lauf gibt pro Log und pro Format Lese-/Schreibzeit aus (auch in
+results/datalake_build_summary.json). Herleitung/Messwerte:
+docs/logs/projekt-stand.md, "build_datalake.py: Laufzeitoptimierung".
+
+Aufruf: python build_datalake.py [--full | --verify]
 """
 import argparse
 import glob
@@ -121,6 +134,8 @@ import json
 import os
 import re
 import sqlite3
+import sys
+import time
 import warnings
 import xml.etree.ElementTree as ET
 import zoneinfo
@@ -139,12 +154,26 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 # Hochzaehlen bei jeder Aenderung an NAME_ALIASES/CAN_SIGNAL_MAP/Einheiten-
 # Umrechnung/Vorzeichenkorrekturen etc. - erzwingt beim naechsten Lauf einen
-# Re-Ingest ALLER Logs (sonst bleiben schon eingelesene Logs unbemerkt mit
-# der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
-SCHEMA_VERSION = "8"
+# Re-Ingest der betroffenen Logs (sonst bleiben schon eingelesene Logs
+# unbemerkt mit der alten Mapping-Logik in der DB stehen, siehe Docstring oben).
+# Getrennt pro Quellformat (seit 2026-09-26): bis dahin gab es EINE Version,
+# und alle 7 Erhoehungen 1->8 (20.-26.09.) betrafen nur den CAN-Pfad, liessen
+# aber jedes Mal auch alle .dlg/CSV-Logs neu einlesen. Nur das Format
+# hochzaehlen, dessen ingest-Pfad sich geaendert hat:
+#   "dlg" -> ingest_dlg(), "csv" -> ingest_csv()/NAME_ALIASES/RAW_HEADER_OVERRIDES,
+#   "can" -> ingest_can()/ingest_gps()/CAN_SIGNAL_MAP/CAN_SENTINELS/FUEL_*
+#   (CAN+GPS-Paare laufen als ein Log unter "can").
+# CANONICAL_UNIT/UNIT_CONVERSIONS wirken auf dlg UND csv -> dann beide.
+# Alle starten bei "8" (= der letzten gemeinsamen Version), damit die
+# Umstellung selbst keinen Re-Ingest ausloest.
+SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "8"}
 
-MEASUREMENT_COLUMNS = ["log_id", "source_file", "source_format", "channel",
-                        "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
+# Was die ingest_*()-Funktionen liefern. Tabelle `measurements` = log_id,
+# source_file, source_format + diese Spalten; die ersten drei sind pro Log
+# konstant und kommen erst beim INSERT als Parameter dazu (siehe
+# _insert_measurements()), statt als Millionen gleicher Python-Strings durch
+# pandas und die DuckDB-Konvertierung zu laufen.
+INGEST_COLUMNS = ["channel", "channel_original", "unit", "t_elapsed_s", "timestamp_local", "value"]
 LOG_COLUMNS = ["log_id", "source_file", "source_format", "start_time_local",
                "duration_s", "n_measurements", "content_fingerprint", "schema_version"]
 
@@ -473,29 +502,36 @@ def _fingerprint(paths):
 
 
 def ingest_dlg(path):
-    log_id = os.path.splitext(os.path.basename(path))[0]
+    """Laufzeit (2026-09-26): frueher JOIN auf PidMetadataEntry + ORDER BY Time
+    direkt in SQLite - das liess SQLite sortieren und erzeugte pro Messwert
+    einen eigenen PidName-String. Jetzt nur die (~60) Metadaten-Zeilen als
+    Dict, die Datenzeilen ohne JOIN/Sortierung, Kanalnamen als Categorical per
+    UniqueId, Zeitsortierung per stabilem argsort (gleiche Zeitstempel bleiben
+    in Datei-Reihenfolge). Etwa halbe Lesezeit bei identischem Ergebnis."""
     conn = sqlite3.connect(path)
-    df = pd.read_sql_query("""
-        SELECT pde.Time AS raw_time, pme.PidName AS channel, pde.Value AS value
-        FROM PidDataEntry pde
-        LEFT JOIN PidMetadataEntry pme ON pde.UniqueId = pme.UniqueId
-        ORDER BY pde.Time ASC
-    """, conn)
-    conn.close()
+    try:
+        meta = conn.execute("SELECT UniqueId, PidName FROM PidMetadataEntry").fetchall()
+        df = pd.read_sql_query(
+            "SELECT Time AS raw_time, UniqueId AS uid, Value AS value FROM PidDataEntry", conn)
+    finally:
+        conn.close()
+    names = dict(meta)
+    if len(names) != len(meta):
+        # Der fruehere LEFT JOIN haette hier jeden Messwert vervielfacht.
+        warnings.warn(f"{os.path.basename(path)}: PidMetadataEntry hat doppelte UniqueIds - "
+                      f"es gilt jeweils der letzte PidName")
+    if not df["raw_time"].is_monotonic_increasing:
+        df = df.iloc[np.argsort(df["raw_time"].to_numpy(), kind="stable")].reset_index(drop=True)
     df["timestamp_local"] = pd.to_datetime((df["raw_time"] - TICKS_OFFSET) / 10, unit="us")
     t0 = df["timestamp_local"].min()
     df["t_elapsed_s"] = (df["timestamp_local"] - t0).dt.total_seconds()
+    df["channel"] = df["uid"].map(names).astype("category")
     df["channel_original"] = df["channel"]
     df["unit"] = df["channel"].map(CANONICAL_UNIT)
-    df["log_id"] = log_id
-    df["source_file"] = os.path.basename(path)
-    df["source_format"] = "dlg"
-    return df[["log_id", "source_file", "source_format", "channel", "channel_original",
-               "unit", "t_elapsed_s", "timestamp_local", "value"]]
+    return df[INGEST_COLUMNS]
 
 
 def ingest_csv(path):
-    log_id = os.path.splitext(os.path.basename(path))[0]
     with open(path, encoding="utf-8-sig") as f:
         start_line = f.readline().strip()
         header_line = f.readline()
@@ -569,11 +605,7 @@ def ingest_csv(path):
         columns=["t_elapsed_s", "value", "channel", "channel_original", "unit"])
     out["timestamp_local"] = (start_dt + pd.to_timedelta(out["t_elapsed_s"], unit="s")
                                if start_dt is not None else pd.NaT)
-    out["log_id"] = log_id
-    out["source_file"] = os.path.basename(path)
-    out["source_format"] = "csv"
-    return out[["log_id", "source_file", "source_format", "channel", "channel_original",
-                "unit", "t_elapsed_s", "timestamp_local", "value"]]
+    return out[INGEST_COLUMNS]
 
 
 def log_start_epoch(can_log_path):
@@ -630,16 +662,10 @@ def _derive_gear_status(raw_decoded):
         # erst durch sehr kurze CAN-Logs ohne Gang-Frames aufgefallen, seit
         # dem automatischen Pi-Sync in run_daily_pipeline.py).
         return pd.DataFrame(columns=["t", "signal", "value"])
-    gear_by_position = {"2nd": 2, "3rd": 3, "4th": 4, "5th": 5, "6th": 6}
-
-    def resolve(row):
-        if row.sel == "Neutral":
-            return 0
-        if row.pos == "N/1st":
-            return 1
-        return gear_by_position.get(row.pos, 0)
-
-    m["value"] = m.apply(resolve, axis=1)
+    gear_by_position = {"N/1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5, "6th": 6}
+    # vektorisiert statt m.apply(..., axis=1) (~30x schneller, ~2 s je Fahrstunde gespart)
+    gear = m["pos"].map(gear_by_position).fillna(0).astype(np.int64)
+    m["value"] = np.where(m["sel"] == "Neutral", 0, gear)
     m["signal"] = "MT_Gear_Status"
     return m[["t", "signal", "value"]]
 
@@ -662,6 +688,9 @@ def _derive_fuel_rate(decoded):
     ok = span >= 0.5 * FUEL_RATE_WINDOW_S
     rate = pd.DataFrame({"t": t[ok], "signal": "FuelConsumption_Counter",
                          "value": (cum[ok] - cum[j[ok]]) / span[ok] / FUEL_COUNTS_PER_G})
+    # gleicher dtype wie decoded (Categorical, siehe ingest_can()) - sonst macht concat
+    # daraus eine object-Spalte und alle folgenden Filter werden String-Vergleiche
+    rate["signal"] = rate["signal"].astype(decoded["signal"].dtype)
     return pd.concat([decoded[~sel], rate], ignore_index=True)
 
 
@@ -670,10 +699,17 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     erzeugte *_decoded.csv (Long-Format t/can_id/message/signal/value) statt
     erneut >1 Mio Rohframes zu dekodieren - die CSV wird ohnehin schon fuers
     CAN-Reverse-Engineering gepflegt (siehe docs/logs/can-bus-status.md)."""
-    log_id = os.path.splitext(os.path.basename(can_log_path))[0]
     t0_local = datetime.fromtimestamp(t0_epoch, tz=LOCAL_TZ).replace(tzinfo=None)
 
-    raw_decoded = pd.read_csv(decoded_csv_path)
+    # can_id wird nicht gebraucht; message/signal als Categorical statt Millionen
+    # Python-Strings (etwa halbe Lesezeit, und alle Signal-Filter unten werden
+    # Ganzzahl- statt String-Vergleiche). Die beiden hier erst entstehenden
+    # Signalnamen muessen vorab als Kategorie existieren.
+    raw_decoded = pd.read_csv(decoded_csv_path, usecols=["t", "message", "signal", "value"],
+                              dtype={"message": "category", "signal": "category"})
+    new_signals = [s for s in ("VehicleSpeed_Display", "MT_Gear_Status")
+                   if s not in raw_decoded["signal"].cat.categories]
+    raw_decoded["signal"] = raw_decoded["signal"].cat.add_categories(new_signals)
     # DBC-Dual-Column-Bug (analog ingest_csv()s NAME_ALIASES-Fund, siehe
     # mx5_build_datalake_dual_column_bug-Memory): das Signal "VehicleSpeed"
     # existiert ZWEIMAL in der DBC - BO_514 HS_PCM (echte, feinaufgeloeste
@@ -689,8 +725,11 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     is_display_speed = (raw_decoded["signal"] == "VehicleSpeed") & (raw_decoded["message"] == "HS_IC")
     raw_decoded.loc[is_display_speed, "signal"] = "VehicleSpeed_Display"
     gear_status = _derive_gear_status(raw_decoded)
-    decoded = pd.concat([raw_decoded, gear_status], ignore_index=True)
-    decoded = decoded[decoded["signal"].isin(CAN_SIGNAL_MAP)].copy()
+    gear_status["signal"] = gear_status["signal"].astype(raw_decoded["signal"].dtype)
+    # erst filtern, dann anhaengen (gleiche Zeilen/Reihenfolge wie concat+Filter,
+    # aber ohne die ungemappten Signale nochmal zu kopieren)
+    decoded = pd.concat([raw_decoded[raw_decoded["signal"].isin(CAN_SIGNAL_MAP)], gear_status],
+                        ignore_index=True)
     # can_log_parser.py dekodiert mit cantools-Default decode_choices=True, d.h.
     # Signale mit VAL_-Tabelle (KeyState, DSC_Status) kommen als Enum-String
     # statt Zahl - wuerde sonst beim Zusammenfuehren mit den rein numerischen OBD-Logs
@@ -702,8 +741,8 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
         {"OFF": 0, "ACC": 1, "ON": 2, "START": 3, "Off": 0, "On": 1})
     decoded["value"] = pd.to_numeric(decoded["value"], errors="coerce")
     decoded = decoded.dropna(subset=["value"])
-    for sig, bad in CAN_SENTINELS.items():
-        decoded = decoded[~((decoded["signal"] == sig) & (np.abs(decoded["value"] - bad) < 1e-6))]
+    sentinel = decoded["signal"].map(CAN_SENTINELS).astype(float)  # NaN fuer Signale ohne Sentinel
+    decoded = decoded[~(np.abs(decoded["value"] - sentinel) < 1e-6)]
     decoded = _derive_fuel_rate(decoded)
     # WheelSpeed_1..4 (HS_ABS): raw 0xFFFF ("Sensor ungueltig", klassischer CAN-
     # Sentinelwert) dekodiert nach der DBC-Formel (raw*0.01-100) zu genau 555,35
@@ -723,23 +762,19 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     # Datalake ueberall dieselbe Vorzeichenkonvention hat.
     is_sign_flip = decoded["signal"].isin(["Lateral_Acc_Raw", "YawRate_Raw"])
     decoded.loc[is_sign_flip, "value"] = -decoded.loc[is_sign_flip, "value"]
-    mapped = decoded["signal"].map(CAN_SIGNAL_MAP)
-    decoded["channel"] = mapped.map(lambda x: x[0])
-    decoded["unit"] = mapped.map(lambda x: x[1])
+    decoded["channel"] = decoded["signal"].map({k: v[0] for k, v in CAN_SIGNAL_MAP.items()})
+    decoded["unit"] = decoded["signal"].map({k: v[1] for k, v in CAN_SIGNAL_MAP.items()})
     decoded["channel_original"] = decoded["signal"]
     decoded["t_elapsed_s"] = decoded["t"]
     decoded["timestamp_local"] = t0_local + pd.to_timedelta(decoded["t_elapsed_s"], unit="s")
-    decoded["log_id"] = log_id
-    decoded["source_file"] = os.path.basename(can_log_path)
-    decoded["source_format"] = "can"
-    return decoded[["log_id", "source_file", "source_format", "channel", "channel_original",
-                     "unit", "t_elapsed_s", "timestamp_local", "value"]]
+    return decoded[INGEST_COLUMNS]
 
 
-def ingest_gps(gpx_path, log_id, t0_epoch):
-    """Begleitenden GPS-Track (BasicAirData-GPX) unter demselben log_id wie das
-    zugehoerige CAN-Log einlesen. Nur Felder uebernehmen, die die GPX tatsaechlich
-    liefert (lat/lon/ele/speed) - kein Hoehen-/Genauigkeits-Ersatzwert erfunden."""
+def ingest_gps(gpx_path, t0_epoch):
+    """Begleitenden GPS-Track (BasicAirData-GPX) einlesen (landet unter demselben
+    log_id wie das zugehoerige CAN-Log, siehe _build_can_target()). Nur Felder
+    uebernehmen, die die GPX tatsaechlich liefert (lat/lon/ele/speed) - kein
+    Hoehen-/Genauigkeits-Ersatzwert erfunden."""
     tree = ET.parse(gpx_path)
     root = tree.getroot()
     rows = []
@@ -766,16 +801,11 @@ def ingest_gps(gpx_path, log_id, t0_epoch):
         sub["channel_original"] = channel
         sub["unit"] = unit
         long_parts.append(sub)
-    out = pd.concat(long_parts, ignore_index=True)
-    out["log_id"] = log_id
-    out["source_file"] = os.path.basename(gpx_path)
-    out["source_format"] = "gps"
-    return out[["log_id", "source_file", "source_format", "channel", "channel_original",
-                "unit", "t_elapsed_s", "timestamp_local", "value"]]
+    return pd.concat(long_parts, ignore_index=True)[INGEST_COLUMNS]
 
 
 def _build_can_target(can_name, gpx_name):
-    """Bestimmt (log_id, Fingerabdruck-Pfade, ingest-Funktion) fuer ein
+    """Bestimmt (log_id, Ziel-Eintrag wie in build_targets()) fuer ein
     CAN(+GPS)-Paar, oder None wenn das Log gar nicht als Ziel infrage kommt
     (Dateien fehlen / leere Session). Die eigentliche Dekodierung passiert
     erst beim Aufruf der ingest-Funktion (nur fuer tatsaechlich neue/
@@ -798,12 +828,10 @@ def _build_can_target(can_name, gpx_name):
     def ingest():
         print(f"lade (can): {can_name}")
         combined = ingest_can(can_path, decoded_csv_path, t0_epoch)
-        source_file, source_format = can_name, "can"
         if has_gpx:
             print(f"lade (gps): {gpx_name}")
-            gps_df = ingest_gps(gpx_path, log_id, t0_epoch)
+            gps_df = ingest_gps(gpx_path, t0_epoch)
             combined = pd.concat([combined, gps_df], ignore_index=True)
-            source_file, source_format = f"{can_name} + {gpx_name}", "can+gps"
         else:
             print(f"kein begleitender GPS-Track gefunden fuer: {can_name}")
         if combined.empty:
@@ -815,20 +843,20 @@ def _build_can_target(can_name, gpx_name):
             # seltenen/kleinen Faellen, in denen das vorkommt, vernachlaessigbar.
             print(f"CAN-Log traegt keine bekannten Signale bei, uebersprungen: {can_name}")
             return None
-        combined["log_id"] = log_id
-        combined["source_file"] = source_file
-        combined["source_format"] = source_format
         return combined
 
-    return log_id, paths, ingest
+    source_file, source_format = (f"{can_name} + {gpx_name}", "can+gps") if has_gpx else (can_name, "can")
+    return log_id, {"paths": paths, "ingest": ingest, "format": "can",
+                    "source_file": source_file, "source_format": source_format}
 
 
 def build_targets():
     """Bestimmt, welche log_ids im Datalake stehen SOLLEN (Ziel-Menge) -
     reiner Dateisystem-Scan + Ausschlusslisten, kein Parsen von Inhalten.
-    Ergebnis: {log_id: {"paths": [...], "ingest": callable}}. `ingest()`
-    liefert bei Aufruf das fertige DataFrame (oder None, wenn sich beim
-    tatsaechlichen Einlesen herausstellt, dass nichts drin ist)."""
+    Ergebnis: {log_id: {"paths": [...], "ingest": callable, "format": Schluessel
+    in SCHEMA_VERSIONS, "source_file": ..., "source_format": ...}}. `ingest()`
+    liefert bei Aufruf das DataFrame mit INGEST_COLUMNS (oder None, wenn sich
+    beim tatsaechlichen Einlesen herausstellt, dass nichts drin ist)."""
     targets = {}
 
     for path in sorted(glob.glob(f"{RAW_DLG_DIR}/*.dlg")):
@@ -838,7 +866,8 @@ def build_targets():
             print(f"lade (dlg): {os.path.basename(path)}")
             return ingest_dlg(path)
 
-        targets[log_id] = {"paths": [path], "ingest": ingest}
+        targets[log_id] = {"paths": [path], "ingest": ingest, "format": "dlg",
+                           "source_file": os.path.basename(path), "source_format": "dlg"}
 
     csv_files = sorted(glob.glob(f"{RAW_CSV_DIR}/*.csv"))
     for path in csv_files:
@@ -850,7 +879,8 @@ def build_targets():
             print(f"lade (csv): {os.path.basename(path)}")
             return ingest_csv(path)
 
-        targets[log_id] = {"paths": [path], "ingest": ingest}
+        targets[log_id] = {"paths": [path], "ingest": ingest, "format": "csv",
+                           "source_file": os.path.basename(path), "source_format": "csv"}
 
     skipped = set(os.path.basename(f) for f in csv_files) & KNOWN_CSV_DUPLICATES_OF_DLG
     for s in sorted(skipped):
@@ -861,8 +891,8 @@ def build_targets():
     for can_name, gpx_name in _all_can_gps_pairs():
         result = _build_can_target(can_name, gpx_name)
         if result is not None:
-            log_id, paths, ingest = result
-            targets[log_id] = {"paths": paths, "ingest": ingest}
+            log_id, target = result
+            targets[log_id] = target
 
     return targets
 
@@ -892,7 +922,50 @@ def _ensure_schema(con):
             content_fingerprint VARCHAR, schema_version VARCHAR)""")
 
 
+def _insert_measurements(con, df, log_id, source_file, source_format, table="measurements"):
+    """Fuegt die INGEST_COLUMNS eines Logs in `table` ein. Laufzeit (2026-09-26):
+    frueher wurden alle 9 Spalten als DataFrame registriert, davon 6 Text-
+    spalten - DuckDB muss dabei jeden Python-String einzeln konvertieren, das
+    war der teuerste Einzelschritt des ganzen Baus (~9 s je 5 Mio Messwerte,
+    mit pyarrow-Strings sogar ~20 s). Jetzt:
+      - log_id/source_file/source_format als SQL-Parameter (pro Log konstant),
+      - channel/channel_original/unit als Ganzzahl-Code + kleine Nachschlage-
+        tabelle (ein paar Dutzend Zeilen), per JOIN in DuckDB aufgeloest,
+    zusammen ~3x schneller. Das ORDER BY auf die Zeilennummer ist PFLICHT:
+    ein Hash-JOIN gibt die Zeilen sonst in beliebiger Reihenfolge aus (per
+    Test bestaetigt), und etliche Leser-Skripte fragen Zeitreihen ohne ORDER BY
+    ab und verlassen sich auf die Einfuege-Reihenfolge."""
+    key_cols = ["channel", "channel_original", "unit"]
+    codes = np.zeros(len(df), dtype=np.int64)
+    for col in key_cols:
+        col_codes, uniques = pd.factorize(df[col], use_na_sentinel=False)
+        codes = codes * max(len(uniques), 1) + col_codes
+    codes, uniques = pd.factorize(codes)
+    # beliebiges Vorkommen je Code reicht, alle Zeilen eines Codes sind in key_cols gleich
+    first = np.empty(len(uniques), dtype=np.int64)
+    first[codes] = np.arange(len(df))
+    lut = df[key_cols].iloc[first].astype(object).reset_index(drop=True)
+    lut = lut.where(lut.notna(), None)
+    lut["code"] = np.arange(len(lut))
+
+    batch = df[["t_elapsed_s", "timestamp_local", "value"]].reset_index(drop=True)
+    batch["code"] = codes
+    batch["rn"] = np.arange(len(batch))
+    con.register("_ins_batch", batch)
+    con.register("_ins_lut", lut)
+    try:
+        con.execute(f"""INSERT INTO {table}
+            SELECT ?, ?, ?, l.channel, l.channel_original, l.unit,
+                   b.t_elapsed_s, b.timestamp_local, b.value
+            FROM _ins_batch b JOIN _ins_lut l USING (code)
+            ORDER BY b.rn""", [log_id, source_file, source_format])
+    finally:
+        con.unregister("_ins_batch")
+        con.unregister("_ins_lut")
+
+
 def run_build(force_full=False):
+    t_run = time.perf_counter()
     targets = build_targets()
     fingerprints = {log_id: _fingerprint(t["paths"]) for log_id, t in targets.items()}
 
@@ -907,7 +980,7 @@ def run_build(force_full=False):
     else:
         to_ingest = sorted(
             log_id for log_id in targets
-            if existing.get(log_id) != (fingerprints[log_id], SCHEMA_VERSION))
+            if existing.get(log_id) != (fingerprints[log_id], SCHEMA_VERSIONS[targets[log_id]["format"]]))
     print(f"\nZiel-Logs: {len(targets)}  |  neu/geaendert: {len(to_ingest)}  |  "
           f"unveraendert: {len(targets) - len(to_ingest)}  |  zu entfernen: {len(to_remove)}")
 
@@ -921,20 +994,30 @@ def run_build(force_full=False):
         con.execute(f"DELETE FROM measurements WHERE log_id IN ({placeholders})", stale)
         con.execute(f"DELETE FROM logs WHERE log_id IN ({placeholders})", stale)
 
+    timing = {}  # format -> {"logs", "measurements", "read_s", "write_s"}
     for log_id in to_ingest:
-        df = targets[log_id]["ingest"]()
+        target = targets[log_id]
+        t_start = time.perf_counter()
+        df = target["ingest"]()
+        read_s = time.perf_counter() - t_start
         if df is None or df.empty:
             continue
-        con.register("_batch_measurements", df[MEASUREMENT_COLUMNS])
-        con.execute("INSERT INTO measurements SELECT * FROM _batch_measurements")
-        con.unregister("_batch_measurements")
+        t_start = time.perf_counter()
+        _insert_measurements(con, df, log_id, target["source_file"], target["source_format"])
 
-        summary = _log_summary(df)
+        summary = _log_summary(df, log_id, target["source_file"], target["source_format"])
         summary["content_fingerprint"] = fingerprints[log_id]
-        summary["schema_version"] = SCHEMA_VERSION
+        summary["schema_version"] = SCHEMA_VERSIONS[target["format"]]
         con.register("_batch_log", pd.DataFrame([summary])[LOG_COLUMNS])
         con.execute("INSERT INTO logs SELECT * FROM _batch_log")
         con.unregister("_batch_log")
+        write_s = time.perf_counter() - t_start
+        print(f"  {len(df):,} Messwerte | lesen {read_s:.1f}s | schreiben {write_s:.1f}s")
+        acc = timing.setdefault(target["format"], {"logs": 0, "measurements": 0, "read_s": 0.0, "write_s": 0.0})
+        acc["logs"] += 1
+        acc["measurements"] += len(df)
+        acc["read_s"] += read_s
+        acc["write_s"] += write_s
 
     n_logs, n_measurements = con.execute(
         "SELECT (SELECT COUNT(*) FROM logs), (SELECT COUNT(*) FROM measurements)").fetchone()
@@ -951,7 +1034,12 @@ def run_build(force_full=False):
         "GROUP BY log_id ORDER BY log_id").fetchall()
     con.close()
 
+    total_s = time.perf_counter() - t_run
     print(f"\n=== Datalake aktualisiert: {DB_PATH} ===")
+    print(f"Laufzeit gesamt: {total_s:.1f}s")
+    for fmt, acc in sorted(timing.items()):
+        print(f"  {fmt}: {acc['logs']} Logs, {acc['measurements']:,} Messwerte | "
+              f"lesen {acc['read_s']:.1f}s | schreiben {acc['write_s']:.1f}s")
     print(f"Logs: {n_logs}  |  Messwerte gesamt: {n_measurements:,}")
     print(f"Davon nicht zugeordnete (UNMAPPED) Messwerte: {n_unmapped:,}")
     if n_unmapped:
@@ -968,24 +1056,108 @@ def run_build(force_full=False):
             "n_unmapped_channels": int(n_unmapped),
             "unmapped_channels_overall": unmapped_overall,
             "unmapped_channels_by_log": unmapped_by_log,
+            "runtime_s": round(total_s, 1),
+            "ingest_timing": {fmt: {k: round(v, 1) if isinstance(v, float) else v for k, v in acc.items()}
+                              for fmt, acc in timing.items()},
         }, f, indent=2, ensure_ascii=False)
     print(f"\nDetails: {RESULTS_DIR}/datalake_build_summary.json")
 
 
+# Pro (Log, Kanal) die komplette Zeitreihe in Einfuege-Reihenfolge - vergleicht damit
+# Werte UND die Reihenfolge, auf die sich Leser ohne ORDER BY verlassen.
+_VERIFY_SEQ_SQL = """SELECT log_id, source_file, source_format, channel, channel_original, unit,
+       list((t_elapsed_s, timestamp_local, value) ORDER BY rowid) AS seq
+FROM {table} WHERE log_id = ? GROUP BY ALL"""
+
+
+def run_verify():
+    """Liest jedes Log, das laut Fingerabdruck/SCHEMA_VERSIONS als "unveraendert"
+    gilt, neu ein (nur in eine TEMP-Tabelle, DB read-only geoeffnet) und
+    vergleicht es mit dem, was in der DB steht. Zweck: (1) Nachweis, dass eine
+    Aenderung am Ingest-Code (z.B. die Laufzeitoptimierung vom 2026-09-26)
+    dieselben Zeilen erzeugt wie der Code, der die DB gebaut hat; (2) findet
+    eine vergessene SCHEMA_VERSIONS-Erhoehung (Mapping geaendert, Version
+    nicht). Dauert so lange wie ein --full-Lauf. Rueckgabe: Anzahl
+    abweichender Logs (Exit-Code 1, wenn > 0)."""
+    targets = build_targets()
+    if not os.path.exists(DB_PATH):
+        print(f"{DB_PATH} existiert nicht, nichts zu pruefen")
+        return 0
+    # read_only: garantiert nichts zu schreiben (TEMP-Tabellen gehen trotzdem) und
+    # sperrt parallel laufende Leser-Skripte nicht aus
+    con = duckdb.connect(DB_PATH, read_only=True)
+    tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+    if not {"logs", "measurements"} <= tables:
+        print(f"{DB_PATH}: keine Datalake-Tabellen, nichts zu pruefen")
+        con.close()
+        return 0
+    existing = {row[0]: (row[1], row[2]) for row in
+                con.execute("SELECT log_id, content_fingerprint, schema_version FROM logs").fetchall()}
+    con.execute("CREATE TEMP TABLE _verify AS SELECT * FROM measurements LIMIT 0")
+
+    n_ok, not_checked, bad = 0, [], []
+    for log_id in sorted(targets):
+        target = targets[log_id]
+        if existing.get(log_id) != (_fingerprint(target["paths"]), SCHEMA_VERSIONS[target["format"]]):
+            not_checked.append(log_id)  # neu/geaendert - der naechste Lauf liest es ohnehin neu ein
+            continue
+        df = target["ingest"]()
+        con.execute("DELETE FROM _verify")
+        summary = {"start_time_local": pd.NaT, "duration_s": 0.0, "n_measurements": 0}
+        if df is not None and not df.empty:
+            _insert_measurements(con, df, log_id, target["source_file"], target["source_format"],
+                                 table="_verify")
+            summary = _log_summary(df, log_id, target["source_file"], target["source_format"])
+        n_diff = con.execute(f"""
+            WITH a AS ({_VERIFY_SEQ_SQL.format(table="measurements")}),
+                 b AS ({_VERIFY_SEQ_SQL.format(table="_verify")})
+            SELECT (SELECT count(*) FROM (FROM a EXCEPT ALL FROM b))
+                 + (SELECT count(*) FROM (FROM b EXCEPT ALL FROM a))""", [log_id, log_id]).fetchone()[0]
+        con.register("_verify_log", pd.DataFrame([summary]))
+        summary_diff = con.execute("""
+            SELECT count(*) FROM (
+                SELECT start_time_local, duration_s, n_measurements FROM logs WHERE log_id = ?
+                EXCEPT ALL
+                SELECT start_time_local::TIMESTAMP, duration_s::DOUBLE, n_measurements::BIGINT FROM _verify_log)""",
+                                   [log_id]).fetchone()[0]
+        con.unregister("_verify_log")
+        if n_diff or summary_diff:
+            bad.append(log_id)
+            print(f"  ABWEICHUNG: {log_id} ({n_diff} Kanal-Zeitreihen verschieden, "
+                  f"logs-Eintrag {'verschieden' if summary_diff else 'gleich'})")
+        else:
+            n_ok += 1
+            print("  identisch")
+    con.close()
+
+    print(f"\n=== Verify: {n_ok} identisch, {len(bad)} abweichend, "
+          f"{len(not_checked)} nicht geprueft (neu/geaendert) ===")
+    if bad:
+        print("Abweichend:", bad)
+        print("Entweder Ingest-Code-Regression, oder Mapping geaendert ohne SCHEMA_VERSIONS "
+              "hochzuzaehlen.")
+    return len(bad)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--full", action="store_true",
-                         help="alle Ziel-Logs neu einlesen, unabhaengig von Fingerabdruck/Schema-Version")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--full", action="store_true",
+                      help="alle Ziel-Logs neu einlesen, unabhaengig von Fingerabdruck/Schema-Version")
+    mode.add_argument("--verify", action="store_true",
+                      help="unveraenderte Logs neu einlesen und mit der DB vergleichen, ohne zu schreiben")
     args = parser.parse_args()
+    if args.verify:
+        sys.exit(1 if run_verify() else 0)
     run_build(force_full=args.full)
 
 
-def _log_summary(df):
+def _log_summary(df, log_id, source_file, source_format):
     valid_t = df["timestamp_local"].dropna()
     return {
-        "log_id": df["log_id"].iloc[0],
-        "source_file": df["source_file"].iloc[0],
-        "source_format": df["source_format"].iloc[0],
+        "log_id": log_id,
+        "source_file": source_file,
+        "source_format": source_format,
         "start_time_local": valid_t.min() if len(valid_t) else pd.NaT,
         "duration_s": float(df["t_elapsed_s"].max() - df["t_elapsed_s"].min()) if len(df) else 0.0,
         "n_measurements": len(df),
