@@ -2,7 +2,16 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-26)
+## Kurzüberblick: aktueller Stand (2026-09-27)
+
+**Status 2026-09-27 — Dash (`dash_gui.py`/`can_backend.py`) überarbeitet, im Repo, noch nicht auf dem Pi.**
+Details im Logbuch ("Dash-Überarbeitung…"), Deploy-Schritte in [`pi-runtime-state.md`](pi-runtime-state.md).
+Ein Backend-Ausfall wird erkannt (rote Meldung statt eingefrorenem Drive-Screen). Wert-Zeitstempel und REC-Timer
+laufen monoton, NTP-Sprünge während der Fahrt verwerfen also nicht mehr TPMS/Öl und lassen den Timer nicht springen.
+VMAX beginnt je Fahrt bei 0, Backend und Dash starten nach einem Absturz über `respawn.sh` neu. Der Drive-Screen
+rendert nur noch, wenn er sichtbar ist, Drehzahlbalken und LEDs ohne Canvas-Neuaufbau. Ein Test prüft jedes vom
+Dash gelesene Signal gegen Backend-Filter und DBC.
+
 
 **Status 2026-09-26 abends — Fahrtag mit Fahrzeugtests ausgewertet, fünfter No-RTC-Fall
 korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.…").

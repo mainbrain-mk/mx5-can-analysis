@@ -16,6 +16,7 @@ import datetime
 import glob
 import gzip
 import json
+import math
 import os
 import re
 import socket
@@ -50,9 +51,15 @@ UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
 # Gegenstueck zu can_backend.py SIM_TRIGGER_PATH - siehe SimController unten.
 SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
 SIM_REPLAY_LOG = "/tmp/mx5_sim_replay.log"
-POLL_INTERVAL_S = 1.0
+# Screen-Umschaltung + Status-/Testmodus-Refresh. War 1 s - zu traege fuer die
+# Pedal-Kacheln im Testmodus ("Kupplung ca. 25 %" usw.), die Arbeit pro Takt ist klein.
+POLL_INTERVAL_S = 0.2
 DRIVE_REFRESH_HZ = 30
+STATUS_BAR_REFRESH_S = 0.25  # Fusszeile (Uhr, Hz, NTP) braucht keine 30 Hz
 LIVE_STALE_S = 2.0
+# can_backend.py publiziert mit 50 Hz; kommt so lange nichts, gilt es als ausgefallen
+# (Snapshot sonst eingefroren: "logging" bliebe True, Drive-Screen + REC-Timer liefen weiter).
+BACKEND_STALE_S = 3.0
 OIL_STALE_S = 25
 TPMS_STALE_S = 200
 LAMBDA_STALE_S = 25
@@ -97,7 +104,6 @@ FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
                          # liegt bei ~1-2s, echter Fuellstand aendert sich
                          # ueber Minuten - 8s glaettet das eine, verzoegert
                          # das andere kaum sichtbar)
-FUEL_SMOOTH_ALPHA = (1.0 / DRIVE_REFRESH_HZ) / FUEL_SMOOTH_TAU_S
 COOLANT_TEMP_CAN_ID = 1056
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274
@@ -165,6 +171,14 @@ def _gas_card_source(app, etc, cruise_active):
     return app, TEXT
 
 
+def _ema_alpha(dt, tau):
+    """Glaettungsfaktor fuer einen Refresh nach dt Sekunden. Rechnet mit der echten
+    Frame-Zeit statt fester 30 Hz, damit die Zeitkonstante auch bei Frame-Einbruechen
+    stimmt; dt ist nach oben begrenzt, ein einzelner Haenger springt nicht durch."""
+    dt = min(max(dt, 0.0), 1.0)
+    return 1.0 - math.exp(-dt / tau)
+
+
 def _blink_on(t=None, hz=LIMITER_BLINK_HZ):
     t = time.time() if t is None else t
     return int(t * hz * 2) % 2 == 0
@@ -228,34 +242,70 @@ def _measure_text_width(text, font_size, bold=False):
 
 # --- IPC: liest die can_backend.py-UDP-Snapshots -----------------------------------------
 
+_NO_BACKEND_SNAPSHOT = {
+    "values": {}, "dbc_ok": False, "can_up": False, "logging": False,
+    "session_logger_running": False, "frames_per_sec": 0, "session_max_speed": 0,
+    "logging_since": None, "logging_elapsed": None, "backend_down": True,
+}
+
+
 class SnapshotClient:
     """Haelt nur den jeweils neuesten Snapshot vor (kein Verlauf noetig) -
     UDP-Datagramme sind atomar, also kein Lock fuer Torn-Reads noetig, nur
-    fuer den gemeinsamen Zugriff auf die Referenz selbst."""
+    fuer den gemeinsamen Zugriff auf die Referenz selbst.
 
-    def __init__(self, port=UDP_PORT):
+    Kommt laenger als BACKEND_STALE_S kein Snapshot (can_backend.py abgestuerzt oder
+    noch beim Start), liefert snapshot() einen Ersatz mit backend_down=True und allen
+    Status-Flags auf False statt des letzten, eingefrorenen Stands."""
+
+    def __init__(self, port=UDP_PORT, start=True):
         self.port = port
         self._lock = threading.Lock()
-        self._snapshot = {"values": {}, "error": "warte auf can_backend.py", "dbc_ok": False,
-                           "can_up": False, "logging": False, "session_logger_running": False,
-                           "frames_per_sec": 0, "session_max_speed": 0, "logging_since": None}
-        threading.Thread(target=self._run, daemon=True).start()
+        self._snapshot = None
+        self._received_mono = None
+        self.bind_error = None
+        if start:
+            threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(("127.0.0.1", self.port))
+        # Belegter Port (z.B. zweite, von Hand gestartete dash_gui.py-Instanz) liess den
+        # Thread frueher still sterben - das Dash zeigte dann fuer immer "warte auf ...".
+        while True:
+            try:
+                sock.bind(("127.0.0.1", self.port))
+                break
+            except OSError as exc:
+                self.bind_error = f"UDP-Port {self.port} belegt ({exc.strerror or exc})"
+                time.sleep(2)
+        self.bind_error = None
         while True:
             try:
                 data, _ = sock.recvfrom(65536)
                 snap = json.loads(data)
-            except (OSError, json.JSONDecodeError):
+            except (OSError, ValueError):
                 continue
-            with self._lock:
-                self._snapshot = snap
+            if isinstance(snap, dict) and isinstance(snap.get("values"), dict):
+                self._receive(snap)
 
-    def snapshot(self):
+    def _receive(self, snap, now=None):
         with self._lock:
-            return self._snapshot
+            self._snapshot = snap
+            self._received_mono = time.monotonic() if now is None else now
+
+    def snapshot(self, now=None):
+        with self._lock:
+            snap, received = self._snapshot, self._received_mono
+        now = time.monotonic() if now is None else now
+        if snap is not None and now - received <= BACKEND_STALE_S:
+            return snap
+        if self.bind_error:
+            error = self.bind_error
+        elif snap is None:
+            error = "warte auf can_backend.py"
+        else:
+            error = f"can_backend.py antwortet seit {now - received:.0f} s nicht"
+        return dict(_NO_BACKEND_SNAPSHOT, error=error, backend_seen=snap is not None)
 
     def get(self, can_id, signal, max_age=LIVE_STALE_S):
         snap = self.snapshot()
@@ -263,7 +313,10 @@ class SnapshotClient:
         if entry is None:
             return None
         value, ts = entry
-        if time.time() - ts > max_age:
+        # Neuere can_backend.py-Staende stempeln monoton (NTP-Spruenge, siehe dort),
+        # aeltere mit der Wanduhr - beides wird unterstuetzt.
+        now = time.monotonic() if snap.get("clock") == "monotonic" else time.time()
+        if now - ts > max_age:
             return None
         return value
 
@@ -354,6 +407,8 @@ class FillBar(Widget):
 
     @frac.setter
     def frac(self, value):
+        if value == self._frac:
+            return
         self._frac = value
         self._redraw()
 
@@ -423,7 +478,7 @@ class LedDot(Widget):
         self.lit = False
         self.color = GREEN
         with self.canvas:
-            Color(*_darken(self.color))
+            self._color_instr = Color(*_darken(self.color))
             self._circle = Ellipse(pos=self.pos, size=self.size)
         self.bind(pos=self._redraw, size=self._redraw)
 
@@ -435,12 +490,10 @@ class LedDot(Widget):
         if lit == self.lit and color == self.color:
             return
         self.lit, self.color = lit, color
-        self.canvas.clear()
-        with self.canvas:
-            # Unlit-Punkte in der abgedunkelten eigenen Zonenfarbe statt
-            # festem Grau - gleiches Prinzip wie beim RPM-Balken (_darken()).
-            Color(*(color if lit else _darken(color)))
-            self._circle = Ellipse(pos=self.pos, size=self.size)
+        # Unlit-Punkte in der abgedunkelten eigenen Zonenfarbe statt
+        # festem Grau - gleiches Prinzip wie beim RPM-Balken (_darken()).
+        # Nur die Farbe umsetzen statt die Canvas neu aufzubauen.
+        self._color_instr.rgba = color if lit else _darken(color)
 
 
 class RpmBar(Panel):
@@ -479,32 +532,43 @@ class RpmBar(Panel):
 
 
 class _RpmBarCanvas(Widget):
+    """Segmente werden einmal angelegt; update() setzt nur die Farben der Segmente um,
+    die ihren Zustand wechseln. Vorher wurde die Canvas mit allen 60 Rechtecken in jedem
+    Frame (30 Hz) geloescht und neu aufgebaut, auch bei unveraenderter Drehzahl."""
+
+    GAP = 4
+
     def __init__(self, n_segments, **kwargs):
         super().__init__(**kwargs)
         self.n_segments = n_segments
         self.rpm = 0
-        self.bind(pos=self._redraw, size=self._redraw)
+        self.lit_n = 0
+        self._zone_colors = [_rpm_zone_color((i / n_segments) * DRIVE_RPM_MAX)
+                             for i in range(n_segments)]
+        self._colors = []
+        self._rects = []
+        with self.canvas:
+            for zone_color in self._zone_colors:
+                self._colors.append(Color(*_darken(zone_color)))
+                self._rects.append(Rectangle(pos=self.pos, size=(0, 0)))
+        self.bind(pos=self._layout, size=self._layout)
 
     def update(self, rpm):
         self.rpm = rpm or 0
-        self._redraw()
-
-    def _redraw(self, *_args):
-        self.canvas.clear()
-        if self.width <= 0:
-            return
-        gap = 4
-        seg_w = (self.width - gap * (self.n_segments - 1)) / self.n_segments
         lit_frac = max(0.0, min(1.0, self.rpm / DRIVE_RPM_MAX))
         lit_n = round(lit_frac * self.n_segments)
-        with self.canvas:
-            for i in range(self.n_segments):
-                seg_rpm = (i / self.n_segments) * DRIVE_RPM_MAX
-                zone_color = _rpm_zone_color(seg_rpm)
-                r, g, b, a = zone_color if i < lit_n else _darken(zone_color)
-                Color(r, g, b, a)
-                x = self.x + i * (seg_w + gap)
-                Rectangle(pos=(x, self.y), size=(seg_w, self.height))
+        if lit_n == self.lit_n:
+            return
+        for i in range(min(lit_n, self.lit_n), max(lit_n, self.lit_n)):
+            zone_color = self._zone_colors[i]
+            self._colors[i].rgba = zone_color if i < lit_n else _darken(zone_color)
+        self.lit_n = lit_n
+
+    def _layout(self, *_args):
+        seg_w = max(0.0, (self.width - self.GAP * (self.n_segments - 1)) / self.n_segments)
+        for i, rect in enumerate(self._rects):
+            rect.pos = (self.x + i * (seg_w + self.GAP), self.y)
+            rect.size = (seg_w, self.height)
 
 
 class _RpmScaleRow(FloatLayout):
@@ -621,9 +685,14 @@ class StatusBar(BoxLayout):
         self.can_label.color = GOOD if snap.get("can_up") else RED
         self.dbc_label.text = "DBC  OK" if snap.get("dbc_ok") else "DBC  FEHLT"
         self.dbc_label.color = GOOD if snap.get("dbc_ok") else RED
+        # logging_elapsed rechnet can_backend.py monoton (springt nicht mit, wenn NTP
+        # waehrend der Fahrt die Uhr stellt); logging_since nur fuer aeltere Backends.
+        elapsed = snap.get("logging_elapsed")
         since = snap.get("logging_since")
-        if snap.get("logging") and since:
-            elapsed = int(time.time() - since)
+        if elapsed is None and since:
+            elapsed = time.time() - since
+        if snap.get("logging") and elapsed is not None:
+            elapsed = max(0, int(elapsed))
             self.log_label.text = f"LOG  REC  {elapsed // 60:02d}:{elapsed % 60:02d}"
             self.log_label.color = RED
         else:
@@ -647,6 +716,7 @@ class DriveScreen(Screen):
         self.client = client
         self.session_max_speed = 0.0
         self._fuel_smooth = None
+        self._status_bar_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
         # Fusszeile (StatusBar), ohne die proportionalen Kacheln zu stauchen.
@@ -735,7 +805,17 @@ class DriveScreen(Screen):
     def get_rpm(self):
         return self.client.get(514, "EngineRPM")
 
-    def refresh(self, *_args):
+    def on_pre_enter(self, *_args):
+        # Neue Fahrt (Drive-Screen erscheint mit Zuendung an): Tankglaettung neu
+        # starten - sonst kroch die Anzeige nach dem Tanken ~20 s lang vom alten
+        # Fuellstand hoch, weil der Filter noch den Wert von vor dem Tankstopp hielt.
+        self._fuel_smooth = None
+        self._status_bar_due = 0.0
+
+    def refresh(self, dt=None):
+        """dt = Sekunden seit dem letzten Aufruf (kommt von Kivys Clock); ohne dt
+        (Tests, Direktaufruf) wird ein Frame bei DRIVE_REFRESH_HZ angenommen."""
+        dt = 1.0 / DRIVE_REFRESH_HZ if dt is None else dt
         c = self.client
         rpm = self.get_rpm()
         app = c.get(514, "APP_Accelerator_Pedal_Position")
@@ -781,10 +861,14 @@ class DriveScreen(Screen):
         fuel_pct = None if fuel_raw is None else max(0.0, min(100.0, 2.486 * fuel_raw - 0.02))
         if fuel_pct is not None:
             self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
-                self._fuel_smooth + FUEL_SMOOTH_ALPHA * (fuel_pct - self._fuel_smooth))
+                self._fuel_smooth
+                + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
 
-        self.status_bar.update(snap)
+        self._status_bar_due -= dt
+        if self._status_bar_due <= 0:
+            self._status_bar_due = STATUS_BAR_REFRESH_S
+            self.status_bar.update(snap)
 
 
 # --- Status-/Testmodus-Screens (funktional gleichwertiger Port, kein Redesign) -------------
@@ -1003,6 +1087,11 @@ class StatusScreen(Screen):
         self.state_label = Label(text="", font_size="46sp", bold=True, color=TEXT,
                                   halign="center", size_hint_y=0.32)
         col.add_widget(self.state_label)
+        # Fehlertext aus dem Backend-Snapshot (z.B. "keine DBC gefunden", "CAN-Bus nicht
+        # verfuegbar (...)") - wurde bisher nirgends angezeigt.
+        self.error_label = Label(text="", font_size="16sp", color=TEXT,
+                                  halign="center", size_hint_y=None, height=24)
+        col.add_widget(self.error_label)
 
         self.test_button = Button(text="Testmodus starten", font_size="22sp",
                                    size_hint_y=None, height=56)
@@ -1068,7 +1157,12 @@ class StatusScreen(Screen):
         can_up = snap.get("can_up")
         logging = snap.get("logging")
         session_logger = snap.get("session_logger_running")
-        if not can_up:
+        backend_down = snap.get("backend_down", False)
+        if backend_down and snap.get("backend_seen"):
+            text, color = "FEHLER\nBACKEND ANTWORTET NICHT", (0.54, 0.11, 0.11, 1)
+        elif backend_down:
+            text, color = "WARTE AUF BACKEND", (0.17, 0.23, 0.33, 1)
+        elif not can_up:
             text, color = "WARTE AUF CAN-BUS", (0.17, 0.23, 0.33, 1)
         elif logging:
             text, color = "LOGGING LÄUFT", (0.11, 0.48, 0.24, 1)
@@ -1078,6 +1172,7 @@ class StatusScreen(Screen):
             text, color = "FEHLER\nSERVICE NICHT AKTIV", (0.54, 0.11, 0.11, 1)
         self.state_label.text = text
         self._bg_color.rgba = color
+        self.error_label.text = snap.get("error") or ""
 
         want_extras = logging
         if want_extras != self._test_button_visible:
@@ -1094,7 +1189,8 @@ class StatusScreen(Screen):
         # Auch sichtbar, waehrend eine laufende Simulation den Bus als aktiv
         # meldet (can_up dann per Trigger erzwungen True) - sonst gibt es
         # keinen Weg mehr, sie ueber das GUI zu stoppen, sobald sie greift.
-        want_sim = not can_up or self.sim.running
+        # Ohne Backend ist eine Simulation sinnlos (niemand dekodiert sie).
+        want_sim = (not can_up and not backend_down) or self.sim.running
         if want_sim != self._sim_button_visible:
             self._sim_button_visible = want_sim
             self._sim_area.clear_widgets()
@@ -1267,8 +1363,14 @@ class MX5DashApp(App):
 
         self._in_testmode = False
         Clock.schedule_interval(self.update_state, POLL_INTERVAL_S)
-        Clock.schedule_interval(self.drive_screen.refresh, 1.0 / DRIVE_REFRESH_HZ)
+        Clock.schedule_interval(self._drive_tick, 1.0 / DRIVE_REFRESH_HZ)
         return self.sm
+
+    def _drive_tick(self, dt):
+        # Nur rendern, wenn der Drive-Screen sichtbar ist - vorher lief der volle
+        # 30-Hz-Refresh auch auf dem Status-/Testmodus-Screen mit (CPU auf dem Pi).
+        if self.sm.current == "drive":
+            self.drive_screen.refresh(dt)
 
     def start_test_mode(self):
         self._in_testmode = True
@@ -1292,6 +1394,9 @@ class MX5DashApp(App):
 
         if self.sm.current != target:
             self.sm.current = target
+            if target == "drive":
+                # Sofort fuellen statt einen Frame lang die Werte der letzten Fahrt zu zeigen.
+                self.drive_screen.refresh()
         if target == "status":
             self.status_screen.refresh(snap)
         elif target == "testmode":

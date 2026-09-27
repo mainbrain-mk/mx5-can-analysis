@@ -79,6 +79,12 @@ sudo udevadm control --reload-rules
 [[mx5-renncockpit-kivy-rewrite-2026-09-16]]. Das alte `status_gui.py` bleibt als
 auskommentierte Fallback-Zeile in derselben Datei stehen.
 
+Seit 2026-09-27 laufen beide über `respawn.sh` (dieser Ordner -> `/home/pi/canlogs/respawn.sh`,
+ausführbar, per normalem `scp`): startet das Skript nach einem Absturz neu, Ausgabe nach
+`/tmp/can_backend.log` bzw. `/tmp/dash_gui.log`. Neustart von Hand, z.B. nach einem Deploy:
+`pkill -f "python3 /home/pi/canlogs/dash_gui.py"` (die Schleife startet ihn nach 2 s neu;
+`pkill -f dash_gui.py` würde auch die Schleife beenden).
+
 ## Was hier bewusst NICHT abgebildet ist
 
 - DBC-Dateien und die eigentlichen Anwendungsskripte (`dash_gui.py`,

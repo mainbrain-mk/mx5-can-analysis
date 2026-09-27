@@ -42,6 +42,7 @@ class FakeApp:
         self.client = self
         self._snap = snap
         self.sm = FakeScreenManager()
+        self.drive_screen = FakeScreen()
         self.status_screen = FakeScreen()
         self.testmode_screen = FakeScreen()
         self._in_testmode = False
@@ -50,10 +51,207 @@ class FakeApp:
         return self._snap
 
 
+class FakeSnapshotClient:
+    """Minimaler Ersatz fuer SnapshotClient: gleiche .get()/.snapshot()-
+    Signatur, Werte von Hand statt vom UDP-Socket."""
+
+    def __init__(self):
+        self._values = {}
+
+    def set(self, can_id, signal, value):
+        self._values[(can_id, signal)] = value
+
+    def get(self, can_id, signal, max_age=None):
+        return self._values.get((can_id, signal))
+
+    def snapshot(self):
+        return {}
+
+
 def test_logging_without_rpm_stays_on_drive():
     app = FakeApp({"logging": True})
     dash_gui.MX5DashApp.update_state(app)
     assert app.sm.current == "drive"
+    assert app.drive_screen.refreshed  # beim Umschalten sofort gefuellt
+
+
+def test_drive_tick_renders_only_while_drive_screen_is_visible():
+    app = FakeApp({})
+    dash_gui.MX5DashApp._drive_tick(app, 1 / 30)
+    assert not app.drive_screen.refreshed
+    app.sm.current = "drive"
+    dash_gui.MX5DashApp._drive_tick(app, 1 / 30)
+    assert app.drive_screen.refreshed
+
+
+def _client_with(snap, received_at=100.0):
+    client = dash_gui.SnapshotClient(start=False)
+    client._receive(snap, now=received_at)
+    return client
+
+
+def test_snapshot_client_reports_backend_down_instead_of_freezing_last_snapshot():
+    """Stirbt can_backend.py waehrend der Fahrt, darf "logging" nicht auf True
+    haengen bleiben (Drive-Screen + REC-Timer liefen sonst eingefroren weiter)."""
+    snap = {"values": {}, "logging": True, "can_up": True}
+    client = _client_with(snap)
+    assert client.snapshot(now=101.0) is snap
+    down = client.snapshot(now=100.0 + dash_gui.BACKEND_STALE_S + 0.5)
+    assert down["backend_down"] and down["backend_seen"]
+    assert down["logging"] is False and down["can_up"] is False
+    assert "antwortet" in down["error"]
+
+    app = FakeApp(down)
+    dash_gui.MX5DashApp.update_state(app)
+    assert app.sm.current == "status"
+
+
+def test_snapshot_client_before_first_snapshot_is_waiting_not_error():
+    client = dash_gui.SnapshotClient(start=False)
+    snap = client.snapshot()
+    assert snap["backend_down"] and not snap["backend_seen"]
+    assert snap["error"] == "warte auf can_backend.py"
+
+
+def test_snapshot_client_get_uses_the_backends_clock():
+    """Neues Backend stempelt monoton (NTP-Spruenge), altes mit der Wanduhr."""
+    import time
+    mono = {"values": {"514:EngineRPM": [3000, time.monotonic()],
+                       "1832:Tire1_Pressure": [2.1, time.monotonic() - 150]},
+            "clock": "monotonic"}
+    client = _client_with(mono, received_at=time.monotonic())
+    assert client.get(514, "EngineRPM") == 3000
+    assert client.get(1832, "Tire1_Pressure") is None
+    assert client.get(1832, "Tire1_Pressure", max_age=dash_gui.TPMS_STALE_S) == 2.1
+
+    wall = {"values": {"514:EngineRPM": [2500, time.time()]}}
+    client = _client_with(wall, received_at=time.monotonic())
+    assert client.get(514, "EngineRPM") == 2500
+
+
+def test_status_screen_shows_backend_failure_and_hides_sim_button():
+    screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
+    down = dash_gui.SnapshotClient(start=False)
+    down._receive({"values": {}}, now=0.0)
+    screen.refresh(down.snapshot(now=60.0))
+    assert "BACKEND" in screen.state_label.text
+    assert "antwortet" in screen.error_label.text
+    assert not screen._sim_button_visible
+
+    screen.refresh({"values": {}, "can_up": False, "error": "CAN-Bus nicht verfügbar (x)"})
+    assert screen.state_label.text == "WARTE AUF CAN-BUS"
+    assert screen.error_label.text == "CAN-Bus nicht verfügbar (x)"
+    assert screen._sim_button_visible
+
+
+def test_rec_timer_uses_monotonic_elapsed_not_wall_clock():
+    """NTP stellt die Uhr oft erst waehrend der Fahrt (No-RTC) - der REC-Timer darf
+    dabei nicht um Stunden springen."""
+    import time
+    bar = dash_gui.StatusBar()
+    bar.update({"logging": True, "logging_elapsed": 65.4,
+                "logging_since": time.time() - 6 * 86400})
+    assert bar.log_label.text == "LOG  REC  01:05"
+    bar.update({"logging": True, "logging_since": time.time() - 30})  # altes Backend
+    assert bar.log_label.text == "LOG  REC  00:30"
+    bar.update({"logging": False, "logging_elapsed": None})
+    assert bar.log_label.text == "LOG  --"
+
+
+def test_rpm_bar_only_recolors_changed_segments_and_matches_zones():
+    bar = dash_gui._RpmBarCanvas(60)
+    bar.size = (600, 40)
+    bar.update(4000)
+    assert bar.lit_n == 30
+    lit = [tuple(c.rgba) for c in bar._colors]
+    assert lit[0] == dash_gui.TEXT and lit[29] == dash_gui.TEXT
+    assert lit[30] == dash_gui._darken(dash_gui.TEXT)
+    bar.update(8000)
+    assert tuple(bar._colors[-1].rgba) == dash_gui.RED
+    bar.update(None)
+    assert bar.lit_n == 0
+    assert all(tuple(c.rgba) == dash_gui._darken(z) for c, z in zip(bar._colors, bar._zone_colors))
+    # Geometrie: 60 Segmente fuellen die Breite ohne Ueberlauf
+    last = bar._rects[-1]
+    assert abs(last.pos[0] + last.size[0] - 600) < 1e-3  # Kivy speichert float32
+
+
+def test_led_dot_recolors_without_rebuilding_canvas():
+    dot = dash_gui.LedDot()
+    n_instr = len(dot.canvas.children)
+    dot.set_lit(True, dash_gui.RED)
+    assert tuple(dot._color_instr.rgba) == dash_gui.RED
+    dot.set_lit(False, dash_gui.RED)
+    assert tuple(dot._color_instr.rgba) == dash_gui._darken(dash_gui.RED)
+    assert len(dot.canvas.children) == n_instr
+
+
+def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
+    """Gleiche Zeitkonstante bei 30 Hz und bei eingebrochenen 10 Hz; neue Fahrt
+    (Drive-Screen erscheint) startet ohne den Fuellstand von vor dem Tanken."""
+    def run(hz, seconds, raw_after):
+        client = FakeSnapshotClient()
+        screen = dash_gui.DriveScreen(client)
+        client.set(158, "Fuel_Tank", (20.0 + 0.02) / 2.486)
+        screen.refresh(1 / hz)
+        client.set(158, "Fuel_Tank", raw_after)
+        for _ in range(int(seconds * hz)):
+            screen.refresh(1 / hz)
+        return screen
+
+    raw80 = (80.0 + 0.02) / 2.486
+    fast = run(30, 8, raw80)._fuel_smooth
+    slow = run(10, 8, raw80)._fuel_smooth
+    assert abs(fast - slow) < 0.5, (fast, slow)
+    assert 55 < fast < 62  # nach 1 tau ~63 % des Sprungs 20 -> 80
+
+    screen = run(30, 1, raw80)
+    screen.on_pre_enter()
+    screen.refresh()
+    assert abs(screen._fuel_smooth - 80.0) < 0.1
+
+
+class RecordingClient(FakeSnapshotClient):
+    def __init__(self):
+        super().__init__()
+        self.requested = set()
+
+    def get(self, can_id, signal, max_age=None):
+        self.requested.add((can_id, signal))
+        return None
+
+
+def test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists():
+    """Jede CAN-ID, die das Dash liest, muss im SocketCAN-Kernelfilter von
+    can_backend.py stehen (sonst zeigt die Kachel dauerhaft "–"), und jedes
+    DBC-Signal muss in der Repo-DBC existieren (Tippfehler/Umbenennung)."""
+    import can_backend
+    client = RecordingClient()
+    dash_gui.DriveScreen(client).refresh()
+    dash_gui.PedalRow(client).refresh()
+    dash_gui.LiveGrid(client).refresh()
+    assert len(client.requested) > 30
+
+    derived = {"_BrakePedalPercent_derived", "_OilTemp_derived"} | {
+        f"_{name}_derived" for name, _, _ in can_backend._OBD1_PIDS.values()}
+    # Repo: ../data/can/, auf dem Pi liegt die DBC neben den Skripten in LOG_DIR.
+    here = os.path.dirname(os.path.abspath(__file__))
+    dbc_paths = [os.path.join(here, "..", "data", "can", "MX5ND_6thGenMazda_HSCAN_extended.dbc"),
+                 os.path.join(can_backend.LOG_DIR, "MX5ND_6thGenMazda_HSCAN_extended.dbc")]
+    dbc_path = next((p for p in dbc_paths if os.path.exists(p)), None)
+    try:
+        import cantools
+    except ImportError:
+        cantools = None
+    dbc = (cantools.database.load_file(dbc_path, strict=False)
+           if cantools is not None and dbc_path is not None else None)
+    for can_id, signal in sorted(client.requested, key=str):
+        assert int(can_id) in can_backend.NEEDED_CAN_IDS, (can_id, signal)
+        if signal.startswith("_"):
+            assert signal in derived, (can_id, signal)
+        elif dbc is not None:
+            names = {s.name for s in dbc.get_message_by_frame_id(int(can_id)).signals}
+            assert signal in names, (can_id, signal)
 
 
 def test_not_logging_falls_back_to_status():
@@ -94,23 +292,6 @@ def test_prepare_replay_log_streams_without_buffering_all_lines():
         assert result == good * 3
 
 
-class FakeSnapshotClient:
-    """Minimaler Ersatz fuer SnapshotClient: gleiche .get()/.snapshot()-
-    Signatur, Werte von Hand statt vom UDP-Socket."""
-
-    def __init__(self):
-        self._values = {}
-
-    def set(self, can_id, signal, value):
-        self._values[(can_id, signal)] = value
-
-    def get(self, can_id, signal, max_age=None):
-        return self._values.get((can_id, signal))
-
-    def snapshot(self):
-        return {}
-
-
 def test_gear_display_turns_baby_blue_when_clutch_not_closed():
     """Kupplung nicht geschlossen (Pedal getreten) -> GEAR-Anzeige babyblau,
     sonst normale Textfarbe - siehe CLUTCH_ACTIVE_RAW (gleiche Schwelle wie
@@ -134,7 +315,7 @@ def test_gear_display_turns_baby_blue_when_clutch_not_closed():
 
 def test_fuel_gauge_smooths_out_tank_slosh():
     """Tankschwappen zeigt sich als schnelles Rauschen um den echten
-    Fuellstand - der EMA-Filter (FUEL_SMOOTH_ALPHA, tau=8s) soll die
+    Fuellstand - der EMA-Filter (FUEL_SMOOTH_TAU_S, tau=8s) soll die
     Schwankung deutlich daempfen, aber einem echten Stufenwechsel (Tanken)
     binnen weniger Sekunden folgen."""
     import math
@@ -277,6 +458,16 @@ if __name__ == "__main__":
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
         sys.exit(0)
     test_logging_without_rpm_stays_on_drive()
+    test_drive_tick_renders_only_while_drive_screen_is_visible()
+    test_snapshot_client_reports_backend_down_instead_of_freezing_last_snapshot()
+    test_snapshot_client_before_first_snapshot_is_waiting_not_error()
+    test_snapshot_client_get_uses_the_backends_clock()
+    test_status_screen_shows_backend_failure_and_hides_sim_button()
+    test_rec_timer_uses_monotonic_elapsed_not_wall_clock()
+    test_rpm_bar_only_recolors_changed_segments_and_matches_zones()
+    test_led_dot_recolors_without_rebuilding_canvas()
+    test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
+    test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
     test_prepare_replay_log_streams_without_buffering_all_lines()

@@ -4514,3 +4514,60 @@ schwergaengiger Geber-/Nehmerkolben, korrodiertes Fuehrungsrohr des Ausruecklage
 Offen: Fuss/Sohle, Stay-out oder Reibung im Ausruecksystem lassen sich aus den CAN-Daten nicht trennen.
 Entscheidend waere eine Fussraumkamera beim naechsten Start mit viel Schlupf; bis dahin Pedal, Druckstange und
 Kupplungsfluessigkeit (Stand, Farbe, Leckage am Nehmer) sichtpruefen.
+
+## Dash-Überarbeitung: Backend-Ausfall, NTP-feste Zeitbasis, Selbstneustart, Rendering (27.09.2026)
+
+Anlass: Nutzerauftrag, alles rund um das Dash auf dem Pi durchzusehen und eigenständig zu verbessern. Code-Durchsicht
+von `dash_gui.py`, `can_backend.py`, `scripts/pi-config/` und Tests; kein Layout-/Design-Umbau. **Nicht deployt**
+(kein Netzzugang zum Pi aus der Arbeitsumgebung), Deploy-Schritte in `status/pi-runtime-state.md`.
+
+**Gefundene Schwächen und Fixes:**
+1. **Backend-Ausfall wurde nicht erkannt.** `SnapshotClient` hielt den letzten UDP-Snapshot unbegrenzt. Stirbt
+   `can_backend.py` während der Fahrt, blieben `logging=True` und der Drive-Screen stehen, der REC-Timer lief
+   weiter, nur die Werte wurden nach 2 s zu "–". Jetzt gilt das Backend nach 3 s ohne Snapshot
+   (`BACKEND_STALE_S`, Backend sendet mit 50 Hz) als ausgefallen: der Status-Screen zeigt rot "FEHLER / BACKEND
+   ANTWORTET NICHT" mit der Dauer, vor dem ersten Snapshot "WARTE AUF BACKEND". Kommt das Backend zurück, schaltet
+   das Dash selbst wieder auf den Drive-Screen. Außerdem zeigt der Status-Screen jetzt den Fehlertext des Backends
+   (`error`, z. B. "keine DBC gefunden"); der wurde bisher nirgends angezeigt.
+2. **Belegter UDP-Port** (z. B. eine zweite, von Hand gestartete `dash_gui.py`) ließ den Empfangs-Thread still
+   sterben; das Dash blieb dann für immer auf "warte auf can_backend.py". Jetzt neuer Versuch alle 2 s, der Grund
+   steht im Fehlertext.
+3. **Zeitbasis bei NTP-Sprüngen.** Seit der Bootbeschleunigung kommt der NTP-Sync fast immer während der Fahrt
+   (Abschnitt "Bootzeit-Optimierung 27.09."), die Wanduhr springt dann um Stunden bis Tage. Die Wert-Stempel im
+   Snapshot waren Wanduhr-Zeit: nach einem Vorwärtssprung galten TPMS (Poll alle 120 s) und Öltemperatur bis zum
+   nächsten Poll als veraltet, nach einem Rückwärtssprung wären ausgefallene Werte nie mehr veraltet, und der
+   REC-Timer sprang. Jetzt stempelt `can_backend.py` mit `CLOCK_MONOTONIC` (systemweit, beide Prozesse sehen dieselbe
+   Uhr) und meldet das im Snapshot (`"clock": "monotonic"`), dazu `logging_elapsed` für den REC-Timer.
+   `dash_gui.py` versteht beide Formate. **Umgekehrt nicht**: ein neues Backend mit altem Dash zeigt überall "–",
+   deshalb beide zusammen deployen.
+4. **VMAX wurde nie zurückgesetzt.** Das Backend läuft seit dem Desktop-Login, zu Hause auch über mehrere Fahrten;
+   VMAX zeigte dann den Höchstwert einer früheren Fahrt. Jetzt Reset bei jedem Beginn einer Logging-Session.
+5. **Kein Neustart nach Absturz.** Backend und Dash liefen per `&` aus dem labwc-Autostart; ein Absturz (z. B. der
+   OOM-Fall vom 17.09.) ließ das Dash bis zum nächsten Reboot tot. Neu `scripts/pi-config/respawn.sh`: Schleife, die
+   das Skript nach 2 s neu startet (10 s, wenn es nach weniger als 10 s endet), Ausgabe nach `/tmp/<skript>.log` mit
+   Exit-Code und Laufzeit je Ende. `autostart` ruft beide Prozesse darüber auf. Manueller Neustart nach einem Deploy
+   ist damit nur noch `pkill -f "python3 /home/pi/canlogs/dash_gui.py"` (nicht `pkill -f dash_gui.py`, das trifft
+   auch die Schleife).
+6. **Rendering:** Der 30-Hz-Refresh des Drive-Screens lief auch auf Status- und Testmodus-Screen mit; jetzt nur,
+   wenn der Drive-Screen sichtbar ist. Der Drehzahlbalken baute in jedem Frame die Canvas mit 60 Rechtecken neu
+   auf, jetzt werden die Segmente einmal angelegt und nur die Farben der wechselnden Segmente gesetzt; ebenso die
+   Shiftlight-LEDs (nur `Color.rgba`) und die Füllbalken (kein Redraw bei gleichem Wert). Fußzeile nur noch 4×/s.
+   Python-Anteil von `DriveScreen.refresh()` am Desktop unter Xvfb gemessen (600 Frames): 0,29-0,33 → 0,02-0,03 ms
+   pro Frame. Die GPU-Seite und die Textur-Neuberechnung der Labels sind darin nicht enthalten, auf dem Pi
+   nicht gemessen.
+7. **Tankglättung:** der EMA-Faktor setzte feste 30 Hz voraus; jetzt aus der echten Frame-Zeit (`_ema_alpha`,
+   gleiche Zeitkonstante 8 s auch bei Frame-Einbrüchen). Beim Erscheinen des Drive-Screens (neue Fahrt) startet
+   die Glättung neu; vorher kroch die Anzeige nach dem Tanken ~20 s vom alten Füllstand hoch.
+8. Status-/Testmodus-Refresh 1 → 5 Hz (`POLL_INTERVAL_S` 0,2 s): die Pedal-Kacheln im Testmodus
+   ("Kupplung ca. 25 %") waren mit 1 Hz zu träge; die Screen-Umschaltung reagiert damit auch schneller.
+
+**Tests** (unter Xvfb ausgeführt, Kivy 2.3.1 wie auf dem Pi): `test_dash_gui.py` +11, `test_can_backend.py` +2, alle
+41 Tests in `test_dash_gui.py`/`test_can_backend.py`/`test_tpms_poller.py` grün. Neu ist u. a. ein Test, der jedes vom
+Dash gelesene Signal gegen den Kernelfilter `NEEDED_CAN_IDS` des Backends und gegen die DBC prüft (derzeit alle
+vorhanden). Zusätzlich End-to-End: echte `CanBackend`-Klasse mit synthetischen Werten als UDP-Publisher, Dash
+unter Xvfb in 1920×1080, Backend nach 5 s beendet und nach 5 s neu gestartet: Drive-Screen → rote Backend-Meldung
+→ zurück auf den Drive-Screen, VMAX beginnt bei der neuen Session bei 0. SocketCAN/vcan gibt es in der
+Arbeitsumgebung nicht; der Decode-Pfad selbst ist unverändert bis auf den Zeitstempel.
+
+Bewusst nicht geändert: Tacho-Korrektur (`VehicleSpeed` liest 2,9 % zu hoch, Anzeige bleibt wie im Kombiinstrument,
+Nutzerentscheid offen) und das Layout.
