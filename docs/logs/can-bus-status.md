@@ -4857,3 +4857,11 @@ Luecken-Erkennung der Pipeline (> 5 s, nur vorwaerts) sieht das nicht mehr. Desh
   Stellen) und +1,502491 s. Den zweiten hat timesyncd selbst ausgeloest, er stellt nach einer
   fremden Uhraenderung sofort neu. Genau diesen Fall (NTP stellt die Uhr) soll das Protokoll
   erfassen. Danach wieder NTP-synchron.
+
+### Dash-Fusszeile zeigt RTC (2026-09-28)
+Das Flag zeigte bisher nur NTP. Nach einem Offline-Boot stand dort rot "NTP UNSYNC", obwohl die
+RTC die Uhr richtig stellt. Jetzt `dash_gui.clock_source()`: `NTP  SYNC` gruen, sonst `RTC  OK`
+gruen, wenn `/sys/class/rtc/rtc0/since_epoch` >= 28.09.2026, sonst `UHR  ?` rot. Nur
+Dateizugriffe, kein Fork. Test `test_clock_source_ntp_then_rtc_then_unknown`. Auf dem Pi alle
+Dash-Tests ok, mit der echten RTC ohne NTP-Datei -> `RTC  OK`. Deployt (md5 b58c056d), Dash per
+respawn neu gestartet (lief gerade die Vcan-Simulation, keine Fahrt).

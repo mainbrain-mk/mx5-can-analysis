@@ -57,6 +57,26 @@ POLL_INTERVAL_S = 0.2
 DRIVE_REFRESH_HZ = 30
 STATUS_BAR_REFRESH_S = 0.25  # Fusszeile (Uhr, Hz, NTP) braucht keine 30 Hz
 LIVE_STALE_S = 2.0
+
+NTP_SYNC_PATH = "/run/systemd/timesync/synchronized"
+RTC_EPOCH_PATH = "/sys/class/rtc/rtc0/since_epoch"
+RTC_MIN_PLAUSIBLE_EPOCH = 1790546400  # 2026-09-28, Einbau der RTC (wie session_logger.RTC_MIN_PLAUSIBLE)
+
+
+def clock_source(ntp_path=NTP_SYNC_PATH, rtc_path=RTC_EPOCH_PATH):
+    """-> (Fusszeilen-Text, Uhr verlaesslich). timesyncd legt die Datei (tmpfs) erst beim ersten
+    Sync nach dem Boot an. Ohne NTP traegt seit 28.09. die DS3231-RTC die Uhr - leere Zelle
+    = RTC auf 2000-01-01 = unglaubwuerdig. Nur stat()/read, kein Fork (vgl. pgrep-Lag im
+    alten status_gui.py)."""
+    if os.path.exists(ntp_path):
+        return "NTP  SYNC", True
+    try:
+        with open(rtc_path) as fh:
+            if int(fh.read()) >= RTC_MIN_PLAUSIBLE_EPOCH:
+                return "RTC  OK", True
+    except (OSError, ValueError):
+        pass
+    return "UHR  ?", False
 # can_backend.py publiziert mit 50 Hz; kommt so lange nichts, gilt es als ausgefallen
 # (Snapshot sonst eingefroren: "logging" bliebe True, Drive-Screen + REC-Timer liefen weiter).
 BACKEND_STALE_S = 3.0
@@ -718,12 +738,8 @@ class StatusBar(BoxLayout):
         else:
             self.log_label.text = "LOG  --"
             self.log_label.color = TEXT_DIM
-        # timesyncd legt die Datei (tmpfs) erst beim ersten Sync nach dem Boot an -
-        # ohne RTC heisst UNSYNC: Uhrzeit/Log-Zeitstempel sind noch nicht verlaesslich.
-        # Nur ein stat(), kein Fork (vgl. pgrep-Lag im alten status_gui.py).
-        ntp_ok = os.path.exists("/run/systemd/timesync/synchronized")
-        self.ntp_label.text = "NTP  SYNC" if ntp_ok else "NTP  UNSYNC"
-        self.ntp_label.color = GOOD if ntp_ok else RED
+        self.ntp_label.text, ok = clock_source()
+        self.ntp_label.color = GOOD if ok else RED
         self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
         self.clock_label.color = TEXT
 
