@@ -4865,3 +4865,21 @@ gruen, wenn `/sys/class/rtc/rtc0/since_epoch` >= 28.09.2026, sonst `UHR  ?` rot.
 Dateizugriffe, kein Fork. Test `test_clock_source_ntp_then_rtc_then_unknown`. Auf dem Pi alle
 Dash-Tests ok, mit der echten RTC ohne NTP-Datei -> `RTC  OK`. Deployt (md5 b58c056d), Dash per
 respawn neu gestartet (lief gerade die Vcan-Simulation, keine Fahrt).
+
+### Uhr-Marker zeigte Dienststart-Zustand statt Stand bei Fahrtbeginn (2026-09-28)
+Der Tageslauf meldete die 4 Vormittags-Logs (`candump-2026-09-28_100752`, `_102235`, `_103753`,
+`_105353`) als "korrigiert" (Uhr ohne NTP auf den Anker vom 27.09. 16:42 vorgestellt). Nutzer:
+die Zeiten stimmen. Pi-Journal (`data/pi_volatile/20260928_113820/journal_boot0.txt`) bestaetigt
+das: timesyncd-Erstsync 10:04:36, erstes Log 10:07:52. Die Namen stimmen also, die automatische
+Korrektur hat mangels dlg-Treffer ohnehin nichts umbenannt.
+- Ursache: `restore_clock()` laeuft nur einmal beim Dienststart (hier noch ohne NTP), und
+  `write_clock_marker()` schrieb diesen Zustand bei jeder spaeteren Fahrt unveraendert weiter.
+- Fix: `start_logging()` prueft vor dem Marker erneut `ntp_synchronized()` und schreibt
+  dann "ntp". Test `test_marker_picks_up_late_ntp`, alle session_logger-Tests gruen.
+  Noch NICHT auf dem Pi deployt.
+- Die 4 lokalen Marker in `data/can/` wurden von Hand auf `ntp` gesetzt, mit Verweis auf das
+  Journal. Die Pipeline holt nur fehlende Marker, die Korrektur bleibt also bestehen.
+- Nachtrag: der Nutzer bestaetigt die RTC als gueltige Uhrquelle. `_clockstate_warning()` in der
+  Pipeline behandelt den Marker-Zustand `rtc` jetzt wie `ntp` (keine Warnung mehr, betrifft
+  z.B. `_151742`/`_153504`). Test in `test_clockstate_warning_none_when_ntp_confirmed`
+  ergaenzt, alle Pipeline-Tests gruen.

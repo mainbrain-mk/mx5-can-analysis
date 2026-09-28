@@ -80,6 +80,9 @@ def test_clockstate_warning_none_when_ntp_confirmed():
         with open(os.path.join(tmp, "clockstate-20260919-163755.txt"), "w") as f:
             f.write("ntp\nUhr per NTP synchronisiert (2026-09-19 16:37:55)")
         assert rdp._clockstate_warning("candump-2026-09-19_163755.log") is None
+        with open(os.path.join(tmp, "clockstate-20260928-151742.txt"), "w") as f:
+            f.write("rtc\nkein NTP, Uhr stimmt mit RTC ueberein (2026-09-28 15:17:37)")
+        assert rdp._clockstate_warning("candump-2026-09-28_151742.log") is None
     finally:
         rdp.CAN_DIR = orig_can_dir
         shutil.rmtree(tmp, ignore_errors=True)

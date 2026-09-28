@@ -276,7 +276,27 @@ def test_clock_jump_recorded():
     print("Uhrsprung-Protokoll OK")
 
 
+def test_marker_picks_up_late_ntp():
+    """28.09.: Dienststart ohne NTP ("korrigiert"), NTP kommt vor der Fahrt -> Marker muss "ntp" sagen."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        ntp = MagicMock(stdout="no")
+        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **k: MagicMock(pid=1),
+                                run=lambda *a, **k: ntp)
+        session.clock_state, session.clock_note = "korrigiert", "vorgestellt"
+        session.start_logging()
+        assert open(glob.glob(os.path.join(tmp, "clockstate-*.txt"))[0]).readline().strip() == "korrigiert"
+        for f in glob.glob(os.path.join(tmp, "clockstate-*.txt")):
+            os.remove(f)
+        session.candump_proc = None
+        ntp.stdout = "yes"
+        session.start_logging()
+        assert open(glob.glob(os.path.join(tmp, "clockstate-*.txt"))[0]).readline().strip() == "ntp"
+    print("Spaetes NTP im Marker OK")
+
+
 if __name__ == "__main__":
+    test_marker_picks_up_late_ntp()
     test_clock_jump_recorded()
     test_start_stop_matches_known_session()
     test_clock_restore_cases()

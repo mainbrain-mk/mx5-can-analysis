@@ -228,6 +228,12 @@ class SessionLogger:
         if self.candump_proc is not None:
             return
         self.candump_proc = self._popen(["candump", "-l", self.can_channel], cwd=self.log_dir)
+        # Zustand aus restore_clock() gilt nur fuer den Dienststart - kommt NTP erst spaeter
+        # (28.09.: Start 13:53 "korrigiert", NTP 10:04, 4 Fahrten ab 10:07 trotzdem als
+        # "korrigiert" markiert), muss der Marker jeder Fahrt den aktuellen Stand zeigen.
+        if self.clock_state != "ntp" and ntp_synchronized(self._run):
+            self.clock_state = "ntp"
+            self.clock_note = f"Uhr per NTP synchronisiert ({datetime.now():%Y-%m-%d %H:%M:%S}, nach Dienststart)"
         self.write_clock_marker()
         print(f"[session_logger] Fahrt erkannt, candump gestartet (pid {self.candump_proc.pid})", flush=True)
         # TPMS wird nicht periodisch gebroadcastet (siehe docs/logs/can-bus-status.md) - aktiver

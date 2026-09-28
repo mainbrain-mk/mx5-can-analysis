@@ -251,7 +251,7 @@ def _clockstate_warning(log_name):
     """Liest den zu einem CAN-Log gehoerigen Uhr-Marker (siehe session_logger.py
     write_clock_marker/restore_clock) und gibt eine Warnmeldung zurueck, falls die
     Uhr beim Start dieses Logs NICHT per NTP bestaetigt war - None, wenn der Marker
-    "ntp" sagt oder gar nicht existiert (aeltere Logs vor 2026-09-15 haben keinen).
+    "ntp"/"rtc" sagt oder gar nicht existiert (aeltere Logs vor 2026-09-15 haben keinen).
     Der Dateiname allein beweist nie, dass die Zeitstempel stimmen (siehe
     docs/logs/can-bus-status.md, "Viertes No-RTC-Vorkommnis") - dieser Marker ist
     die einzige Quelle, die das schon beim Schreiben auf dem Pi selbst festhaelt."""
@@ -266,7 +266,8 @@ def _clockstate_warning(log_name):
         lines = f.read().splitlines()
     state = lines[0] if lines else ""
     note = lines[1] if len(lines) > 1 else ""
-    if state in ("ntp", JUMP_FIXED_STATE):
+    # "rtc": DS3231 seit 28.09. aktiv und vom Nutzer als gueltige Uhrquelle bestaetigt
+    if state in ("ntp", "rtc", JUMP_FIXED_STATE):
         return None
     return f"Uhr beim Start NICHT per NTP bestaetigt ({state}): {note} Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden."
 
