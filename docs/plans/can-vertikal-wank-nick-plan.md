@@ -1,5 +1,12 @@
 # Plan: Auf-/Abbewegung, Wanken und Nicken in den CAN-Logs finden (2026-09-28)
 
+> **Stand 28.09. abends: Schritte 0-5.1 und 5.3 (Referenzfahrt) erledigt, Ergebnis negativ.**
+> Auf HS-CAN gibt es weder Vertikalbeschleunigung noch Wank-/Nickbewegung (25 Paare, 10,1 h,
+> Positivkontrolle Gierrate r = 0,95). Offen: Schritt 5.4 (Ruhetest) nur noch sinnvoll zusammen mit
+> 5.5 (UDS am LWR-Steuergeraet). Details: `logs/can-bus-status.md`, "Vertikal/Wanken/Nicken im
+> HS-CAN gesucht: Negativbefund (2026-09-28)". Die MS-CAN-Annahme "alles gespiegelt" gilt nur fuer
+> einen Teil der IDs; Karosserie (`MS_IC_BCMM`) ist MS-exklusiv.
+
 ## Ziel
 Drei Größen, die bisher nur die Handy-IMU liefert, auf dem CAN-Bus finden:
 Vertikalbeschleunigung `a_z`, Wankrate/-winkel `p`/`phi`, Nickrate/-winkel `q`/`theta`.
