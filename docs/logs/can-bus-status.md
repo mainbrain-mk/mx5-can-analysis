@@ -4752,3 +4752,51 @@ Das deckt sich mit dem Befund vom 26.09.: gehalten bis zum Gaswegnehmen, kein Dr
   - Gang 4: ~7235, beide Züge auf 4/min gleich
 - Der Kontrollzug (7129) liegt unter der 4.-Gang-Schwelle und passt dazu.
 - Eine Tabelle pro Gang (Momentbegrenzung pro Gang) ist plausibel, aber nicht bewiesen. Die Streuung im 2. Gang (7184-7409) ist deutlich größer als im 4. Gang.
+
+## Vertikal/Wanken/Nicken im HS-CAN gesucht: Negativbefund (2026-09-28)
+
+Plan: [`docs/plans/can-vertikal-wank-nick-plan.md`](../plans/can-vertikal-wank-nick-plan.md).
+Skript: `scripts/can_phone_imu_sweep.py` (Paare in `data/can_phone_pairs.json`).
+
+**Paare:** 25 CAN-Logs mit mitlaufendem Handy (10,1 h), aus 120 Kandidaten; Zuordnung grob per
+Geschwindigkeits-Kreuzkorrelation, fein per Querbeschleunigung, Abnahme ueber Gierrate
+(gedrehte Handy-RotationRate-z gegen `YawRate_Raw`: echte Paare r ≥ 0,948, falsche ≤ 0,34).
+Achsenumrechnung Handy → Fahrzeug aus Roh-Beschleunigung (g-Richtung + Regression gegen
+`Longitudinal_Acc_Raw`), Kontrolle Gierrate Steigung 0,99.
+
+**Handy-Daten, gelernt:**
+- `Acceleration` (gravitationsbereinigt) ist fuer Fahrdynamik unbrauchbar: die Sensorfusion schlaegt
+  anhaltende Querbeschl. dem Schwerevektor zu (< 0,5 Hz nur 27 % der CAN-Querbeschl.). Immer
+  `AccelerationWithGravity` nehmen.
+- `RotationRate` nur ~5 Hz (dt 0,20 s), °/s, Einzelspitzen bis 160 °/s (maskiert > 60 °/s).
+  Wankrate enthaelt echtes Signal (r = 0,41 gegen d(a_lat)/dt), ist aber verrauscht.
+- Wank-/Nickwinkel sind aus Beschleunigungen prinzipiell nicht zu trennen: RCM und Handy kippen
+  beide mit der Karosserie.
+
+**Suche:** freie Bits aller IDs (Bytes/Nibbles/Byte-Paare BE/LE, signed) UND alle DBC-Signale
+gegen `a_z` (0,5-5 Hz), Wank-/Nickrate (0,2-2 Hz), Wank-/Nickwinkel (0,05-2 Hz), Anker vorher gegen
+bekannte Signale bereinigt. **Kein Kandidat:** bestes |r| mit Konsistenz ueber ≥ 3 Paare < 0,2
+(a_z 0,10, phi 0,28 = nur `Lateral_Acc_Raw` selbst, theta 0,11 = `RoadIncline_maybe`, also
+Fahrbahnsteigung, p 0,10, q 0,04).
+**Positivkontrolle** mit denselben Paaren und Filtern: Handy-Gierrate findet `YawRate_Raw` mit
+r = 0,95 (9/9 Paare), Handy-Querbeschl. findet `Lateral_Acc_Raw` mit r = 0,63. Ein echtes
+Vertikal-/Wank-/Nicksignal waere also aufgefallen.
+
+**`0x075`/`0x076` einzeln geprueft:** `0x076` Byte 4-7 konstant (117/48/0/0), `0x075` Byte 7 = 0,
+Rest Zaehler/Temperatur/bekannte Signale. Das RCM sendet keine Z-Achse und keine Wankrate.
+
+**LWR-Referenzfahrt:** 5 Nachtstarts mit Abblendlicht direkt nach Zuendung (11.09. 202803,
+12.09. 211833, 16.09. 083214, 19.09. 233436, 26.09. 184447) gegen 18 Tagesstarts, Fenster je
+0-22 s ab Log-Beginn: nur `0x09A` unterscheidet sich (Byte 2 = 0x02, Byte 7 = 0x10 als
+Abblendlicht-Status, danach konstant). Keine Hoch-/Runter-Rampe auf HS-CAN. Die Referenzfahrt
+laeuft offenbar lokal im Scheinwerfer-/LWR-Steuergeraet.
+
+**Fazit:** Vertikalbeschleunigung, Wank- und Nickbewegung werden auf HS-CAN nicht gesendet
+(weder frei noch unter bestehendem DBC-Namen). Offen bleiben nur: UDS-Live-Daten des
+LWR-Steuergeraets (Hoehenstandssensor) oder ein MS-CAN-Abgriff.
+
+**Nebenbefund Uhr (No-RTC), bisher undokumentiert:** die Handy-Zuordnung liefert die wahre
+Startzeit folgender CAN-Logs (Dateiname + Versatz):
+`2026-09-17_084511` +12914 s, `2026-09-17_131635` +14105 s, `2026-09-17_133436` +14107 s,
+`2026-09-18_093544` +18394 s, `2026-09-18_162411` +1598 s, `2026-09-18_165510` +1597 s,
+`2026-09-14_163711` +68 s, `2026-09-14_173057` −26 s. Im Datalake noch nicht korrigiert.

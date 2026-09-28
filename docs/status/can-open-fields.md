@@ -145,6 +145,13 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x086 22\|12, 41\|12 | ändern jeden Frame, fast Gleichverteilung | Prüfsummen/Zähler | – |
 | 0x082 Byte4 | ändert in 87 % der Frames | Prüfsumme? | – |
 
+## B2. Gesucht und nicht vorhanden (Negativbefunde)
+
+- **Vertikalbeschleunigung, Wank-/Nickrate und -winkel (28.09.):** auf HS-CAN nicht gesendet, weder in freien
+  Bits noch unter bestehendem DBC-Namen. 25 CAN+Handy-Paare, Positivkontrolle Gierrate r = 0,95. Auch keine
+  Stellungsrampe der Leuchtweitenregulierung beim Nachtstart. Nur noch per UDS am LWR-Steuergeraet oder MS-CAN.
+  Siehe `logs/can-bus-status.md` (28.09.).
+
 ## C. Fahrzeugtest-Programm (nächster Termin, nach Nutzen sortiert)
 
 **Erledigt am 26.09.:** C8 (Tempomat: 60 Segmente, alle mit SET gestartet, Ende per Bremse 17 / CANCEL 26 / Kupplung 17, siehe `CruiseActive_Inv`, `CRU_CON_SW1`), C10 teilweise (Linien-Test B96, Kamera-Abstand blieb stumm), C2 (Rückwärtsgang im Stand, siehe `ReverseGear`), C3 (Bordcomputer, über den Durchschnittsverbrauch; Foto der Anzeige fehlt
