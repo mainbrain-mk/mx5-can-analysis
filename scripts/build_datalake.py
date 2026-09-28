@@ -208,6 +208,20 @@ def _all_can_gps_pairs():
                     pairs.append((can_name, gpx_name))
     return [(c, g) for c, g in pairs if c not in KNOWN_CAN_LOG_DUPLICATES]
 
+
+# No-RTC-Versaetze, die erst nachtraeglich per Kreuzkorrelation auffielen (28.09.:
+# can_phone_imu_sweep.py, Handy-IMU gegen CAN): {can_name: Sekunden, um die der wahre Start
+# NACH der Zeit im Dateinamen liegt}. Statt Umbenennen, weil das auch auf dem Pi passieren
+# muesste (sonst holt sync_can_logs_from_pi das alte Log erneut). Siehe log_start_epoch().
+CAN_CLOCK_OFFSETS_PATH = "data/can_clock_offsets.json"
+
+
+def _can_clock_offsets():
+    if not os.path.exists(CAN_CLOCK_OFFSETS_PATH):
+        return {}
+    with open(CAN_CLOCK_OFFSETS_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
 # CAN-Signal (cantools-Name, aus der *_decoded.csv von can_log_parser.py) ->
 # (kanonischer Datalake-Kanalname, Ziel-Einheit). Nur "sichere" (unmarkierte)
 # DBC-Signale mit eindeutiger physikalischer Entsprechung zu einem bereits
@@ -625,7 +639,9 @@ def log_start_epoch(can_log_path):
     beide um mehr als eine Minute voneinander ab, gewinnt deshalb der Name.
     Ohne das blieb der Datalake nach so einer Umbenennung still falsch
     (candump-2026-09-14_163711/173057 standen dort bis 2026-09-15 unter dem
-    alten 13.09.-Zeitstempel)."""
+    alten 13.09.-Zeitstempel).
+
+    Steht das Log in CAN_CLOCK_OFFSETS_PATH, gilt Dateiname + Versatz (28.09.)."""
     with open(can_log_path) as f:
         first_line = f.readline()
     try:
@@ -637,6 +653,11 @@ def log_start_epoch(can_log_path):
     if not m:
         return frame_epoch
     name_epoch = datetime(*(int(g) for g in m.groups()), tzinfo=LOCAL_TZ).timestamp()
+    offset = _can_clock_offsets().get(os.path.basename(can_log_path))
+    if offset is not None:
+        print(f"  Hinweis: {os.path.basename(can_log_path)} - Uhr-Override {offset:+.1f} s "
+              f"auf den Dateinamen ({CAN_CLOCK_OFFSETS_PATH}).")
+        return name_epoch + offset
     if abs(name_epoch - frame_epoch) <= 60:
         return frame_epoch
     print(f"  Hinweis: {os.path.basename(can_log_path)} - Frame-Zeitstempel weichen "
@@ -811,11 +832,10 @@ def ingest_gps(gpx_path, t0_epoch):
 DLG_GPS_MIN_OVERLAP_S = 60  # sonst Sekunden-Ueberlappung am Rand einer Nachbarfahrt (17.09. 084511)
 # Per CAN-Speed/GPS-Speed-Kreuzkorrelation (27.09.) NICHT deckungsgleich -> kein dlg-GPS anhaengen,
 # sonst laege die Position falsch zur Fahrt. Alle uebrigen Paare: Rest-Offset <= 2 s.
+# 14_163711/14_173057/18_165510 standen hier bis 28.09. wegen Fehldatierung, jetzt per
+# CAN_CLOCK_OFFSETS_PATH korrigiert.
 DLG_GPS_EXCLUDE = {
-    "candump-2026-09-14_163711.log",  # wahrer Start 68 s spaeter als der Name (Umbenennung 15.09. ungenau)
-    "candump-2026-09-14_173057.log",  # -26 s, nur 174 Punkte - unsicher
-    "candump-2026-09-18_165510.log",  # kein passender Offset (bestes RMSE 18,8 km/h)
-    "candump-2026-09-18_170350.log",  # kein passender Offset
+    "candump-2026-09-18_170350.log",  # kein passender Offset, vermutlich auch No-RTC (ueberlappt 171150)
     "candump-2026-09-26_154000.log",  # Datierung nur geschaetzt, kein Offset passt (RMSE 26,8 km/h)
 }
 DLG_GPS_CHANNELS = {"Breite": "deg", "Länge": "deg", "Höhe": "m", "GPS-Geschwindigkeit": "km/h"}  # wie ingest_gps()
@@ -903,6 +923,8 @@ def _build_can_target(can_name, gpx_name):
     dlg_path = None if has_gpx or can_name in DLG_GPS_EXCLUDE else _find_overlapping_dlg(can_path, t0_epoch)
     gps_path = gpx_path if has_gpx else dlg_path
     paths = [can_path, decoded_csv_path] + ([gps_path] if gps_path else [])
+    if can_name in _can_clock_offsets():  # Versatz geaendert -> Fingerabdruck geaendert -> Re-Ingest
+        paths.append(CAN_CLOCK_OFFSETS_PATH)
 
     def ingest():
         print(f"lade (can): {can_name}")
