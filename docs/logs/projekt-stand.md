@@ -5986,3 +5986,28 @@ Auffaelligkeiten:
 - vibration: 2026-09-27 112512: Resonanz auf AccelerationZ bei 16.0 Hz, ausserhalb des erwarteten Bereichs 18-23 Hz.
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+
+## CAN-IMU statt Handy-IMU? Rate, Bandbreite, Schwingungsspitze = Raddrehfrequenz (2026-09-28)
+
+Frage (Nutzer): Brauchen wir die Handy-IMU noch, oder reicht CAN?
+
+- **Rate:** `0x075` (Lateral_Acc_Raw, YawRate_Raw) und `0x076` (Longitudinal_Acc_Raw) kommen mit
+  **100 Hz** (dt median 10,0 ms, p99 10,3 ms), `0x078/0x079` (ABS) mit 50 Hz; Wert ändert sich in
+  93-98 % der Frames (kein bloßes Wiederholen). Log `candump-2026-09-27_163940`.
+  Die Handy-IMU wird für die Schwingungsanalyse auf **50 Hz** resampelt (Nyquist 25 Hz) → CAN ist
+  hier sogar breitbandiger.
+- **Kein starkes internes Tiefpassfilter:** Lateral_Acc hat 23 % der Leistung >0,2 Hz im Band
+  20-25 Hz, PSD(21-23 Hz) liegt ~225x über 40-50 Hz. YawRate ist deutlich glatter (94 % <2 Hz).
+- **Direktvergleich mit Handy** (`2026-09-27 112512.dlg` vs. `candump-2026-09-27_113615`, 683 s
+  Überlappung): Handy X/Y/Z und CAN Lateral/Longitudinal haben alle dieselbe Hauptspitze **16,0 Hz**,
+  Nebenspitzen 17,5/17,7 und 20,1/20,9 Hz ebenfalls deckungsgleich.
+- **Die Spitze ist die Raddrehfrequenz (1. Ordnung), keine Struktur-Eigenmode:** 629 Fenster
+  konstanter Fahrt (>40 km/h, 3 Logs vom 27.09.): Peak / (VehicleSpeed·0,971 / (2π·0,290 m)) =
+  **0,999** (IQR 0,993-1,006), r=0,957; 50 km/h → 7,8 Hz, 110 km/h → 16,0 Hz, 130 km/h → 18,6 Hz.
+  Nebenbei unabhängige Bestätigung von `SPEED_TRUE_FACTOR=0,971` + r_dyn 0,290 m zusammen.
+  Konsequenz: der "Resonanz"-Befund der Handy-Pipeline (festes Band 18-23 Hz, 16 Hz als
+  "außerhalb" gemeldet) misst geschwindigkeitsabhängig eine Rad-Unwucht/Ungleichförmigkeit;
+  die Werte 18-21 Hz früherer Logs sind wahrscheinlich dieselbe Ordnung bei ~120-145 km/h
+  (nicht nachgeprüft).
+- **Was CAN nicht hat:** keine Vertikalbeschleunigung, kein Wank/Nick. GPS gibt es am Pi nicht.
+- Offen: ein Einzel-Aussetzer von 1,6 s in `0x075/0x076` im 163940-Log (nicht untersucht).
