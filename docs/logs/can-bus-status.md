@@ -4965,3 +4965,28 @@ Korrektur hat mangels dlg-Treffer ohnehin nichts umbenannt.
   Pipeline behandelt den Marker-Zustand `rtc` jetzt wie `ntp` (keine Warnung mehr, betrifft
   z.B. `_151742`/`_153504`). Test in `test_clockstate_warning_none_when_ntp_confirmed`
   ergaenzt, alle Pipeline-Tests gruen.
+
+## Git auf dem Pi statt scp-Deploy (2026-09-28)
+
+Anlass: Der Pi-Stand war nur über md5-Tabellen in `status/pi-runtime-state.md` nachvollziehbar,
+am 26.09. lief dort Code aus ungepushten Commits. Vorher PR #33, #34 und #35 nach `main` gemergt
+(#35 hatte Doku-Konflikte mit #34 in diesem Logbuch und `status/can-bus.md`, beide Abschnitte
+behalten).
+
+- **Abgleich vorher:** alle 11 Code-/DBC-Dateien auf dem Pi md5-identisch mit `main` `158f154`.
+  Auch `session_logger.py` (241c3288) enthält schon den Fix "spätes NTP" aus dem Abschnitt oben,
+  der dort noch als "nicht deployt" steht.
+- **Umbau:** `git init -b deployed` in `/home/pi/canlogs/repo` mit
+  `receive.denyCurrentBranch=updateInstead`, vom Laptop `git push car main:deployed`. Die Dateien
+  in `canlogs/` durch Symlinks ins Repo ersetzt (Originale in `backup-2026-09-28-vor-git/`).
+  Pfade in autostart, `respawn.sh` und `can-logger.service` bleiben so unverändert. Python löst den
+  Symlink für `sys.path[0]` auf, `from tpms_poller import` findet also die Repo-Kopie.
+  `dash_gui.py` nimmt Bild/Schrift über `abspath(__file__)` (nicht `realpath`), also aus `canlogs/`;
+  deshalb sind `mx5_top_view.png` und `fonts/` ebenfalls verlinkt.
+- **Hook:** `scripts/pi-config/git-pre-push` (lokal als `.git/hooks/pre-push` verlinkt) lehnt
+  einen Push nach `car` ab, wenn der Commit in keinem origin-Branch liegt. Getestet mit einem
+  lokalen Leer-Commit (abgelehnt) und `main` (durch).
+- **Prüfung:** Backend/Dash per PID neu gestartet, `respawn.sh` hat beide nach 2 s über die
+  Symlinks neu gestartet. `test_can_backend.py`/`test_dash_gui.py` auf dem Pi ok. Screenshot:
+  "WARTE AUF CAN-BUS" (kein `can0` am Heimnetz). `session_logger` importiert, DBC-Pfad löst auf.
+  Eine echte CAN-Session über die Symlinks steht noch aus (nächste Fahrt).
