@@ -4800,3 +4800,60 @@ Startzeit folgender CAN-Logs (Dateiname + Versatz):
 `2026-09-17_084511` +12914 s, `2026-09-17_131635` +14105 s, `2026-09-17_133436` +14107 s,
 `2026-09-18_093544` +18394 s, `2026-09-18_162411` +1598 s, `2026-09-18_165510` +1597 s,
 `2026-09-14_163711` +68 s, `2026-09-14_173057` −26 s. Im Datalake noch nicht korrigiert.
+
+## RTC DS3231 eingerichtet (2026-09-28)
+
+ARCELI-DS3231-Aufsteckmodul auf dem Pi (Pin 1-3-5-7-9). Einrichtung siehe
+`scripts/pi-config/SETUP.md`, "RTC DS3231".
+
+- `i2c_arm` + `dtoverlay=i2c-rtc,ds3231` in `config.txt`, fake-hwclock abgeschaltet.
+- **Erster Boot:** Chip auf 0x68 (`UU`), `rtc0` da, RTC stand noch nie gestellt auf 2000-01-01;
+  der Kernel hat die Systemzeit darauf gestellt, `timesyncd` hat sie danach auf den Image-Stempel
+  13.09. vorgezogen. Nach NTP-Sync `hwclock -w`.
+- **Annahme verworfen:** gedacht war, dass `RTC_HCTOSYS` nicht greift, weil `rtc-ds1307` ein
+  Modul ist. Falsch: der Kernel stellt die Uhr beim Registrieren von `rtc0` selbst. Die vorsorglich
+  angelegte udev-Regel (`hwclock --hctosys`) war überflüssig und schlug zudem fehl (Exit 1).
+  Sie ist wieder entfernt.
+- **Zweiter Boot (warm, 13:40:06):** dmesg bei 1,29 s: "setting system clock to 2026-09-28T11:40:07 UTC",
+  also richtig und vor jedem Netz. NTP kam erst bei 13:40:46 dazu. RTC und System nach dem Sync
+  gleich (hwclock liest ~0,2 s später, weil es auf die Sekundengrenze wartet).
+- **OSF-Flag:** Statusregister 0x0F = 0x88. OSF ist gesetzt, weil der Treiber es beim DS3231 nur
+  meldet ("SET TIME!") und nicht löscht. Von Hand auf 0x08 gesetzt, damit ein erneutes "SET TIME!"
+  künftig wirklich eine leere Zelle anzeigt.
+- `session_logger.restore_clock`: neuer Zustand `rtc`, wenn die RTC glaubwürdig ist (≥ Anker und
+  ≥ 28.09.2026). Weicht die Systemzeit mehr als 2 s ab, wird sie auf die RTC gestellt. Eine
+  unglaubwürdige RTC (leere Zelle) fällt auf die alte Anker-Logik zurück, mit Hinweis im Marker.
+  Tests 5-8 neu, alle grün. Auf dem Pi gegen die echte RTC geprüft (NTP-Abfrage gestubbt):
+  `rtc`/"Uhr stimmt mit RTC überein", bei falscher Systemzeit ein `date -s` auf die RTC-Zeit.
+  Deployt (md5 430382a2), Vorstand in `session_logger.py.bak-2026-09-28-vor-rtc`.
+
+**Offen:** Haltetest der Zelle. Pi komplett stromlos (Powerbank ab), dann ohne Netz booten und prüfen:
+dmesg ohne "SET TIME!", "setting system clock" = wahre Zeit. Ein erster Fahrtmarker `clockstate-*`
+mit `rtc` kommt bei der nächsten Fahrt ohne WLAN.
+
+### Uhrsprung RTC -> NTP protokollieren (2026-09-28, Vorschlag des Nutzers)
+Mit RTC springt die Uhr beim spaeten NTP-Sync nur noch um Sekunden, auch rueckwaerts. Die
+Luecken-Erkennung der Pipeline (> 5 s, nur vorwaerts) sieht das nicht mehr. Deshalb:
+- `session_logger.check_clock_jump` (bei jedem Frame): Wand- minus Monotonuhr ist konstant,
+  bis die Uhr gestellt wird. Aendert sich der Wert um >= 0,1 s, ist das genau der Sprung.
+  timesyncd springt erst ab 0,4 s, darunter slewt er mit max. 0,5 ms/s. Ergebnis ist eine
+  `clockjump-<neue Zeit>.txt` mit `jump_us`, `wall_before` (letzte alte Wanduhr), `wall_after`,
+  laufendem `log` und `clock_state`.
+- Pipeline: holt `clockjump-*.txt` mit. `fix_clock_jump` nimmt, falls fuer das Log ein Protokoll
+  existiert, dessen Sprung und sucht im Fenster +-2 s um `wall_before` den Frame-Abstand, der
+  am besten zum Sprung passt (Toleranz 50 ms). Der Teil davor wird um genau `jump_us`
+  verschoben. Ohne Protokoll greift die alte Luecken-Logik. Umbenannt wird nur noch, wenn
+  sich der Name dadurch wirklich aendert.
+- Tests: `test_clock_jump_recorded` (Slew loest nichts aus, Sprung auf die us) und
+  `test_fix_clock_jump_uses_recorded_small_backward_jump` (-1,236518 s mit einer 1,2-s-Buspause
+  als Stoerer). Alle Tests gruen, auf dem Pi deployt (md5 78a47573).
+
+**Auf dem Pi gegen die echte Uhr geprueft (13:52):**
+- RTC-Rueckschreiben: die RTC wurde absichtlich (versehentlich um 2 h statt 30 s) verstellt.
+  Der Kernel (`RTC_SYSTOHC`) hat sie nach 490 s von selbst auf die NTP-Zeit gesetzt. Die RTC
+  wird also bei jedem NTP-Kontakt mitgefuehrt.
+- Uhrsprung: `SessionLogger.on_frame` im 1-ms-Takt, dazwischen `clock_settime(-1,5 s)`. Beide
+  Spruenge wurden protokolliert: -1,500036 s (der eigene Eingriff, 36 us zwischen Lesen und
+  Stellen) und +1,502491 s. Den zweiten hat timesyncd selbst ausgeloest, er stellt nach einer
+  fremden Uhraenderung sofort neu. Genau diesen Fall (NTP stellt die Uhr) soll das Protokoll
+  erfassen. Danach wieder NTP-synchron.

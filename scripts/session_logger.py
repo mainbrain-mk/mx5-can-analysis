@@ -51,8 +51,8 @@ PROBE_SCRIPT_PATH = os.environ.get(
 # - die dynamischen Werte waren damit wertlos. Jetzt wird auf Drehzahl > 400 gewartet.
 PROBE_WAIT_RPM_S = 600   # hoechstens 10 Minuten auf den Motorstart warten
 
-# Uhr-Absicherung (2026-09-15). Der Pi hat keine RTC. fake-hwclock IST installiert und
-# aktiviert, kann aber nichts ausrichten: seine Datei /etc/fake-hwclock.data liegt auf dem
+# Uhr-Absicherung (2026-09-15). Der Pi hatte damals keine RTC (seit 28.09. schon, siehe
+# unten). fake-hwclock war installiert und aktiviert, kann aber nichts ausrichten: seine Datei /etc/fake-hwclock.data liegt auf dem
 # overlayroot=tmpfs-Overlay und ist nach jedem Reboot weg. Im Auto gibt es kein Netz, also
 # auch kein NTP -> nach einem Reboot ohne Netz laeuft die Uhr auf dem Datum des Images
 # weiter, OHNE dass im Log ein Sprung sichtbar waere (genau der Fehler, der 2026-09-13 und
@@ -66,6 +66,21 @@ PROBE_WAIT_RPM_S = 600   # hoechstens 10 Minuten auf den Motorstart warten
 CLOCK_FILE_PATH = os.path.join(LOG_DIR, "last_known_time")
 CLOCK_WRITE_INTERVAL_S = 60
 
+# Seit 2026-09-28 steckt eine DS3231-RTC auf dem Pi (dtoverlay=i2c-rtc,ds3231, fake-hwclock
+# aus). Der Kernel stellt die Systemzeit beim Laden des Treibers selbst aus der RTC. Hier
+# wird nur geprueft, ob die RTC glaubwuerdig ist - eine leere Zelle setzt sie auf 2000-01-01
+# zurueck, dann greift weiter die Anker-Logik oben.
+RTC_EPOCH_PATH = "/sys/class/rtc/rtc0/since_epoch"
+RTC_MIN_PLAUSIBLE = datetime(2026, 9, 28)
+
+# Uhrsprung-Protokoll (2026-09-28): bootet der Pi offline, laeuft er auf RTC-Zeit; kommt
+# spaeter NTP, stellt timesyncd die Uhr ab 0,4 s Abweichung per Sprung (darunter geslewt,
+# max. 0,5 ms/s). Wand- minus Monotonuhr bleibt konstant, bis jemand die Uhr stellt - aendert
+# sie sich, ist das genau der Sprung. Pro Sprung eine clockjump-*.txt mit Zeit vor/nach dem
+# Sprung und dem laufenden Log, damit die Pipeline den Teil davor exakt nachziehen kann
+# (run_daily_pipeline.fix_clock_jump).
+CLOCK_JUMP_MIN_S = 0.1
+
 
 def ntp_synchronized(run=subprocess.run):
     try:
@@ -76,7 +91,15 @@ def ntp_synchronized(run=subprocess.run):
         return False
 
 
-def restore_clock(clock_path=CLOCK_FILE_PATH, run=subprocess.run, now=None):
+def rtc_time(path=RTC_EPOCH_PATH):
+    try:
+        with open(path) as fh:
+            return datetime.fromtimestamp(int(fh.read()))
+    except Exception:
+        return None
+
+
+def restore_clock(clock_path=CLOCK_FILE_PATH, run=subprocess.run, now=None, rtc_path=RTC_EPOCH_PATH):
     """-> (zustand, meldung). Stellt die Uhr nur bei nachgewiesenem Fehlstand."""
     now = now or datetime.now()
     if ntp_synchronized(run):
@@ -85,9 +108,22 @@ def restore_clock(clock_path=CLOCK_FILE_PATH, run=subprocess.run, now=None):
         with open(clock_path) as fh:
             saved = datetime.strptime(fh.read().strip(), "%Y-%m-%d %H:%M:%S")
     except Exception:
-        return "kein_anker", f"kein NTP und keine gespeicherte Zeit - Datum unsicher ({now:%Y-%m-%d %H:%M:%S})"
+        saved = None
+    rtc = rtc_time(rtc_path)
+    if rtc is not None and rtc >= max(saved or RTC_MIN_PLAUSIBLE, RTC_MIN_PLAUSIBLE):
+        if abs((rtc - now).total_seconds()) > 2:   # sollte der Kernel schon erledigt haben
+            try:
+                run(["date", "-s", rtc.strftime("%Y-%m-%d %H:%M:%S")], check=True,
+                    capture_output=True, timeout=5)
+            except Exception as exc:
+                return "stellen_fehlgeschlagen", f"Uhr war {now:%Y-%m-%d %H:%M:%S}, Stellen auf RTC {rtc:%Y-%m-%d %H:%M:%S} fehlgeschlagen: {exc!r}"
+            return "rtc", f"kein NTP, Uhr von {now:%Y-%m-%d %H:%M:%S} auf RTC {rtc:%Y-%m-%d %H:%M:%S} gestellt"
+        return "rtc", f"kein NTP, Uhr stimmt mit RTC ueberein ({now:%Y-%m-%d %H:%M:%S})"
+    rtc_hint = "" if rtc is None else f" RTC unglaubwuerdig ({rtc:%Y-%m-%d %H:%M:%S}, Zelle leer?)."
+    if saved is None:
+        return "kein_anker", f"kein NTP und keine gespeicherte Zeit - Datum unsicher ({now:%Y-%m-%d %H:%M:%S}).{rtc_hint}"
     if saved <= now:
-        return "plausibel", f"kein NTP, Systemzeit >= gespeicherte Zeit - vermutlich ok ({now:%Y-%m-%d %H:%M:%S})"
+        return "plausibel", f"kein NTP, Systemzeit >= gespeicherte Zeit - vermutlich ok ({now:%Y-%m-%d %H:%M:%S}).{rtc_hint}"
     try:
         run(["date", "-s", saved.strftime("%Y-%m-%d %H:%M:%S")], check=True,
             capture_output=True, timeout=5)
@@ -103,7 +139,7 @@ def restore_clock(clock_path=CLOCK_FILE_PATH, run=subprocess.run, now=None):
                           f"{saved:%Y-%m-%d %H:%M:%S} vorgestellt (kein NTP). "
                           f"ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre "
                           f"Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit "
-                          f"externem Anker (Handy-.dlg oder GPS) verlaesslich.")
+                          f"externem Anker (Handy-.dlg oder GPS) verlaesslich.{rtc_hint}")
 
 
 def save_clock(clock_path=CLOCK_FILE_PATH):
@@ -133,6 +169,8 @@ class SessionLogger:
         self.clock_state = "unbekannt"
         self.clock_note = ""
         self._last_clock_write = 0.0
+        self._clock_offset = None
+        self._last_wall = None
 
     def gzip_finished_logs(self):
         """Komprimiert liegengebliebene .log-Dateien. Sicher gegen einen
@@ -251,8 +289,28 @@ class SessionLogger:
         print("[session_logger] Fahrt beendet, candump gestoppt", flush=True)
         self.gzip_finished_logs()
 
+    def check_clock_jump(self, wall, mono):
+        offset = wall - mono
+        prev, before = self._clock_offset, self._last_wall
+        self._clock_offset, self._last_wall = offset, wall
+        if prev is None or abs(offset - prev) < CLOCK_JUMP_MIN_S:
+            return
+        running = sorted(glob.glob(os.path.join(self.log_dir, "candump-*.log")))
+        log = os.path.basename(running[-1]) if self.candump_proc is not None and running else "-"
+        stamp = datetime.fromtimestamp(wall).strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(self.log_dir, f"clockjump-{stamp}.txt")
+        try:
+            with open(path + ".tmp", "w") as fh:
+                fh.write(f"jump_us={round((offset - prev) * 1e6)}\nwall_before={before:.6f}\n"
+                         f"wall_after={wall:.6f}\nlog={log}\nclock_state={self.clock_state}\n")
+            os.replace(path + ".tmp", path)
+        except Exception as exc:
+            print(f"[session_logger] Uhrsprung-Protokoll nicht geschrieben: {exc!r}", flush=True)
+        print(f"[session_logger] Uhrsprung {offset - prev:+.6f} s ({log})", flush=True)
+
     def on_frame(self, arbitration_id, data):
         now = time.time()
+        self.check_clock_jump(now, time.monotonic())
         if now - self._last_clock_write >= CLOCK_WRITE_INTERVAL_S:
             self._last_clock_write = now
             save_clock()

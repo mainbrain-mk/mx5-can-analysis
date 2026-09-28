@@ -108,7 +108,7 @@ Alles per `overlayroot-chroot` bzw. `raspi-config`; Rollback-Liste der Unit-Zust
   `e2scrub_all.timer`, `e2scrub_reap.service`, `cups.{service,socket,path}`, `cups-browsed`, `udisks2`,
   `triggerhappy.{service,socket}`, `rpi-eeprom-update`, `dphys-swapfile`. **Maskiert:** `ModemManager` (sonst
   D-Bus-Reaktivierung durch NetworkManager). Bewusst AN: Avahi (`car.local`), Bluetooth, NetworkManager, ssh,
-  fake-hwclock, timesyncd.
+  timesyncd (fake-hwclock seit 28.09. aus, siehe RTC).
 - **`/boot/firmware/config.txt`:** `camera_auto_detect=0` (`sudo mount -o remount,rw /boot/firmware`,
   `sudo raspi-config nonint do_camera 1`, danach wieder `remount,ro`). Vorher-Kopie `backup-boot-2026-09-26/config.txt.vorher`.
 - **Gotcha:** mehrere `overlayroot-chroot`-Aufrufe hintereinander lassen `/media/root-ro` auf `rw` haengen
@@ -134,3 +134,23 @@ Alles per `overlayroot-chroot` bzw. `raspi-config`; Rollback-Liste der Unit-Zust
   `tar -c a b | ssh pi@... 'sudo overlayroot-chroot sh -c "mkdir -p /root/x && tar -x -C /root/x && install ..."'`
 - **Nicht nachmachen:** ein Boot-Preload der Mesa-Bibliotheken (Page-Cache vorwaermen) wurde getestet und
   verworfen - bei ~5-7 MB/s Kartenlesegeschwindigkeit verdraengt er alles andere (lightdm 13 s -> 40 s).
+
+## RTC DS3231 (2026-09-28)
+
+ARCELI-Aufsteckmodul auf Pin 1-3-5-7-9 (Display belegt 2/6).
+- `/boot/firmware/config.txt` (`remount,rw`, danach `ro`; Vorher-Kopie `config.txt.bak-rtc-2026-09-28`):
+  `dtparam=i2c_arm=on` und `dtoverlay=i2c-rtc,ds3231` (unter `[all]`).
+- `systemctl disable fake-hwclock` per `overlayroot-chroot`.
+- Keine udev-Regel noetig: der Kernel (`RTC_HCTOSYS=y`) stellt die Systemzeit beim Registrieren
+  von `rtc0` selbst (dmesg "setting system clock to ..." bei ~1,3 s). Die Debian-Regel
+  `/lib/udev/hwclock-set` bricht unter systemd ohnehin ab. `RTC_SYSTOHC=y`: bei NTP-Sync schreibt
+  der Kernel die Zeit alle 11 min zurueck in die RTC.
+- Erstes Stellen: nach NTP-Sync `sudo hwclock -w --utc`.
+- **Gotcha:** `rtc-ds1307` warnt bei gesetztem Oszillator-Stopp-Flag nur ("SET TIME!"), loescht es
+  beim DS3231 aber nicht. Einmal von Hand loeschen: `sudo i2cset -f -y 1 0x68 0x0f 0x08`
+  (Statusregister, Bit 7 = OSF). Danach bedeutet ein neues "SET TIME!", dass die Zelle leer war.
+- `session_logger.restore_clock` meldet Zustand `rtc`, wenn die RTC glaubwuerdig ist
+  (>= letzter Anker und >= 28.09.2026), sonst weiter die Anker-Logik.
+- Uhrsprung-Protokoll: kommt NTP erst nach einem Offline-Boot, schreibt `session_logger.py` pro
+  Sprung eine `clockjump-*.txt` (`jump_us`, `wall_before`, `wall_after`, laufendes `log`). Die Pipeline
+  holt sie mit und zieht den Teil des Logs vor dem Sprung exakt nach (`fix_clock_jump`).
