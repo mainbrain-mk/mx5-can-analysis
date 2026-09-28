@@ -80,11 +80,12 @@ def _scratch_env():
 
     originals = {name: getattr(bd, name) for name in (
         "RAW_DLG_DIR", "RAW_CSV_DIR", "CAN_DIR", "DB_PATH", "RESULTS_DIR",
-        "CAN_GPS_PAIRS_OVERRIDE_PATH", "CAN_GPS_PAIRS")}
+        "CAN_GPS_PAIRS_OVERRIDE_PATH", "CAN_GPS_PAIRS", "CAN_CLOCK_OFFSETS_PATH")}
     bd.RAW_DLG_DIR, bd.RAW_CSV_DIR, bd.CAN_DIR = raw_dlg, raw_csv, can_dir
     bd.DB_PATH = os.path.join(tmpdir, "test.duckdb")
     bd.RESULTS_DIR = results_dir
     bd.CAN_GPS_PAIRS_OVERRIDE_PATH = os.path.join(tmpdir, "can_gps_pairs.json")
+    bd.CAN_CLOCK_OFFSETS_PATH = os.path.join(tmpdir, "can_clock_offsets.json")
     bd.CAN_GPS_PAIRS = []  # hartkodierte echte Fahrten sollen im Scratch-Test nicht anschlagen
 
     def restore():
@@ -305,6 +306,27 @@ def test_dlg_gps_attaches_to_can_timeline():
         bd.RAW_DLG_DIR = orig_dir
         bd._dlg_gps_span.cache_clear()
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+def test_clock_offset_override():
+    """28.09.: Versatz aus CAN_CLOCK_OFFSETS_PATH gilt auf den Dateinamen - auch wenn Frames und
+    Name uebereinstimmen (beide gleich falsch, Pi ohne NTP)."""
+    tmpdir = tempfile.mkdtemp()
+    orig = bd.CAN_CLOCK_OFFSETS_PATH
+    bd.CAN_CLOCK_OFFSETS_PATH = os.path.join(tmpdir, "offsets.json")
+    try:
+        name = "candump-2026-09-17_084511.log"
+        name_epoch = bd.datetime(2026, 9, 17, 8, 45, 11, tzinfo=bd.LOCAL_TZ).timestamp()
+        can = os.path.join(tmpdir, name)
+        with open(can, "w") as f:
+            f.write(f"({name_epoch + 0.02:.6f}) can0 202#00\n")
+        assert abs(bd.log_start_epoch(can) - (name_epoch + 0.02)) < 1e-6  # ohne Override: Frames
+        with open(bd.CAN_CLOCK_OFFSETS_PATH, "w") as f:
+            f.write('{"%s": 12914.4}' % name)
+        assert abs(bd.log_start_epoch(can) - (name_epoch + 12914.4)) < 1e-6
+    finally:
+        bd.CAN_CLOCK_OFFSETS_PATH = orig
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 def test_derive_gear_status():
     raw = pd.DataFrame({

@@ -2,7 +2,7 @@
 
 **Herkunft:** ausgelagert aus dem "Kurzüberblick"-Abschnitt von [`docs/logs/can-bus-status.md`](../logs/can-bus-status.md) (Reorg 18.09.2026, Inhalt unveraendert uebernommen). Ab jetzt hier direkt in-place aktualisieren, wenn sich der Stand aendert - das Logbuch bleibt das chronologische Protokoll mit den Herleitungen.
 
-## Kurzüberblick: aktueller Stand (2026-09-27)
+## Kurzüberblick: aktueller Stand (2026-09-28)
 
 **Status 2026-09-27 — Dash (`dash_gui.py`/`can_backend.py`) überarbeitet, im Repo, noch nicht auf dem Pi.**
 Details im Logbuch ("Dash-Überarbeitung…"), Deploy-Schritte in [`pi-runtime-state.md`](pi-runtime-state.md).
@@ -13,7 +13,9 @@ rendert nur noch, wenn er sichtbar ist, Drehzahlbalken und LEDs ohne Canvas-Neua
 Dash gelesene Signal gegen Backend-Filter und DBC.
 
 
-**Status 2026-09-27 abends — sechster No-RTC-Fall per GPX korrigiert.** `candump-2026-09-27_144352`/`_150720` → `_163940`/`_170308` (+6948 s gegen `20260927-163740.gpx`, RMSE 1,6/3,5 km/h; NTP-Logs desselben Tages liefern ±0 s als Gegenprobe). Die Pipeline nimmt GPX jetzt als Zeitanker, ordnet Tracks nach Zeitüberlappung zu (ein Track kann mehrere Logs abdecken) und übernimmt keine `.log.gz.tmp` vom Pi mehr. GPX-Download aus dem Drive bleibt manuell. CAN-Logs ohne GPX bekommen jetzt das GPS der überlappenden dlg (18 Logs, alle auf ≤ 2 s geprüft; 5 per `DLG_GPS_EXCLUDE` ausgeschlossen, darunter `14_163711`, das 68 s falsch datiert ist). Logbuch: "Pipeline-Absturz an `.log.gz.tmp`…".
+**Status 2026-09-28 — acht No-RTC-Versätze per `data/can_clock_offsets.json` korrigiert.** Die Handy-IMU-Zuordnung (`can_phone_imu_sweep.py`) lieferte die wahre Startzeit von `14_163711`, `14_173057`, `17_084511`, `17_131635`, `17_133436`, `18_093544`, `18_162411` und `18_165510` (−26 s bis +5,1 h). `log_start_epoch()` nimmt dafür Dateiname + Versatz, ohne umzubenennen. Nach dem Neubau passt CAN-Speed zur Handy-Speed auf ≤ 1,1 s, alle acht Logs haben jetzt dlg-GPS. `DLG_GPS_EXCLUDE` ist auf `18_170350`/`26_154000` geschrumpft. Kurvenanalyse nicht betroffen. `18_170350`/`_171150` sind vermutlich auch falsch datiert, es gibt aber keinen Anker. Logbuch: "No-RTC-Versätze aus der Handy-Zuordnung…".
+
+**Status 2026-09-27 abends — sechster No-RTC-Fall per GPX korrigiert.** `candump-2026-09-27_144352`/`_150720` → `_163940`/`_170308` (+6948 s gegen `20260927-163740.gpx`, RMSE 1,6/3,5 km/h; NTP-Logs desselben Tages liefern ±0 s als Gegenprobe). Die Pipeline nimmt GPX jetzt als Zeitanker, ordnet Tracks nach Zeitüberlappung zu (ein Track kann mehrere Logs abdecken) und übernimmt keine `.log.gz.tmp` vom Pi mehr. GPX-Download aus dem Drive bleibt manuell. CAN-Logs ohne GPX bekommen jetzt das GPS der überlappenden dlg (18 Logs, alle auf ≤ 2 s geprüft; 5 per `DLG_GPS_EXCLUDE` ausgeschlossen, darunter `14_163711`, das 68 s falsch datiert ist); seit 28.09. korrigiert, siehe oben). Logbuch: "Pipeline-Absturz an `.log.gz.tmp`…".
 
 **Status 2026-09-26 abends — Fahrtag mit Fahrzeugtests ausgewertet, fünfter No-RTC-Fall
 korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.…").
@@ -685,7 +687,8 @@ OBD/CAN-Referenz gesucht werden muss):
   **Seit 2026-09-27** korrigiert `fix_clock_jump()` (vor dem Dekodieren) zusätzlich einen **Uhrsprung mitten im Log**
   (NTP-Sync während der Fahrt): Lücke > 5 s = Sprung, Teil davor + Name werden nachgezogen, Marker
   `ntp_sprung_korrigiert`, Original bleibt als `.log.gz`. Am Bestand validiert (einziger Fall `candump-2026-09-11_201950`,
-  schließt korrigiert auf 1 ms an `_150619` an). Siehe Logbuch "Sprungkorrektur". DS3231-RTC seit 28.09. eingebaut und aktiv (Logbuch "RTC DS3231 eingerichtet"); Logs ab dann mit Marker `rtc`, ältere bleiben No-RTC-verdächtig.
+  schließt korrigiert auf 1 ms an `_150619` an). Siehe Logbuch "Sprungkorrektur".
+  **Seit 2026-09-28** gibt es für nachträglich gefundene Versätze `data/can_clock_offsets.json` (`{can_name: s}`, Dateiname + Versatz, ohne Umbenennen auf Pi/lokal). Siehe Logbuch "No-RTC-Versätze aus der Handy-Zuordnung…". DS3231-RTC seit 28.09. eingebaut und aktiv (Logbuch "RTC DS3231 eingerichtet"); Logs ab dann mit Marker `rtc`, ältere bleiben No-RTC-verdächtig.
 
 ### Nächste Schritte
 - **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die

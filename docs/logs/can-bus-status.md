@@ -4801,6 +4801,88 @@ Startzeit folgender CAN-Logs (Dateiname + Versatz):
 `2026-09-18_093544` +18394 s, `2026-09-18_162411` +1598 s, `2026-09-18_165510` +1597 s,
 `2026-09-14_163711` +68 s, `2026-09-14_173057` −26 s. Im Datalake noch nicht korrigiert.
 
+## No-RTC-Versätze aus der Handy-Zuordnung im Datalake korrigiert (2026-09-28)
+
+Anschluss an den Nebenbefund im vorigen Abschnitt: acht CAN-Logs standen mit falscher Startzeit im
+Datalake.
+
+**Bisheriger Umgang mit No-RTC-Fällen:** Datei auf die wahre Startzeit umbenennen, lokal und auf dem
+Pi (`fix_can_log_clocks()` bzw. von Hand), `log_start_epoch()` lässt dann den Namen gegen die Frames
+gewinnen. Für diese acht Logs habe ich das nicht gemacht: Umbenennen müsste auch auf dem Pi
+passieren, sonst holt `sync_can_logs_from_pi()` das alte Log wieder. Außerdem ist der Versatz hier
+auf 0,1 s bekannt, ein Dateiname nur auf 1 s.
+
+**Neu: `data/can_clock_offsets.json`** (lokal, wie `can_gps_pairs.json` nicht im Repo), Format
+`{can_name: Sekunden}`, wahre Startzeit = Zeit im Dateinamen + Wert. `build_datalake.log_start_epoch()`
+nimmt bei einem Eintrag Dateiname + Versatz, egal was die Frames sagen. Die Datei hängt bei diesen Logs
+im Fingerabdruck, eine Änderung löst also Re-Ingest aus. Test: `test_clock_offset_override`.
+
+| CAN-Log | Versatz | wahrer Start | dlg (IMU-Paar) |
+|---|---|---|---|
+| `candump-2026-09-14_163711` | +68,2 s | 14.09. 16:38:19 | 163745 |
+| `candump-2026-09-14_173057` | −26,3 s | 14.09. 17:30:31 | 173044 |
+| `candump-2026-09-17_084511` | +12914,4 s | 17.09. 12:20:25 | 121947 |
+| `candump-2026-09-17_131635` | +14105,3 s | 17.09. 17:11:40 | 171117 |
+| `candump-2026-09-17_133436` | +14106,5 s | 17.09. 17:29:42 | 173053 |
+| `candump-2026-09-18_093544` | +18393,8 s | 18.09. 14:42:18 | 144153 |
+| `candump-2026-09-18_162411` | +1597,6 s | 18.09. 16:50:49 | 164955 |
+| `candump-2026-09-18_165510` | +1596,9 s | 18.09. 17:21:47 | 172154 |
+
+Werte = `lag_s` aus `data/can_phone_pairs.json` (Paare mit Gierraten-Abnahme, r_yaw ≥ 0,988), auf
+0,1 s gerundet. Alle übrigen 17 abgenommenen Paare liegen bei |lag| ≤ 1,04 s und bekommen keinen
+Eintrag.
+
+**Plausibilität Boot-Ketten:** Die Paare innerhalb eines Boots passen zusammen. `17_131635` und
+`_133436` liegen 1,2 s auseinander, `18_162411` und `_165510` 0,7 s. Bei `14_163711`/`_173057` ist
+der Abstand korrigiert 4:53 min, in der Frame-Uhr 4:51 min. Nach der alten Umbenennung vom 15.09.
+waren es 6:28 min.
+
+**`DLG_GPS_EXCLUDE`:** `14_163711`, `14_173057` und `18_165510` standen nur wegen der Fehldatierung
+drin und sind jetzt raus. Übrig bleiben `18_170350` und `26_154000`. Vor dem Neubau hing an keinem
+der acht Logs GPS: drei waren ausgeschlossen, fünf hatten zur falschen Zeit keine dlg-Überlappung.
+Falsches GPS stand also nie im Datalake.
+
+**Neubau** (inkrementell): genau die acht Logs neu eingelesen, 28,1 Mio Messwerte, ~2,5 min. Jedes
+Log hat automatisch die dlg angehängt bekommen, die auch der IMU-Sweep zugeordnet hatte.
+
+**Stichprobe:** CAN-`VehicleSpeed` (×0,971) gegen Handy-`VehicleSpeed` der überlappenden dlg, beide
+über `timestamp_local` (dlg = UTC). Restversatz per 0,1-s-Suche ±30 s:
+
+| CAN-Log | vorher | nachher: RMSE bei 0 / bester Rest |
+|---|---|---|
+| `14_163711` | RMSE 32 km/h | 2,4 km/h / −0,3 s |
+| `14_173057` | Rest +25,6 s | 2,1 km/h / −0,7 s |
+| `17_084511` | keine Überlappung | 3,2 km/h / −1,0 s |
+| `17_131635` | keine Überlappung | 3,1 km/h / −1,1 s |
+| `17_133436` | keine Überlappung | 1,9 km/h / −0,3 s |
+| `18_093544` | keine Überlappung | 3,0 km/h / −0,9 s |
+| `18_162411` | keine Überlappung | 2,6 km/h / −0,5 s |
+| `18_165510` | RMSE 76 km/h (gegen falsche dlg 164955) | 2,6 km/h / −0,8 s |
+
+Kontrollen mit NTP (`17_081218`, `18_090404`): Rest +0,3 s bzw. −0,4 s. Der Rest von bis zu −1 s ist
+die Latenz des OBD-Speed im Handy. Die IMU-Zuordnung ist genauer. Das angehängte GPS gegen CAN-Speed
+in derselben log_id liegt bei RMSE 1,5-4,4 km/h, im Rahmen der übrigen Logs (2-8 km/h).
+
+**Betroffene Auswertungen:**
+- `can_corner_event_analysis.py` / `corner_speed_model.py`: nicht betroffen. Sie lesen nur
+  `t_elapsed_s` von `LateralAcc_CAN`/`VehicleSpeed`, die Startzeit spielt keine Rolle.
+- CAN-GPX-Paarung (`can_gps_pairs.json`): nicht betroffen. Für 14./17./18.09. gibt es keine GPX,
+  alle acht Einträge sind leer.
+- CAN-dlg-GPS (`_find_overlapping_dlg`): siehe oben. Vorher nichts Falsches angehängt, jetzt acht
+  Logs zusätzlich mit GPS.
+- Die übrigen CAN-Skripte mit Zeitbezug (`can_lateral_validation.py`,
+  `can_gps_yawrate_and_steering_offset.py`, `precise_vmax_validation_2026_09_12.py`, …) nutzen nur
+  die 11./12.09.-Logs.
+- Alles, was CAN-Logs nach `start_time_local` sortiert oder per Uhrzeit mit Handy-Logs verbindet,
+  sieht jetzt die richtige Zeit. Vorher lagen z. B. `17_084511` und `18_093544` Stunden vor ihrer
+  Fahrt.
+
+**Offen:** `candump-2026-09-18_170350` und `_171150` sind vermutlich ebenfalls falsch datiert.
+`_171150` beginnt in der Frame-Uhr (17:11:50) vor dem Ende von `_170350` (17:12:06), das ist ein neuer
+Boot mit zurückgesetzter Uhr. `_170350` schließt 20 s an `_165510` an, das in Wahrheit erst 17:21
+begann. Im Datalake stehen beide jetzt vor `_165510`. Es gibt kein Handy-Paar (alle r_yaw ≤ 0,33)
+und keine GPX, der Versatz ist damit nicht bestimmbar.
+
 ## RTC DS3231 eingerichtet (2026-09-28)
 
 ARCELI-DS3231-Aufsteckmodul auf dem Pi (Pin 1-3-5-7-9). Einrichtung siehe
