@@ -251,7 +251,7 @@ def _clockstate_warning(log_name):
     """Liest den zu einem CAN-Log gehoerigen Uhr-Marker (siehe session_logger.py
     write_clock_marker/restore_clock) und gibt eine Warnmeldung zurueck, falls die
     Uhr beim Start dieses Logs NICHT per NTP bestaetigt war - None, wenn der Marker
-    "ntp" sagt oder gar nicht existiert (aeltere Logs vor 2026-09-15 haben keinen).
+    "ntp"/"rtc" sagt oder gar nicht existiert (aeltere Logs vor 2026-09-15 haben keinen).
     Der Dateiname allein beweist nie, dass die Zeitstempel stimmen (siehe
     docs/logs/can-bus-status.md, "Viertes No-RTC-Vorkommnis") - dieser Marker ist
     die einzige Quelle, die das schon beim Schreiben auf dem Pi selbst festhaelt."""
@@ -266,7 +266,8 @@ def _clockstate_warning(log_name):
         lines = f.read().splitlines()
     state = lines[0] if lines else ""
     note = lines[1] if len(lines) > 1 else ""
-    if state in ("ntp", JUMP_FIXED_STATE):
+    # "rtc": DS3231 seit 28.09. aktiv und vom Nutzer als gueltige Uhrquelle bestaetigt
+    if state in ("ntp", "rtc", JUMP_FIXED_STATE):
         return None
     return f"Uhr beim Start NICHT per NTP bestaetigt ({state}): {note} Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden."
 
@@ -484,19 +485,68 @@ def find_clock_jump(log_path):
     return jumps[0]
 
 
+# Seit der RTC (2026-09-28) springt die Uhr beim NTP-Sync nur noch um Sekunden, auch rueckwaerts -
+# das faellt als Luecke nicht auf. session_logger.py protokolliert den Sprung deshalb selbst
+# (clockjump-*.txt: Sprung in us aus Wand- minus Monotonuhr, Wanduhr davor, laufendes Log).
+RECORDED_JUMP_WINDOW_US = 2 * 10**6   # Frame-Zeit vs. Protokoll-Zeitpunkt
+RECORDED_JUMP_TOL_US = 50_000         # Luecke am Sprung = Sprung + normaler Frame-Abstand (~1 ms)
+
+
+def _clock_jump_record(log_id):
+    # ponytail: nur der erste Sprung je Log; offline gebootet gibt es genau einen (RTC -> NTP).
+    # Mehrere Protokolle fuer ein Log erst behandeln, wenn das real vorkommt.
+    for p in sorted(glob.glob(f"{CAN_DIR}/clockjump-*.txt")):
+        with open(p, encoding="utf-8") as f:
+            rec = dict(l.split("=", 1) for l in f.read().split())
+        if rec.get("log") == f"{log_id}.log":
+            return os.path.basename(p), int(rec["jump_us"]), round(float(rec["wall_before"]) * 1e6)
+    return None
+
+
+def find_recorded_jump(log_path, jump_us, wall_before_us):
+    """-> (Zeilennummer des ersten Frames nach dem Sprung, jump_us) oder None: die Stelle nahe
+    wall_before, an der der Frame-Abstand dem protokollierten Sprung am naechsten kommt."""
+    best, prev = None, None
+    with open(log_path) as f:
+        for i, line in enumerate(f):
+            try:
+                ts = _candump_ts_us(line)
+            except ValueError:
+                continue
+            if prev is not None and abs(prev - wall_before_us) <= RECORDED_JUMP_WINDOW_US:
+                err = abs(ts - prev - jump_us)
+                if best is None or err < best[0]:
+                    best = (err, i)
+            prev = ts
+    if best is None or best[0] > RECORDED_JUMP_TOL_US:
+        return None
+    return best[1], jump_us
+
+
 def fix_clock_jump(log_id, errors):
     """Korrigiert einen Uhrsprung im frisch geholten Log: erst umbenennen (Pi + lokal, wie
     fix_can_log_clocks), dann die Zeitstempel vor dem Sprung verschieben und den Marker auf
     JUMP_FIXED_STATE setzen. Das Original bleibt als .log.gz lokal und auf dem Pi erhalten.
     Gibt die (ggf. neue) log_id zurueck."""
     path = os.path.join(CAN_DIR, f"{log_id}.log")
-    try:
-        jump = find_clock_jump(path)
-    except ValueError as e:
-        errors.append((f"{log_id}.log", f"Mehrere/rueckwaerts gerichtete Uhrspruenge ({e}), nicht korrigiert."))
-        return log_id
-    if jump is None:
-        return log_id
+    record = _clock_jump_record(log_id)
+    if record:
+        rec_name, rec_jump_us, wall_before_us = record
+        jump = find_recorded_jump(path, rec_jump_us, wall_before_us)
+        if jump is None:
+            errors.append((f"{log_id}.log", f"{rec_name}: Sprung {rec_jump_us / 1e6:+.6f} s im Log nicht "
+                           f"wiedergefunden, nicht korrigiert."))
+            return log_id
+        source = f"protokolliert in {rec_name}, auf 1 us"
+    else:
+        try:
+            jump = find_clock_jump(path)
+        except ValueError as e:
+            errors.append((f"{log_id}.log", f"Mehrere/rueckwaerts gerichtete Uhrspruenge ({e}), nicht korrigiert."))
+            return log_id
+        if jump is None:
+            return log_id
+        source = "aus der Luecke geschaetzt, auf ~1 ms"
     line_no, jump_us = jump
     claimed = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
     new_id = datetime.fromtimestamp(claimed + round(jump_us / 1e6), LOCAL_TZ).strftime("candump-%Y-%m-%d_%H%M%S")
@@ -505,7 +555,7 @@ def fix_clock_jump(log_id, errors):
     if os.path.exists(marker):
         with open(marker, encoding="utf-8") as f:
             old_marker = f.read().strip().replace("\n", " | ")
-    if not _rename_can_log(log_id, new_id, errors):
+    if new_id != log_id and not _rename_can_log(log_id, new_id, errors):
         return log_id
     path = os.path.join(CAN_DIR, f"{new_id}.log")
     with open(path) as src, open(path + ".tmp", "w") as dst:
@@ -519,7 +569,7 @@ def fix_clock_jump(log_id, errors):
             dst.write(line)
     os.replace(path + ".tmp", path)
     with open(os.path.join(CAN_DIR, _clockstate_name(new_id)), "w", encoding="utf-8") as f:
-        f.write(f"{JUMP_FIXED_STATE}\nUhrsprung {jump_us / 1e6:+.3f} s vor Frame-Zeile {line_no} (NTP-Sync waehrend "
+        f.write(f"{JUMP_FIXED_STATE}\nUhrsprung {jump_us / 1e6:+.6f} s ({source}) vor Frame-Zeile {line_no} (NTP-Sync waehrend "
                 f"der Fahrt); Zeitstempel davor und Name nachtraeglich korrigiert, vorher {log_id} "
                 f"[{old_marker}]. Unveraenderte Zeitstempel: {new_id}.log.gz.\n")
     print(f"Uhrsprung korrigiert: {log_id} -> {new_id} ({jump_us / 1e6:+.3f} s ab Zeile {line_no})")
@@ -550,7 +600,7 @@ def sync_can_logs_from_pi(errors):
     # siehe write_clock_marker) - klein, immer alle neuen mitnehmen statt
     # gezielt zu matchen.
     remote_cmd = (f"find {shlex.quote(PI_CANLOGS_DIR)} -maxdepth 1 "
-                  f"\\( -name 'candump-*.log*' -mmin +5 -o -name 'clockstate-*.txt' \\) "
+                  f"\\( -name 'candump-*.log*' -mmin +5 -o -name 'clockstate-*.txt' -o -name 'clockjump-*.txt' \\) "
                   f"-printf '%f\\n'")
     try:
         res = subprocess.run(
@@ -567,7 +617,7 @@ def sync_can_logs_from_pi(errors):
     # wurde per Stromausfall abgebrochen, 27.09.) wuerde sonst als Log behandelt
     remote_files = [l for l in res.stdout.splitlines() if l.endswith((".log", ".log.gz", ".txt"))]
     local_logs = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/candump-*.log")}
-    local_clockstates = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/clockstate-*.txt")}
+    local_clockstates = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/clock*-*.txt")}
 
     def _is_new(fname):
         if fname.endswith(".txt"):
@@ -600,7 +650,7 @@ def sync_can_logs_from_pi(errors):
     new_log_ids = []
     for fname in fetched:
         if fname.endswith(".txt"):
-            continue  # clockstate-Marker - nur mitkopiert, unten separat ausgewertet
+            continue  # clockstate-/clockjump-Dateien - nur mitkopiert, separat ausgewertet
         local_path = os.path.join(CAN_DIR, fname)
         if fname.endswith(".gz"):
             log_name = fname[:-3]

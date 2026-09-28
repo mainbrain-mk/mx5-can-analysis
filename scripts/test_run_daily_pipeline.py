@@ -80,6 +80,9 @@ def test_clockstate_warning_none_when_ntp_confirmed():
         with open(os.path.join(tmp, "clockstate-20260919-163755.txt"), "w") as f:
             f.write("ntp\nUhr per NTP synchronisiert (2026-09-19 16:37:55)")
         assert rdp._clockstate_warning("candump-2026-09-19_163755.log") is None
+        with open(os.path.join(tmp, "clockstate-20260928-151742.txt"), "w") as f:
+            f.write("rtc\nkein NTP, Uhr stimmt mit RTC ueberein (2026-09-28 15:17:37)")
+        assert rdp._clockstate_warning("candump-2026-09-28_151742.log") is None
     finally:
         rdp.CAN_DIR = orig_can_dir
         shutil.rmtree(tmp, ignore_errors=True)
@@ -215,6 +218,44 @@ def test_fix_clock_jump_shifts_part_before_ntp_and_renames():
         assert rdp.fix_clock_jump(two_id, errors) == two_id
         assert len(errors) == 1 and "nicht korrigiert" in errors[0][1]
         assert len(ssh_cmds) == 1
+    finally:
+        rdp.CAN_DIR, rdp.subprocess.run = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_fix_clock_jump_uses_recorded_small_backward_jump():
+    """Mit RTC (28.09.): NTP stellt waehrend der Fahrt 1,236518 s zurueck. Als Luecke unsichtbar
+    (Frames laufen rueckwaerts), aber session_logger hat ihn in clockjump-*.txt protokolliert ->
+    Teil davor exakt um den Sprung nachziehen. Eine normale 1,2-s-Buspause davor bleibt."""
+    tmp = tempfile.mkdtemp()
+    orig = (rdp.CAN_DIR, rdp.subprocess.run)
+    rdp.CAN_DIR = tmp
+    ssh_cmds = []
+    rdp.subprocess.run = lambda args, **kw: ssh_cmds.append(args[-1]) or subprocess.CompletedProcess(args, 0, "", "")
+    try:
+        old_id = "candump-2026-09-28_140000"
+        start_us = int(datetime(2026, 9, 28, 14, 0, 0, tzinfo=rdp.LOCAL_TZ).timestamp()) * 10**6 + 123456
+        jump_us = -1_236_518
+        ts = [start_us + i * 1000 for i in range(3000)]
+        ts += [ts[-1] + 1_200_000 + i * 1000 for i in range(3000)]      # Buspause 1,2 s
+        wall_before_us = ts[-1] + 400                                     # letzter Blick der alten Uhr
+        ts += [ts[-1] + 1000 + jump_us + i * 1000 for i in range(3000)]
+        with open(os.path.join(tmp, f"{old_id}.log"), "w") as f:
+            f.writelines(f"({t // 10**6:010d}.{t % 10**6:06d}) can0 202#00\n" for t in ts)
+        with open(os.path.join(tmp, "clockjump-20260928-140005.txt"), "w") as f:
+            f.write(f"jump_us={jump_us}\nwall_before={wall_before_us / 1e6:.6f}\n"
+                    f"wall_after={(wall_before_us + 1000 + jump_us) / 1e6:.6f}\nlog={old_id}.log\nclock_state=rtc\n")
+
+        errors = []
+        new_id = rdp.fix_clock_jump(old_id, errors)
+        assert errors == [], errors
+        assert new_id == "candump-2026-09-28_135959", new_id
+        with open(os.path.join(tmp, f"{new_id}.log")) as f:
+            got = [rdp._candump_ts_us(l) for l in f]
+        assert got[:6000] == [t + jump_us for t in ts[:6000]] and got[6000:] == ts[6000:]
+        assert got[6000] - got[5999] == 1000
+        with open(os.path.join(tmp, rdp._clockstate_name(new_id))) as f:
+            assert "-1.236518 s (protokolliert" in f.read()
     finally:
         rdp.CAN_DIR, rdp.subprocess.run = orig
         shutil.rmtree(tmp, ignore_errors=True)

@@ -6011,3 +6011,22 @@ Frage (Nutzer): Brauchen wir die Handy-IMU noch, oder reicht CAN?
   (nicht nachgeprüft).
 - **Was CAN nicht hat:** keine Vertikalbeschleunigung, kein Wank/Nick. GPS gibt es am Pi nicht.
 - Offen: ein Einzel-Aussetzer von 1,6 s in `0x075/0x076` im 163940-Log (nicht untersucht).
+
+## Automatischer Lauf: 6 neue CAN-Logs uebernommen (2026-09-28)
+
+- `candump-2026-09-28_100752`
+- `candump-2026-09-28_102235`
+- `candump-2026-09-28_103753`
+- `candump-2026-09-28_105353`
+- `candump-2026-09-28_151742`
+- `candump-2026-09-28_153504`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: gunzip data/can/candump-2026-09-13_135440.log.gz: leer/nicht rekonstruierbar (0 Bytes): gzip: data/can/candump-2026-09-13_135440.log.gz: unexpected end of file
+- script_error: candump-2026-09-28_151742.log: Uhr beim Start NICHT per NTP bestaetigt (rtc): kein NTP, Uhr stimmt mit RTC ueberein (2026-09-28 15:17:37) Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-28_153504.log: Uhr beim Start NICHT per NTP bestaetigt (rtc): kein NTP, Uhr stimmt mit RTC ueberein (2026-09-28 15:35:02) Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden.
+- script_error: candump-2026-09-28_100752.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+- script_error: candump-2026-09-28_102235.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+- script_error: candump-2026-09-28_103753.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+- script_error: candump-2026-09-28_105353.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.

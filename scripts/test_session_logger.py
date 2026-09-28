@@ -1,4 +1,5 @@
 """Test: session_logger-Statemachine gegen echte KeyState-Frames aus dem Testlog."""
+import glob
 import os
 import sys
 from unittest.mock import MagicMock
@@ -130,17 +131,18 @@ def test_clock_restore_cases():
 
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "last_known_time")
+        rtc = os.path.join(tmp, "keine_rtc")
         now = datetime(2026, 9, 16, 8, 0, 0)
 
         # 1) NTP synchron -> nichts anfassen
         run_stub.ntp = "yes"; calls.clear()
-        state, _ = sl.restore_clock(path, run_stub, now)
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
         assert state == "ntp", state
         assert not any(c[0] == "date" for c in calls), calls
 
         # 2) kein NTP, keine gespeicherte Zeit -> nichts stellen, aber als unsicher melden
         run_stub.ntp = "no"; calls.clear()
-        state, _ = sl.restore_clock(path, run_stub, now)
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
         assert state == "kein_anker", state
         assert not any(c[0] == "date" for c in calls), calls
 
@@ -148,7 +150,7 @@ def test_clock_restore_cases():
         with open(path, "w") as fh:
             fh.write((now - timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S"))
         calls.clear()
-        state, _ = sl.restore_clock(path, run_stub, now)
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
         assert state == "plausibel", state
         assert not any(c[0] == "date" for c in calls), calls
 
@@ -156,10 +158,42 @@ def test_clock_restore_cases():
         with open(path, "w") as fh:
             fh.write((now + timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S"))
         calls.clear()
-        state, _ = sl.restore_clock(path, run_stub, now)
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
         assert state == "korrigiert", state
         date_calls = [c for c in calls if c[0] == "date"]
         assert len(date_calls) == 1 and date_calls[0][2] == "2026-09-19 08:00:00", date_calls
+
+        # 5) RTC glaubwuerdig und gleich der Systemzeit -> "rtc", nichts stellen
+        now = datetime(2026, 10, 1, 8, 0, 0)
+        with open(path, "w") as fh:
+            fh.write((now - timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S"))
+        rtc = os.path.join(tmp, "since_epoch")
+        with open(rtc, "w") as fh:
+            fh.write(str(int(now.timestamp())))
+        calls.clear()
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
+        assert state == "rtc", state
+        assert not any(c[0] == "date" for c in calls), calls
+
+        # 6) RTC glaubwuerdig, Systemzeit falsch -> auf RTC stellen
+        calls.clear()
+        state, _ = sl.restore_clock(path, run_stub, now - timedelta(days=2), rtc)
+        assert state == "rtc", state
+        date_calls = [c for c in calls if c[0] == "date"]
+        assert len(date_calls) == 1 and date_calls[0][2] == "2026-10-01 08:00:00", date_calls
+
+        # 7) Zelle leer: RTC auf 2000-01-01 -> Anker-Logik wie ohne RTC, mit Hinweis
+        with open(rtc, "w") as fh:
+            fh.write("946685210")
+        calls.clear()
+        state, note = sl.restore_clock(path, run_stub, now, rtc)
+        assert state == "plausibel" and "RTC unglaubwuerdig" in note, (state, note)
+
+        # 8) RTC aelter als der Anker (Zelle war leer, danach falsch gestellt) -> nicht trauen
+        with open(rtc, "w") as fh:
+            fh.write(str(int((now - timedelta(days=1)).timestamp())))
+        state, _ = sl.restore_clock(path, run_stub, now, rtc)
+        assert state == "plausibel", state
     print("Uhr-Test OK")
 
 
@@ -221,7 +255,49 @@ def test_gzip_finished_logs_keeps_raw_on_failure():
     print("gzip_finished_logs Fehlerfall OK")
 
 
+def test_clock_jump_recorded():
+    """RTC -> NTP-Sprung waehrend einer Fahrt: genau eine clockjump-Datei mit exaktem Sprung,
+    Zeit davor/danach und dem laufenden Log; Slew-Drift (< 0,1 s) loest nichts aus."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        session = SessionLogger(MagicMock(), log_dir=tmp)
+        session.candump_proc = MagicMock()
+        open(os.path.join(tmp, "candump-2026-09-28_140000.log"), "w").close()
+        session.check_clock_jump(1790600000.000000, 100.000000)
+        session.check_clock_jump(1790600000.001000, 100.001050)  # 50 us Slew -> nichts
+        session.check_clock_jump(1790599998.765432, 100.002000)  # NTP stellt zurueck: Offset 1790599899,999950 -> ...898,763432
+        session.check_clock_jump(1790599998.766432, 100.003000)
+        files = glob.glob(os.path.join(tmp, "clockjump-*.txt"))
+        assert len(files) == 1, files
+        rec = dict(l.split("=", 1) for l in open(files[0]).read().split())
+        assert rec["jump_us"] == "-1236518", rec
+        assert rec["wall_before"] == "1790600000.001000" and rec["wall_after"] == "1790599998.765432", rec
+        assert rec["log"] == "candump-2026-09-28_140000.log", rec
+    print("Uhrsprung-Protokoll OK")
+
+
+def test_marker_picks_up_late_ntp():
+    """28.09.: Dienststart ohne NTP ("korrigiert"), NTP kommt vor der Fahrt -> Marker muss "ntp" sagen."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        ntp = MagicMock(stdout="no")
+        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **k: MagicMock(pid=1),
+                                run=lambda *a, **k: ntp)
+        session.clock_state, session.clock_note = "korrigiert", "vorgestellt"
+        session.start_logging()
+        assert open(glob.glob(os.path.join(tmp, "clockstate-*.txt"))[0]).readline().strip() == "korrigiert"
+        for f in glob.glob(os.path.join(tmp, "clockstate-*.txt")):
+            os.remove(f)
+        session.candump_proc = None
+        ntp.stdout = "yes"
+        session.start_logging()
+        assert open(glob.glob(os.path.join(tmp, "clockstate-*.txt"))[0]).readline().strip() == "ntp"
+    print("Spaetes NTP im Marker OK")
+
+
 if __name__ == "__main__":
+    test_marker_picks_up_late_ntp()
+    test_clock_jump_recorded()
     test_start_stop_matches_known_session()
     test_clock_restore_cases()
     test_save_clock_roundtrip()

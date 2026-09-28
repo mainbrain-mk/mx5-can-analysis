@@ -105,11 +105,14 @@ Wayland/labwc):**
 
 ## Sonstiges
 
-- **NTP:** `NTPSynchronized=yes` (Stand jetzt). Pi hat keine RTC — nach einem
-  Boot ohne Netz bleibt die Uhr falsch, ohne erkennbaren Sprung im Log (vierter
-  dokumentierter Fall siehe `docs/logs/can-bus-status.md`, "Viertes
-  No-RTC-Vorkommnis"). Bei jedem CAN-only-Log ohne GPS-Zeitanker: Datum mit
-  Vorsicht behandeln.
+- **Uhr:** seit 2026-09-28 DS3231-RTC (Einrichtung siehe `scripts/pi-config/SETUP.md`, "RTC").
+  Kernel stellt die Zeit beim Boot aus der RTC, fake-hwclock ist aus. `session_logger.py`
+  (md5 78a47573) schreibt Uhr-Zustand `rtc` in den Marker und protokolliert NTP-Uhrspruenge
+  als `clockjump-*.txt`. Dash-Fusszeile (`dash_gui.py` md5 b58c056d): `NTP  SYNC` gruen,
+  ohne NTP `RTC  OK` gruen, ohne glaubwuerdige RTC `UHR  ?` rot. Vorstand in
+  `backup-2026-09-28-rtc/`. Haltetest der Knopfzelle
+  (kalter Stromausfall + Boot ohne Netz) noch offen. CAN-Logs VOR dem 28.09. bleiben
+  No-RTC-verdaechtig (siehe `docs/logs/can-bus-status.md`).
 - **Pi-Uptime bei dieser Prüfung:** 31 Minuten (kürzlich gebootet, nicht durch
   den Shiftlight-Deploy verursacht — nur `dash_gui.py` wurde einzeln
   neugestartet, nicht der ganze Pi).

@@ -688,7 +688,7 @@ OBD/CAN-Referenz gesucht werden muss):
   (NTP-Sync während der Fahrt): Lücke > 5 s = Sprung, Teil davor + Name werden nachgezogen, Marker
   `ntp_sprung_korrigiert`, Original bleibt als `.log.gz`. Am Bestand validiert (einziger Fall `candump-2026-09-11_201950`,
   schließt korrigiert auf 1 ms an `_150619` an). Siehe Logbuch "Sprungkorrektur".
-  **Seit 2026-09-28** gibt es für nachträglich gefundene Versätze `data/can_clock_offsets.json` (`{can_name: s}`, Dateiname + Versatz, ohne Umbenennen auf Pi/lokal). Siehe Logbuch "No-RTC-Versätze aus der Handy-Zuordnung…". DS3231-RTC bestellt (ARCELI, kommt 28.09.).
+  **Seit 2026-09-28** gibt es für nachträglich gefundene Versätze `data/can_clock_offsets.json` (`{can_name: s}`, Dateiname + Versatz, ohne Umbenennen auf Pi/lokal). Siehe Logbuch "No-RTC-Versätze aus der Handy-Zuordnung…". DS3231-RTC seit 28.09. eingebaut und aktiv (Logbuch "RTC DS3231 eingerichtet"); Logs ab dann mit Marker `rtc`, ältere bleiben No-RTC-verdächtig.
 
 ### Nächste Schritte
 - **Zuerst: Dongle-Drosselung (deployt 26.09. 18:57)** bei der nächsten Fahrt prüfen: die

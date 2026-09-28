@@ -460,6 +460,23 @@ def test_metric_card_set_value_applies_color_and_resets_to_dim_on_none():
     assert tuple(card.value_label.color) == dash_gui.TEXT_DIM
 
 
+def test_clock_source_ntp_then_rtc_then_unknown():
+    """Seit 28.09. RTC: offline gebootet ist die Uhr trotzdem richtig -> gruen "RTC" statt rot."""
+    if dash_gui is None:
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        ntp, rtc = os.path.join(tmp, "synchronized"), os.path.join(tmp, "since_epoch")
+        assert dash_gui.clock_source(ntp, rtc) == ("UHR  ?", False)        # keine RTC
+        with open(rtc, "w") as fh:
+            fh.write("946685210\n")                                         # leere Zelle: 2000-01-01
+        assert dash_gui.clock_source(ntp, rtc) == ("UHR  ?", False)
+        with open(rtc, "w") as fh:
+            fh.write("1790596327\n")
+        assert dash_gui.clock_source(ntp, rtc) == ("RTC  OK", True)
+        open(ntp, "w").close()
+        assert dash_gui.clock_source(ntp, rtc) == ("NTP  SYNC", True)
+
+
 if __name__ == "__main__":
     if dash_gui is None:
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
@@ -481,6 +498,7 @@ if __name__ == "__main__":
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
     test_gear_display_keeps_last_gear_while_clutch_pressed()
+    test_clock_source_ntp_then_rtc_then_unknown()
     test_fuel_gauge_smooths_out_tank_slosh()
     test_shiftlight_colors_cover_the_narrow_orange_zone()
     test_limiter_active_needs_all_three_conditions()
