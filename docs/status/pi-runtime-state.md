@@ -3,9 +3,15 @@
 Momentaufnahme des tatsächlichen Zustands auf dem Raspberry Pi im Auto (nicht
 zu verwechseln mit [`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md),
 das die Ersteinrichtung/Reproduzierbarkeit beschreibt). **In-place aktualisieren
-bei jedem Deploy/Neustart auf dem Pi** — sonst veraltet das schnell, weil hier
-kein Git läuft (siehe unten).
+bei jedem Neustart/Umbau auf dem Pi**. Welcher Code-Stand läuft, sagt seit 2026-09-28
+das Git auf dem Pi (siehe unten), nicht mehr dieses Dokument.
 
+> **Git auf dem Pi (2026-09-28, ~19:00):** `/home/pi/canlogs/repo`, Branch `deployed` = `main`
+> `158f154` (nach Merge von PR #33-#35). Vorher alle Pi-Dateien per md5 gegen `main` geprüft:
+> identisch, kein Drift. Die Dateien in `canlogs/` sind jetzt Symlinks ins Repo, Originale in
+> `backup-2026-09-28-vor-git/`. Backend/Dash danach neu gestartet, beide Pi-Tests ok, Dash zeigt
+> "WARTE AUF CAN-BUS" (kein `can0` am Heimnetz). Vorgehen: `scripts/pi-config/SETUP.md`, "Deploy per Git".
+>
 > **Dash-Überarbeitung deployt (2026-09-27, ~10:55-11:10 Uhr):** `dash_gui.py` (md5 45299806),
 > `can_backend.py` (446e6f1c), `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh` (a17ca9a2),
 > labwc-`autostart` (e66c54c6, per `overlayroot-chroot tee` in den Unterbau) = Repo `830bcaf`.
@@ -40,32 +46,23 @@ wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo
 **Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
 
-## Kein Git auf dem Pi
+## Deploy-Stand = Git auf dem Pi
 
-`/home/pi/canlogs` ist kein Git-Repo — Deploys laufen bisher **manuell per
-`scp`** einzelner Dateien. Das heißt: der Ist-Zustand auf dem Pi lässt sich
-nicht aus `git log` ablesen, sondern nur durch Abgleich (mtime/md5sum) gegen
-das lokale Repo. Deshalb dieser Abschnitt.
+Seit 2026-09-28 ist `/home/pi/canlogs/repo` ein Git-Checkout (Branch `deployed`), die
+Skripte/DBC in `canlogs/` sind Symlinks darauf. Deploy per `git push car HEAD:deployed`,
+Einrichtung und Regeln in [`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md),
+"Deploy per Git". Der frühere md5-Abgleich von Hand entfällt:
 
-**md5sum-Abgleich der zentralen Skripte (2026-09-26, 11:40, nach Deploy):** alle unten genannten Dateien identisch mit dem Repo (Branch `can-offline-ausbeute`; DBC um 11:52 auf den Stand nach dem Merge mit `main` nachgezogen, `can_backend.py` erneut neu gestartet). Vorherige Pi-Stände gesichert in `/home/pi/canlogs/backup-2026-09-26/`.
-
-| Datei | Pi = lokales Repo? | Bemerkung |
-|---|---|---|
-| `dash_gui.py` | ✅ identisch (27.09. ~20:00, Zustandslog, md5 566903b0; davor ~10:55 Dash-Überarbeitung 45299806) | Vorversion (md5 4a7c1a56, 27.09. ~00:05 um Erstframe-Messung ergänzt) in `backup-2026-09-27-dash/`. Davor: Tempomat-Trigger `0x0FD` Bit 61 `CruiseActive_Inv` mit Rückfall auf `0x165 == 149`, Ganganzeige R/N/1, Bordnetzspannung aus `0x08A`. Vorherige Versionen: `backup-boot-2026-09-26/dash_gui.py.94b3dc87`, `backup-2026-09-26e/dash_gui.py`. |
-| `test_dash_gui.py` | – | läuft nicht auf dem Pi (Tests liegen nur im Repo) |
-| `can_backend.py` | ✅ identisch (27.09. ~20:00, Zustandslog + 0x7DF/0x7E0-Zähler, md5 30fdb8e9; davor ~10:55 monotone Zeitstempel 446e6f1c) | `0x08A`-Bordnetzspannung (`DCDC_CAN_ID`), `ReverseGear_IC`; die Tempomat-Roh-Extraktion von `0x21F` ist entfernt (Trigger kommt per DBC-Snapshot aus `0x165`) |
-| `tpms_poller.py` | ✅ identisch (deployt 26.09., 18:57; status_gui.py + DBC um ~19:25 ebenfalls, TPMS-Vorderachse bestätigt) | Drosselung der schnellen Gruppe auf 5 Runden/s, solange der Handy-Dongle auf 0x7DF/0x7E0 fragt, + Kernel-Filter auf Diagnose-IDs (Dongle-Konflikt, siehe `status/can-bus.md`). ~20:25: PID 0x42/0x2F entfernt (Broadcast), `can_backend.py`/`dash_gui.py` zeigen die Batterie aus 0x08A `DCDC_Voltage` - beide deployt und neu gestartet (Backup `backup-2026-09-26c/`). Abends zusätzlich PID 0x10 (MAF) in der schnellen Gruppe (Backup `backup-2026-09-26b/tpms_poller.py.vor_maf`). Davor 11:40: PIDs 0x3C/0x34/0x2F. 21:01: `dash_gui.py` (neue Ganganzeige R/N/1), `test_dash_gui.py`, `can_backend.py`/`status_gui.py` (Live-Liste `ReverseGear_IC`) und DBC deployt, Backend/Dash neu gestartet (Backup `backup-2026-09-26d/`). |
-| `session_logger.py` | ✅ identisch (deployt 26.09.) | Kommentar-Drift vom 18.09. mitgenommen (nur Pfadangaben). `status_gui.py` und `uds_did_sweep.py` ebenso angeglichen. |
-| `MX5ND_6thGenMazda_HSCAN_extended.dbc` | ✅ identisch (26.09. nachts um `CruiseActive_Inv`, `CruiseMainSwitch_maybe` und CM_-Kommentare ergänzt, md5 b402ed43; 27.09. nachts um `AmbientTemp` = raw/4 ergänzt, md5 f33be565, Backup `backup-2026-09-27a/`, Backend nicht neu gestartet (nutzt das Signal nicht), strikt geladen 151 Botschaften, `can_backend.py` neu gestartet PID 3694; Vorversion `backup-2026-09-26e/`; davor: deployt 26.09., abends um CM_-Kommentare zu `CC_Mode_Related`/`CC_SetSpeed` ergänzt, Vorversion `backup-2026-09-26/*.vor-cm`) | Offline-Ausbeute (TCS, Rückwärtsgang, Spannungen, i-stop, Steigung, `AmbientTemp`-Korrektur …). Auf dem Pi mit cantools 44.0 strikt geladen (151 Botschaften). Das Dash zeigt die meisten neuen Signale nicht an; die Testmodus-Zeile "Rückwärtsgang" nutzt seit 26.09. 21:01 `ReverseGear_IC`. |
-
-**Vorgehen für den Abgleich (bei Bedarf wiederholen):**
 ```bash
-for f in dash_gui.py can_backend.py session_logger.py tpms_poller.py; do
-  diff <(md5sum scripts/$f | cut -d' ' -f1) \
-       <(ssh pi@192.168.0.247 "md5sum /home/pi/canlogs/$f | cut -d' ' -f1") \
-       && echo "$f OK" || echo "$f WEICHT AB"
-done
+ssh pi@192.168.0.247 'cd canlogs/repo && git log --oneline -1 && git status --short'
 ```
+
+Leere `git status`-Ausgabe = der Pi läuft exakt mit dem angezeigten Commit. Der
+`pre-push`-Hook stellt sicher, dass dieser Commit auch auf GitHub liegt.
+
+**Nicht im Git-Checkout** (Overlay-Unterbau, weiter per `overlayroot-chroot`): labwc-`autostart`,
+`can-logger.service`, udev-Regel, `wlan-watchdog.*`, `config.txt`. Repo-Kopien in
+`scripts/pi-config/`, Abgleich dort weiterhin von Hand.
 
 ## Laufende Prozesse
 

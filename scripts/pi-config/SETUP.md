@@ -1,8 +1,9 @@
 # Pi-Setup (Reproduzierbarkeit)
 
 Momentaufnahme der Raspberry-Pi-Konfiguration (`pi@192.168.0.247` / `car.local`,
-Raspberry Pi OS Bookworm), Stand 2026-09-17. Kein Deploy-Tooling — bei einer
-Änderung am echten Pi müssen die Kopien hier von Hand nachgezogen werden.
+Raspberry Pi OS Bookworm), Stand 2026-09-17. Anwendungsskripte und DBC kommen seit 2026-09-28
+per `git push` auf den Pi (siehe "Deploy per Git"). Dateien im Overlay-Unterbau (autostart,
+Units, udev, `config.txt`) weiterhin von Hand, die Kopien hier dann nachziehen.
 
 ## Hardware/Partitionierung
 
@@ -80,7 +81,7 @@ sudo udevadm control --reload-rules
 auskommentierte Fallback-Zeile in derselben Datei stehen.
 
 Seit 2026-09-27 laufen beide über `respawn.sh` (dieser Ordner -> `/home/pi/canlogs/respawn.sh`,
-ausführbar, per normalem `scp`): startet das Skript nach einem Absturz neu, Ausgabe nach
+ausführbar, Symlink ins Repo, siehe "Deploy per Git"): startet das Skript nach einem Absturz neu, Ausgabe nach
 `/home/pi/canlogs/applogs/can_backend.log` bzw. `dash_gui.log` (SSD, seit 27.09. abends; vorher
 `/tmp` und damit nach jedem Reboot weg). Beide Skripte schreiben dort alle 10 s eine
 Zustandszeile (Backend: Framerate, Alter der Leitwerte, OBD-Anfragen; Dash: was die Kacheln
@@ -88,12 +89,31 @@ anzeigen). Neustart von Hand, z.B. nach einem Deploy:
 `pkill -f "python3 /home/pi/canlogs/dash_gui.py"` (die Schleife startet ihn nach 2 s neu;
 `pkill -f dash_gui.py` würde auch die Schleife beenden).
 
+## Deploy per Git (seit 2026-09-28)
+
+- Repo-Checkout auf dem Pi: `/home/pi/canlogs/repo` (SSD, nicht im Overlay), Branch `deployed`,
+  `receive.denyCurrentBranch=updateInstead`. Der Pi braucht weder Internet noch GitHub-Zugang.
+- Die Dateien, die autostart/`respawn.sh`/`can-logger.service` aufrufen, sind in `canlogs/`
+  **Symlinks** ins Repo: `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`,
+  `tpms_poller.py`, `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`
+  (-> `repo/scripts/`), `respawn.sh` (-> `repo/scripts/pi-config/`), beide HSCAN-DBC
+  (-> `repo/data/can/`). Pfade in Units/autostart bleiben dadurch unverändert. Ein neues Skript,
+  das direkt aus `canlogs/` aufgerufen wird, braucht einen neuen Symlink.
+- Laptop einmalig: `git remote add car pi@192.168.0.247:/home/pi/canlogs/repo` und
+  `ln -s ../../scripts/pi-config/git-pre-push .git/hooks/pre-push`. Der Hook lässt einen Push
+  nach `car` nur durch, wenn der Commit schon in einem origin-Branch liegt.
+- Deploy: erst nach GitHub pushen, dann `git push car HEAD:deployed` (anderer Branch als zuletzt:
+  `git push -f car HEAD:deployed`). Danach die betroffenen Prozesse neu starten (siehe oben).
+- Stand prüfen: `ssh pi@192.168.0.247 'cd canlogs/repo && git log --oneline -1 && git status --short'`.
+  Wurde auf dem Pi von Hand editiert, zeigt das `git status`, und der nächste Push wird
+  abgelehnt, statt die Änderung zu überschreiben.
+- Rollback: `git push -f car <alter-commit>:deployed`.
+
 ## Was hier bewusst NICHT abgebildet ist
 
 - DBC-Dateien und die eigentlichen Anwendungsskripte (`dash_gui.py`,
   `can_backend.py`, `session_logger.py`, ...) — die liegen schon regulär im
-  Repo unter `scripts/`/`data/can/`, nur `SETUP.md` beschreibt, wohin sie auf
-  dem Pi gehören (`/home/pi/canlogs/`, per `scp`).
+  Repo unter `scripts/`/`data/can/` und kommen per Git auf den Pi (siehe "Deploy per Git").
 - Ein Ansible/cloud-init-artiges volles Reproduktions-Tooling — für einen
   einzelnen Pi bewusst nicht gebaut, siehe Trade-off-Diskussion im Chat.
 
