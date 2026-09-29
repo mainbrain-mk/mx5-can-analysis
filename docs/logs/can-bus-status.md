@@ -5181,3 +5181,21 @@ bei Median r 0,59 (Byte 2 signed) bzw. 0,58 (Byte 2–3 BE signed), also ohne Tr
 Zusammenhang, nur mit unterschiedlicher Schwelle. Neu ist höchstens: signed korreliert deutlich
 besser als unsigned (0,59 gegen 0,31), das deutet auf einen vorzeichenbehafteten Wert hin.
 Katalog entsprechend korrigiert.
+
+### Lehren aus dem Tag in den RE-Skill übernommen (2026-09-29)
+
+In `.claude/skills/mx5-can-reverse-engineering/SKILL.md` neu:
+- Zahlen berichten statt Urteile, mit einer Tabelle der Trefferschwellen je Werkzeug.
+- Zwei Sweep-Läufe nur bei gleicher DBC-Abdeckung vergleichen.
+- Zu gute Treffer (R² ≥ 0,999) zuerst als Selbst-Treffer oder Duplikat prüfen.
+- Testfälle mit bekannter Lösung für Werkzeug-Änderungen (0x082, 0x215, Bremslicht,
+  Kupplungsskala).
+- Bei jeder Kalibrierung Bit-Rohwert und DBC-Wert ausdrücklich unterscheiden.
+- Kalibrieren gegen die OBD-Antwort im CAN-Log statt gegen die `.dlg`.
+- Signed/unsigned-Vergleich als Hinweis.
+- Praxis für Sweeps über den ganzen Bestand (Laufzeit, Ergebnisse vorher sichern).
+
+Neues Skript `scripts/can_sweep_consolidate.py`, der Vergleich von heute Abend als Werkzeug:
+fasst die Byte-Sweep-CSVs über alle Logs zusammen, vergleicht optional mit einem älteren Lauf
+und markiert Felder, die in der aktuellen DBC schon belegt sind. Gegenprobe gegen den Lauf vom
+26.09.: alle 10 „weggefallenen“ OBD-Treffer liegen auf inzwischen belegten Bytes.

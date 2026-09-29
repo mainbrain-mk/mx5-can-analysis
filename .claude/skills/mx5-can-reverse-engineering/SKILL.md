@@ -83,6 +83,7 @@ Fast alle Skripte haben `--self-test`. Ausgaben landen in `results/` (nicht im R
 | Fremd-DBC gegen unsere Logs (opendbc `mazda_2017`) | `can_opendbc_crosscheck.py` | [vorhanden] |
 | Zähler/Uhr-Kandidaten mit variabler Rate | `can_find_clock_candidate.py` | [vorhanden] |
 | `_maybe`/`_related`-Signale gegen neue Anker nachprüfen | `can_retest_maybe_signals.py` | [vorhanden] |
+| Byte-Sweep über alle Logs zusammenfassen, zwei Läufe vergleichen, heute belegte Bytes markieren | `can_sweep_consolidate.py [--compare ALT] [--anchor-prefix OBD_]` | [vorhanden] |
 | Skala eines DBC-Signals gegen OBD nachrechnen (an Referenz-Zeitstempeln, Lag-Suche, alt/neu-Vergleich) | `can_obd_scale_recheck.py --signal NAME` (Spec in `SPECS` ergänzen) | [vorhanden] |
 | Zirkularverschiebungs-Nulltest | `can_null_test.py` | [geplant] |
 | Log-Katalog (welche DIDs/Ereignisse/Wertebereiche je Log) | `log_coverage.py` | [geplant] |
@@ -142,12 +143,18 @@ Bevorzugt in dieser Reihenfolge:
    ist sehr ungleich verteilt: Die EPS-DIDs (`STEER_SPD_EPS`/`STEER_ANGL_EPS`)
    stecken nur in 4 Logs (`12_211833`, `14_081105`, `14_163711`, `14_173057`),
    `OilTemp` wird erst seit 15.09. gepollt, und seit der Drosselung am 26.09. ist
-   die Abfragerate niedriger. Bis `log_coverage.py` existiert, vorher per grep
+   die Abfragerate niedriger. `KnockRetard` (DID 0x03EC) steckt erst ab 26.09. in den
+   Logs, nicht ab 20.09. Bis `log_coverage.py` existiert, vorher per grep
    prüfen, z.B. für DID 0x3301:
    `grep -lE "#[0-9A-F]{2,4}623301" data/can/candump-*.log`. Bekannte Mode-22-DIDs:
    `KNOWN_DIDS` in `can_byte_search.py`. Rohwert-Formeln (29.09. exakt gegen die `.dlg`):
    `BFP_PRE_MZ` kPa = raw, `CPP_PER_MZ` % = raw·100/65535, `FLI` % = raw·100/256.
    Mode-1-Formeln: `OBD_CHANNELS` in `can_log_parser.py`.
+   **Kalibrieren immer gegen die OBD-Antwort im CAN-Log, nicht gegen den Kanal in der
+   `.dlg`.** Die `.dlg` hat eine eigene Uhr. Die Paarung CAN↔dlg erzeugte am 12.09.
+   Scheinverzögerungen von −0,3 s (Bremse) bzw. −0,4 s (Kupplung) und 2–7 % Skalenfehler.
+   Gegen die DID im selben Log liegt das Lag bei ~0. Die `.dlg` dient nur dazu, die
+   Rohwert-Formel einer DID einmalig festzustellen (dieselben Werte, R² = 1,000).
 2. **Bereits validiertes DBC-Signal** (ohne `_maybe`/`_related`, z.B. `WheelSpeed_1-4`,
    `YawRate_Raw`, `Steering_Wheel_Absolute_Angle`, `ABS_Active`), per
    `can_offline_lab.sig()` oder `msg.decode()`.
@@ -244,6 +251,15 @@ Statt Aufnahmen zu planen, wird aus dem Bestand das Passende herausgesucht.
   gleichem Vorzeichen in vielen Logs). Das ist der Weg für abgeleitete Anker;
   `can_bitsearch.py` kann keine.
 - Counter/Checksummen aus Schritt 1 vorher ausschließen.
+- **Über den ganzen Bestand**: etwa 5 min je großem Log, 50 Logs mit 3 parallelen
+  Läufen ~80 min (`xargs -P 3`, Logliste aus `can_offline_lab.logs()`). **Vorher
+  `results/can_byte_search_candump-*.csv` wegkopieren**, denn jeder Lauf überschreibt
+  sie. Danach `can_sweep_consolidate.py --compare <Sicherung>`.
+- **Zwei Läufe nur bei gleicher DBC-Abdeckung vergleichen.** Gesucht wird nur in
+  Bytes, die die DBC zum Zeitpunkt des Laufs als frei führt. „Verschwundene" Treffer
+  sind meist inzwischen belegte Bytes (29.09.: 10 von 10), und ein „neuer" Treffer
+  kann ein bekanntes Signal sein. `can_sweep_consolidate.py` markiert das in der
+  Spalte `jetzt_belegt`. Jeden Treffer vor dem Eintrag gegen die aktuelle DBC prüfen.
 
 ### 5. Feinsuche
 
@@ -303,6 +319,14 @@ zuerst prüfen:
   Entfalten, dann erneut testen.
 - **Konstante statt Formel**: Eine Fremdformel kann einen konstanten Wert liefern
   (alte AmbientTemp-Formel: immer 25,8 °C). Wertebereich über alle Logs ansehen.
+- **Signed deutlich besser als unsigned** (0x20A Byte 2 gegen Soll-Lambda: 0,59 gegen
+  0,31) ist ein Hinweis auf einen vorzeichenbehafteten Wert, z.B. eine Regelabweichung.
+  Beide Lesarten immer nebeneinander ansehen.
+- **Zu gute Treffer sind verdächtig.** R² ≥ 0,999 zuerst als Selbst-Treffer oder
+  Duplikat prüfen: Ist der Kandidat die Referenz selbst (OBD-Antwort 0x7E8 gegen ihre
+  eigene DID, am 29.09. Transfer-R² 1,000), eine Kopie eines bekannten Signals
+  (0x130 = Drehzahl ×2) oder ein Anker aus derselben Botschaft? Nach jeder Änderung
+  an einem Werkzeug besonders darauf achten, dort entstand das 0x7E8-Artefakt.
 
 ### 8. Zufallstreffer ausschließen (Nulltest)
 
@@ -332,7 +356,12 @@ nach sich (Schritt 11).
 **Kommentar** (`CM_ SG_`) nach dem Muster der bestehenden Einträge, beginnend mit
 „Eigene Reverse-Engineering-Ergaenzung (JJJJ-MM-TT)", Inhalt:
 - Anker (Signal/DID/abgeleitet: Formel)
-- Anzahl Logs, r/R², Steigung/Offset je Log, Bias, Lag, Nulltest falls gemacht
+- Anzahl Logs, r/R², Steigung/Offset je Log, Bias, Lag, Nulltest falls gemacht.
+  **Bei jeder Kalibrierung ausdrücklich sagen, worauf sie sich bezieht: Bit-Rohwert
+  oder DBC-skalierter Wert**, und ob die Referenz als Rohwert oder in Einheit steht.
+  Zweimal verwechselt: `FLI% = 2,486·Fuel_Tank_raw` meinte den DBC-Wert (0,2 je Bit),
+  und „EPS = 0,244·Kanal" bei der Lenkrate den skalierten Kanal (0,5 je Bit). Gegen den
+  Bit-Rohwert gerechnet sah das nach Faktor 5 bzw. Faktor 2 Skalenfehler aus.
 - Sentinel-Werte, „Länge = untere Schranke" falls MSB nie gesetzt
 - Ersetzt der Eintrag einen älteren: „ERSETZT (Datum) das am … eingetragene …"
 
@@ -398,6 +427,35 @@ nachziehen.
   Feldfindung, aber nicht zur Kalibrierung.
 - **Signaltyp bestimmt die Metrik:** kontinuierlich → Korrelation+Regression;
   Flag → Ereignis-Matching; Enum → Kontingenz; Zähler → Ableitung.
+- **Zahlen berichten, nicht Urteile.** „Keine Korrelation" oder „Treffer" heißt nur
+  „unter bzw. über der Schwelle dieses Werkzeugs", und die Schwellen unterscheiden sich
+  stark (Tabelle unten). Im Katalog, in der DBC und im Logbuch immer r bzw. R²,
+  Werkzeug, Schwelle und Anzahl Logs nennen. Bevor zwei Befunde als Widerspruch gelten,
+  die Zahlen vergleichen (29.09.: 0x20A Byte 2–3 „keine Korrelation" im Anker-Sweep
+  = r 0,59 unter 0,8, „Treffer" im Byte-Sweep = r 0,69 über 0,6, also derselbe Befund).
+
+| Werkzeug | zählt als Treffer |
+|---|---|
+| `can_byte_search.py` | \|r\| ≥ 0,6 roh **und** trendbereinigt (`MIN_R`) |
+| `can_anchor_sweep.py` | \|r\| ≥ 0,8 je Log (`HIT_R`), aggregiert als Anteil der Logs |
+| `can_field_families.py` | Spearman ≥ 0,9 in ≥ 4 Logs (`MIN_R`, `MIN_LOGS`) |
+| `can_find_native_counterpart.py` | Transfer-R² > 0,7 (Kalibrierung Log A auf Log B) |
+| `can_event_bit_diff.py`, `can_natural_events.py` | Lift ≥ 0,5 (Setzquote innen − außen) |
+| `can_bitsearch.py` | keine Schwelle; Ranking nach R² auf 2 Stellen gerundet |
+
+## Werkzeuge ändern: Testfälle mit bekannter Lösung
+
+Nach jeder Änderung an einem Suchwerkzeug diese Fälle laufen lassen. Zusätzlich die
+Selbsttests (`--demo`/`--self-test`). Am 29.09. haben diese Fälle jede Schwäche
+sichtbar gemacht, und zwei Hinweis-Regeln fielen durch, die am jeweils anderen Fall
+noch funktionierten.
+
+| Fall | Aufruf | erwartet |
+|---|---|---|
+| Feld mit grober OBD-Referenz, MSB nie gesetzt | `can_bitsearch.py 0x082 --log data/can/candump-2026-09-14_173057.log --ref-did STEER_SPD_EPS --min-len 6 --max-len 16` | Auflösungshinweis 44\|11 LE + MSB-Hinweis Bit 55 → echtes `44\|12@1+`; R² ≈ 0,98 |
+| Mehrbyte-Feld in BE | `can_bitsearch.py 0x215 --log data/can/candump-2026-09-12_211833.log --ref-signal WheelSpeed_1 --ref-id 0x215` | Layout-Hinweis BE 7\|16, Skala 0,01 |
+| Ereignis-Bit | `can_event_bit_diff.py --event brake` | bekanntes Bremslicht-Bit oben |
+| Skala gegen OBD | `can_obd_scale_recheck.py --signal Clutch_Pedal_Position_raw` | % = 0,500·raw, R² 1,000, Lag 0 |
 
 ## Bekannte Grenzen unserer Werkzeuge
 
