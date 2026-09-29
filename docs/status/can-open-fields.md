@@ -39,7 +39,7 @@ Spalte "Test" verweist auf Teil C.
 | `iELOOP_CapVoltage_maybe` (+`_2`) | 0x08A 13\|10, 53\|10 | 0,04 V/LSB (angenommen) | 13,8–24,6 V; steigt in Rekuperation, fällt sonst | _maybe (Skala) | C1 |
 | `DCDC_Active_maybe` | 0x08A Bit 6 | Flag | = Motor läuft | _maybe | – |
 | `BCM_SupplyVoltage` | 0x43F 19\|10 | 0,016 V/LSB | r=0,998, konstant 0,68 V unter PCM/DCDC | **bestätigt** | C1 |
-| `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 1/512 V/LSB | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
+| `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 0,002 V/LSB − 0,1 V (seit 29.09., vorher 1/512; gegen PID 0x42 R²=0,997) | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
 | `BattSensor_Temp_maybe` | 0x45A Byte3 | raw − 40 °C | Kaltstarts r=0,966; in der Fahrt fast konstant | _maybe | C1 |
 | `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **4834 Schritte je echtem Liter** (0,207 ml; Voll-bis-Voll 16.→26.09.: 34,4 l getankt gegen 33,09 l Bordcomputer; der Bordcomputer selbst rechnet mit 5025 Schritten/l, zeigt also 4 % zu wenig) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt, absolut kalibriert |
 | `Travel_distance_related` | 0x420 Byte1 | **0,1992 m/Schritt** (26.09. gegen ODO-Inkremente, 5 Logs; die 0,209 kamen aus dem ~5 % zu hohen VehicleSpeed) | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |

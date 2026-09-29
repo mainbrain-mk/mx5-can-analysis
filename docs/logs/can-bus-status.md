@@ -5004,3 +5004,108 @@ Zeitabgleich CAN-VehicleSpeed ↔ GPX (`_offset_candidates`):
   RTC-Zustand angezeigt. Nicht umbenannt.
 
 Beide Logs sind kurz (6 bzw. 3,5 min, beim ersten liefert 0x202 erst ab 16:29), der Track lief deutlich länger.
+
+## 2026-09-29: Skill-Test mit bekanntem Signal, zwei Schwächen der Sweep-Werkzeuge
+
+Beim Test des überarbeiteten RE-Skills `can_bitsearch.py 0x082 --ref-did STEER_SPD_EPS` auf
+`candump-2026-09-14_173057` laufen lassen, also gegen ein Feld mit bekannter Lösung
+(`SteeringRate_Abs_maybe`, `44|12@1+`). Ergebnis: Gewinner war `48|7` LE (R²=0,886, Skala 1,74),
+das echte 12-Bit-Feld tauchte gar nicht auf, auch nicht mit `--min-len 12`.
+
+1. **Felder mit nie gesetztem MSB werden übersprungen.** `search_field()` erzeugt nur Kandidaten,
+   deren letztes Bit sich im Log ändert. Bit 55 ist in diesem Log nie gesetzt (Maximum 1304 von
+   4095), damit fehlt `44|12` in der Kandidatenliste. Die Parsimonie-Regel wählt danach eine
+   Teilspanne, weil die OBD-Referenz (0-149) die unteren Bits nicht auflöst.
+2. **Resampling-Richtung.** `can_byte_search._resample` (auch in `can_bitsearch.py`)
+   interpoliert die OBD-Referenz (Median-Abstand 0,48 s, 353 Werte) linear auf ein 10-Hz-Raster,
+   statt den Kandidaten auf die Referenz-Zeitstempel. Am selben Feld `48|7`:
+   - Kandidat auf die Referenz-Zeitpunkte: R² 0,990, Steigung 1,94
+   - wie das Tool: R² 0,886, Steigung 1,74 (−10 %)
+
+   `44|12` und `44|11` liefern in richtiger Richtung ebenfalls R² 0,989.
+
+Folge: Rangfolgen aus den Sweeps sind meist brauchbar. Skalen und R² aus Sweeps gegen OBD-DIDs
+sind aber zu niedrig bzw. verzerrt und müssen vor der Übernahme ad hoc nachgerechnet werden.
+Werkzeuge nicht geändert. In der Skill-Doku
+(`.claude/skills/mx5-can-reverse-engineering/`) als bekannte Grenze vermerkt. Nebenbefund:
+Die EPS-DID 0x3301 steckt nur in 4 Logs (`12_211833`, `14_081105`, `14_163711`, `14_173057`).
+
+## 2026-09-29: Resampling in den Sweep-Werkzeugen korrigiert, OBD-Skalen nachgerechnet
+
+**Werkzeuge.** `can_byte_search._resample` behält jetzt nur Rasterpunkte, an denen im
+Abstand von höchstens einer halben Rasterweite (±0,05 s) eine echte Stützstelle liegt, alle
+anderen werden NaN. Dünne OBD-Referenzen zählen damit nur an ihren eigenen Zeitpunkten, und
+Log-Lücken werden nicht mehr linear überbrückt. Betroffen sind alle Aufrufer:
+`can_byte_search`, `can_bitsearch`, `can_field_segmentation --correlate`,
+`can_opendbc_crosscheck`, `can_retest_maybe_signals`. `_detrend` braucht dafür nur noch
+w/20 statt w/2 Punkte im Fenster. Folge: Referenzen mit ≤ 0,1 Hz (PID 0x42) bekommen in
+`can_byte_search` keinen trendbereinigten Wert mehr, dafür bleibt `can_anchor_sweep`.
+`can_find_native_counterpart.py` vergleicht jetzt direkt an den Referenz-Zeitstempeln statt
+auf einem 5-s-Raster. `can_anchor_sweep.py` blieb unverändert: Sample-and-hold, nur
+Rangkorrelation, keine Skalen. Nebenbei: Der Selbsttest von `can_byte_search --demo`
+prüfte noch „0x211 komplett leer“ und war seit dem ABS-Fund rot, jetzt angepasst.
+Kontrolle am bekannten Feld 0x082 gegen `STEER_SPD_EPS`: `can_bitsearch` liefert jetzt
+R² 0,98 und Steigung 1,87 statt 0,886/1,74.
+
+**Rohwert-Formeln der Y-Splitter-DIDs** exakt bestimmt (R² = 1,000, DID-Antworten im CAN-Log
+gegen dieselben Werte in `2026-09-12 211851.dlg`, Versatz −0,5 s):
+`BFP_PRE_MZ` kPa = raw, `CPP_PER_MZ` % = raw·100/65535, `FLI` % = raw·100/256.
+
+**Nachrechnung** mit `scripts/can_obd_scale_recheck.py` über alle 50 Logs ≥ 20 MB:
+Kandidat an den Referenz-Zeitstempeln abgelesen, Lag-Suche ±1 s, Fit
+`Referenz = a·Bit-Rohwert + b`. Zum Vergleich die alte Methode (beides linear auf ein 5-Hz-Raster):
+
+| Signal | Referenz | Logs | bisher | neu (gepoolt) | R² neu | Skala |
+|---|---|---|---|---|---|---|
+| `Clutch_Pedal_Position_raw` | CPP_PER_MZ | 4 | 0,4665·raw + 0,56 % | **0,5002·raw + 0,00 %** | 0,9999 | **+7,2 %** |
+| `ActualEnginePercentTorque` | PID 0x62 | 25 | 3,0242·raw − 177,85 % | 3,1028·raw − 183,0 % | 0,977 | +2,6 % |
+| `BrakePressure` | BFP_PRE_MZ | 4 | 0,0012413·raw + 32,80 bar | 0,0012709·raw + 33,55 bar | 0,9998 | +2,4 % |
+| `BattSensor_Voltage_maybe` | PID 0x42 | 22 | 1/512 V (Fit 0,00196·raw + 0,19) | 0,0020026·raw − 0,10 V | 0,997 | +2,2 % gegen den Fit, +2,5 % gegen die DBC |
+| `SteeringRate_Abs_maybe` | STEER_SPD_EPS | 4 | EPS = 0,241–0,247·Kanal − 1 | 0,2406·Kanal − 0,47 | 0,972 | −1,4 % |
+| `BCM_SupplyVoltage` | PID 0x42 | 22 | 0,016·raw + 0,68 V | 0,016067·raw + 0,645 V | 0,997 | +0,4 % |
+| `DCDC_Voltage` | PID 0x42 | 22 | 0,0199·raw + 0,08 (DBC 0,02) | 0,019969·raw + 0,031 V | 0,998 | +0,3 % |
+| `Fuel_Tank` | FLI | 27 | FLI % = 2,486·DBC-Wert − 0,02 | 2,4919·DBC-Wert − 0,015 | 0,999 | +0,2 % |
+
+Deutung:
+- **Kupplung**: Der CAN-Rohwert ist exakt 2 × Pedalweg in % (0–199 → 0–99,5 %), bei Lag 0 und
+  R² = 1,000. Das ist dieselbe Größe wie die DID. Die alte Kalibrierung (R² 0,92, RMSE 6,4 %-Punkte,
+  „Sampling-Artefakt“) war genau der Interpolationsfehler plus die Uhrenpaarung CAN↔dlg.
+  Den Bisspunkt (roh 114–123) setzt das von 55,6 % auf 57–61,5 %.
+- **Bremsdruck**: Lag jetzt −0,02 s statt −0,3 s. Die −0,3 s kamen aus der Zeitpaarung mit der
+  `.dlg`. Die Ruhelage bleibt bei ~0 bar (raw −26429 → −0,04 bar).
+- **Motormoment**: Steigung je Log 2,88–3,25. Die neue gepoolte Formel ist 2,6 % steiler, die
+  Streuung zwischen den Fahrten bleibt aber größer als die Korrektur.
+- **Batteriesensor**: 0,002 V/LSB mit −0,10 V passt besser als 1/512. Beides ist rund, der Befund
+  bleibt `_maybe`.
+- **Lenkgeschwindigkeit**: 0,2406 EPS-Schritte je deg/s Kanal. Bei 4 deg/s je EPS-Schritt sind
+  das 0,481 deg/s je Bit. Das deckt sich mit der Steigung 0,468–0,486 gegen die Winkelableitung
+  (26.09.). Zwei unabhängige Anker liegen damit ~4 % unter der DBC-Skala 0,5.
+- **Spannungen, Tank**: bestätigt, die langsamen Größen waren kaum betroffen.
+- Die alte Methode lag je Log 0,5–80 % daneben (Median 1,7–13 %). Am schlimmsten traf es kurze
+  Logs und dünne Referenzen (PID 0x42 alle 10 s: Median +11 %).
+
+DBC und Datalake **noch nicht geändert**. Die Korrekturen für Kupplung, Bremsdruck, Moment und
+Batteriesensor stehen zur Entscheidung aus. Einzelwerte je Log: `results/can_obd_scale_recheck.csv`.
+
+### Nachkalibrierung in die DBC übernommen (2026-09-29)
+
+Aus der Nachrechnung oben (`can_obd_scale_recheck.py`, gepoolte Fits):
+- `BrakePressure` (0x078): (0.0012413, 32.7986) → **(0.0012709, 33.5487)**
+- `ActualEnginePercentTorque` (0x167): (3.0242, −177.849) → **(3.1028, −183.019)**, Bereich [−183.019|608.195]
+- `BattSensor_Voltage_maybe` (0x45A): (1/512, 0) → **(0.002, −0.1)**. Das ist die runde Skala, der Fit lag bei 0,00200264/−0,1006.
+- `Clutch_Pedal_Position_raw`: DBC bleibt Rohwert (1,0), neuer Kommentar „% = raw/2“.
+
+Nicht übernommen: `SteeringRate_Abs_maybe`. Die EPS-Referenz hat selbst keine bestätigte
+deg/s-Einheit, also bleibt es bei 0,5. Zwei Anker deuten auf ~0,48.
+
+Alle `CM_`-Nachträge tragen das Datum 2026-09-29. Die `*_decoded.csv` wurden wie beim
+AmbientTemp-Fix nur für diese drei Signale umgerechnet (Rohwert aus alter Skala, neue Skala
+angewendet). Gegenprobe an `candump-2026-09-29_164522` gegen eine frische
+`can_log_parser.py`-Ausgabe: byteidentisch. `test_can_backend.py` und `test_can_log_parser.py`
+laufen durch. Im Datalake ändert sich nur `BrakePressure_CAN`, CAN-Moment und Batteriesensor
+stehen nicht in `CAN_SIGNAL_MAP`. Betroffene Auswertung: `braking_model.py`. Das Dash zeigt
+Bremsdruck und Last aus der DBC, der Pi braucht also die neue DBC per Deploy.
+
+Datalake inkrementell neu aufgebaut: 56 Logs neu eingelesen (über den Fingerabdruck der
+umgeschriebenen `*_decoded.csv`), `SCHEMA_VERSIONS` unverändert. `BrakePressure_CAN`: Median
+bzw. Ruhelage −0,04 bar, Maximum 75,1 bar, n = 3,26 Mio.

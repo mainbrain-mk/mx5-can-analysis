@@ -47,7 +47,8 @@ from obd_from_can import decode_obd_traffic, extract_did_series
 
 OUT_CSV = "results/can_native_counterpart.csv"
 MIN_FRAMES = 500
-GRID_S = 5.0          # Referenzen kommen mit 1-2 Hz - feiner lohnt nicht
+# Verglichen wird an den Zeitstempeln der Referenz selbst (seit 2026-09-29, vorher 5-s-Raster
+# mit linear interpolierter Referenz - das verzerrte R2 und Skala, siehe Logbuch).
 MIN_POINTS = 60
 
 # OBD-Referenzen: (mode, id). Die Oeltemperatur ist der Anlass fuer dieses Skript.
@@ -165,7 +166,7 @@ def search(log_path, ref_name, control_name=None, verbose=True):
         t_ref, v_ref = dbc_series(raw_df, db, *DBC_REFS[ref_name])
 
     t0, t1 = float(t_ref.min()), float(t_ref.max())
-    grid = np.arange(t0, t1, GRID_S)
+    grid = np.unique(t_ref)
     Y = to_grid(t_ref, v_ref, grid)
 
     if control_name:
@@ -271,7 +272,7 @@ def _log_context(path, ref_name, control_name):
         v_ref = formula(s["raw_value"].to_numpy(dtype=float))
     else:
         t_ref, v_ref = dbc_series(raw_df, db, *DBC_REFS[ref_name])
-    grid = np.arange(float(t_ref.min()), float(t_ref.max()), GRID_S)
+    grid = np.unique(t_ref)
     return dict(raw=raw_df, grid=grid, Y=to_grid(t_ref, v_ref, grid))
 
 

@@ -305,16 +305,30 @@ def _limiter_proxy(anchors):
 
 
 def _resample(t, v, t0, t1, hz):
+    """Auf ein festes Raster legen, aber NUR Rasterpunkte mit einer echten Stuetzstelle im
+    Abstand <= halbe Rasterweite behalten, der Rest wird NaN. Fuer schnelle CAN-Signale
+    aendert das nichts. Fuer duenne Referenzen (OBD alle 0,5-10 s) bleibt so nur je Sample
+    ein Rasterpunkt uebrig, der Vergleich laeuft also an den Referenz-Zeitstempeln statt
+    gegen deren lineare Interpolation (die hatte R2 und Skala verzerrt: 0x082 gegen
+    STEER_SPD_EPS R2 0,990 -> 0,886, Steigung -10 %, siehe Logbuch 2026-09-29). Nebenbei
+    werden Log-Luecken (Uhrspruenge) nicht mehr linear ueberbrueckt."""
     grid = np.arange(t0, t1, 1.0 / hz)
     if len(t) < 2:
         return grid, np.full_like(grid, np.nan)
     order = np.argsort(t)
-    return grid, np.interp(grid, t[order], v[order], left=np.nan, right=np.nan)
+    t, v = t[order], v[order]
+    out = np.interp(grid, t, v, left=np.nan, right=np.nan)
+    i = np.clip(np.searchsorted(t, grid), 1, len(t) - 1)
+    gap = np.minimum(np.abs(grid - t[i - 1]), np.abs(t[i] - grid))
+    out[gap > 0.5 / hz] = np.nan
+    return grid, out
 
 
 def _detrend(v, hz, window_s):
+    # min_periods klein, damit duenne Referenzen (nach _resample nur ~1 Punkt je Sample)
+    # ueberhaupt einen gleitenden Median bekommen - frueher w//2, das fiel bei OBD durch.
     w = max(3, int(window_s * hz))
-    med = pd.Series(v).rolling(w, center=True, min_periods=w // 2).median().to_numpy()
+    med = pd.Series(v).rolling(w, center=True, min_periods=max(3, w // 20)).median().to_numpy()
     return v - med
 
 
@@ -473,10 +487,21 @@ def self_test(can_path):
     unclaimed = dbc_unclaimed_bytes(db)
     dlc, free, _, _ = unclaimed[0x202]
     assert free == [6, 7], f"0x202 sollte nur Bytes 6-7 frei haben, tatsaechlich: {free}"
+    # 0x211 war bis 15.09. komplett leer, traegt jetzt ABS/TCS - frei sind nur noch Bytes
+    # ohne jedes Signal (Stand 2026-09-29: 0, 1, 4, 7).
     dlc, free_211, _, _ = unclaimed[0x211]
-    assert free_211 == list(range(8)), f"0x211 (komplett leer in der DBC) sollte alle 8 Bytes frei zeigen: {free_211}"
+    assert 0 < len(free_211) < 8, f"0x211 sollte teils belegt, teils frei sein: {free_211}"
+    # _resample: duenne Referenz (alle 0,5 s) darf nur an ihren eigenen Zeitpunkten Werte
+    # liefern, dichtes Signal (100 Hz) bleibt voll erhalten.
+    t_sparse = np.arange(0.0, 10.0, 0.5)
+    grid, v_sparse = _resample(t_sparse, t_sparse, 0.0, 10.0, GRID_HZ)
+    assert np.isfinite(v_sparse).sum() == len(t_sparse), np.isfinite(v_sparse).sum()
+    assert np.allclose(v_sparse[np.isfinite(v_sparse)], t_sparse)
+    t_dense = np.arange(0.0, 10.0, 0.01)
+    _, v_dense = _resample(t_dense, t_dense, 0.0, 9.9, GRID_HZ)
+    assert np.isfinite(v_dense).all()
     print("Selbsttest OK: DBC-Coverage-Diff reproduziert den bekannten Stand (0x202 nur "
-          "Bytes 6-7 frei, 0x211 komplett frei).")
+          "Bytes 6-7 frei, 0x211 teils belegt), _resample behaelt nur echte Stuetzstellen.")
 
 
 if __name__ == "__main__":
