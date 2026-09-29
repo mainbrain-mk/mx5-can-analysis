@@ -58,7 +58,7 @@ OBD_REFS = {
     "OBD1_LambdaCommanded": ("mode1", 0x44, lambda r: r / 32768),
     "OBD1_TimingAdvance": ("mode1", 0x0E, lambda r: r / 2 - 64),
     "OBD1_EnginePercentTorque": ("mode1", 0x62, lambda r: r - 125),
-    "KnockRetard": ("mode22", 0x03EC, lambda r: (r - 65536 if r >= 32768 else r) / 512),
+    "KnockRetard": ("mode22", 0x03EC, lambda r: np.where(r >= 32768, r - 65536, r) / 512),
     "STEER_ANGL_EPS": ("mode22", 0x3302, lambda r: r),
 }
 
@@ -185,7 +185,9 @@ def search(log_path, ref_name, control_name=None, verbose=True):
 
     rows = []
     for can_id, sub in raw_df.groupby("can_id"):
-        if len(sub) < MIN_FRAMES:
+        # Diagnose-IDs (0x7xx) ausschliessen: seit dem Vergleich an den Referenz-Zeitstempeln
+        # (29.09.) ist dort genau der Antwort-Frame der Referenz selbst -> Transfer-R2 1,000.
+        if len(sub) < MIN_FRAMES or 0x700 <= can_id <= 0x7FF:
             continue
         payloads = list(sub["data"])
         dlc = max(len(p) for p in payloads)
@@ -259,7 +261,8 @@ def transfer_check(df, logs, ref_name, control_name, top=40):
         ss = 1 - ((Yb[mb] - pred) ** 2).sum() / max(((Yb[mb] - Yb[mb].mean()) ** 2).sum(), 1e-12)
         out.append(dict(can_id=row["can_id"], field=row["field"],
                         r2_logA=r2a, r2_logB=r2b, r2_transfer=ss))
-    return pd.DataFrame(out).sort_values("r2_transfer", ascending=False)
+    cols = ["can_id", "field", "r2_logA", "r2_logB", "r2_transfer"]
+    return pd.DataFrame(out, columns=cols).sort_values("r2_transfer", ascending=False)
 
 
 def _log_context(path, ref_name, control_name):

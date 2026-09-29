@@ -179,13 +179,13 @@ Statt Aufnahmen zu planen, wird aus dem Bestand das Passende herausgesucht.
   Wertebereiche/Ereignisse je Log ad hoc prüfen (`log_coverage.py` [geplant]).
   Referenzlog für Rest-Budget-Zahlen: `candump-2026-09-18_093544`.
 - **Wertebereich ausgereizt?** Ist das oberste Bit eines Feldes im Log nie gesetzt,
-  **prüft `can_bitsearch.py` das Feld gar nicht erst**: Es erzeugt nur Kandidaten,
-  deren letztes Bit sich ändert. Beispiel 0x082 in `14_173057`: Maximum 1304 von
-  4095, Bit 55 nie gesetzt, das echte 12-Bit-Feld `44|12@1+` fehlt in der Liste,
-  auch mit `--min-len 12`. Deshalb Logs mit großem Wertebereich wählen, mehrere
-  Logs zusammen auswerten oder die längere Variante per `can_field_inspect.py`
-  bzw. ad hoc gegenprüfen. Ein im ganzen Bestand nie gesetztes MSB im
-  DBC-Kommentar als „Länge = untere Schranke" vermerken.
+  liefert das breitere Feld exakt dieselben Werte, die Daten können die Länge nicht
+  entscheiden. `can_bitsearch.py` meldet das seit 29.09. als `[MSB-Hinweis]` (Bits
+  direkt über dem Feld, die sich nie ändern). Beispiel 0x082 in `14_173057`: Maximum
+  1304 von 4095, Bit 55 nie gesetzt, gefunden wird 44|11 + Hinweis → echtes Feld
+  `44|12@1+`. Logs mit großem Wertebereich wählen oder mehrere Logs zusammen
+  auswerten. Ein im ganzen Bestand nie gesetztes MSB im DBC-Kommentar als
+  „Länge = untere Schranke" vermerken.
 - **Natürliche Ereignisse**: `can_natural_events.py` vergleicht je Bit die Setzquote
   im Ereignis gegen eine **gleichartige** Kontrolle (Rückwärts vs. Vorwärts-Rangieren,
   Motorstart vs. Zündung an, Kupplung, Neutral, Bremslicht, Blinker, Licht, Tür,
@@ -252,12 +252,18 @@ exhaustive Startbit×Länge×Endianness×Sign-Suche mit Parsimonie-Regel.
 
 - `--ref-did` nur für die Namen in `KNOWN_DIDS`, `--ref-signal` nur für rohe
   DBC-Signale. Für abgeleitete Anker `can_field_inspect.py` oder ad hoc.
-- Parsimonie plus fehlendes Resolution-Refinement kann eine **Teilspanne** gewinnen
-  lassen: Im Test 0x082 gewann 7 Bit ab Bit 48 statt 12 Bit ab Bit 44, weil die
-  OBD-Referenz die unteren Bits nicht auflöst. Der `[Auflösungshinweis]` nennt dann
-  nur die nächstlängere Alternative, nicht zwingend die richtige. Längere Varianten
-  mit einer fein aufgelösten Referenz (z.B. eine Ableitung aus derselben Botschaft)
-  gegenprüfen.
+- Parsimonie plus fehlendes Resolution-Refinement lässt bei grober Referenz eine
+  **Teilspanne** gewinnen (0x082: 49|6 statt 44|12). Die Ausgabe hat deshalb drei
+  Hinweise, **immer alle lesen, nicht nur die „Entscheidung"**:
+  - `[Auflösungshinweis]`: ähnlich gut fittender Kandidat im selben Layout mit mehr
+    variierenden Bits, lückenlos (keine konstanten Bits zwischen LSB und höchstem
+    variierendem Bit).
+  - `[Layout-Hinweis]`: gleich guter Fit in der anderen Byte-Reihenfolge, nur bei
+    Feldern über mehrere Bytes (0x215 gegen `WheelSpeed_1`: Gewinner LE 17|7, der
+    Hinweis nennt das echte BE 7|16).
+  - `[MSB-Hinweis]`: konstante Bits über dem Feld, die Länge ist nur eine untere Schranke.
+
+  Mit einer fein aufgelösten Referenz gegenprüfen (z.B. Ableitung aus derselben Botschaft).
 
 ### 6. Flag-/Ereignis-Matching (für binäre Signale)
 
@@ -397,11 +403,15 @@ nachziehen.
 
 - **Resampling** seit 29.09. korrigiert (Schritt 3), ältere Sweep-Ergebnisse gegen OBD
   sind verzerrt. `can_anchor_sweep.py` hält OBD-Anker weiter per Sample-and-hold.
-- **`can_bitsearch.py` überspringt Felder mit nie gesetztem MSB** (Schritt 2b) und hat
-  kein Resolution-Refinement (Schritt 5).
+- **`can_bitsearch.py` hat kein Resolution-Refinement** und rundet R² fürs Ranking auf
+  2 Stellen, die „Entscheidung" ist deshalb oft eine Teilspanne oder das falsche Layout.
+  Die drei Hinweise (Schritt 5) fangen das seit 29.09. ab, entscheiden es aber nicht.
 - **Keine Lag-Suche** in den Skripten, ad hoc (Schritt 3).
 - **Keine Mehrfachtest-Korrektur**, Nulltest ad hoc (Schritt 8).
 - **`--ref-did` nur für `KNOWN_DIDS`**, `--ref-signal` nur für rohe DBC-Signale.
+- Seit 29.09. behoben, bei älteren Ergebnissen bedenken: `dbc_unclaimed_bytes` belegte bei
+  Motorola-Signalen nur das Startbyte (Sweep „fand" bekannte Signale neu), und Diagnose-IDs
+  (0x7xx) wurden mitgesucht (Selbst-Treffer der OBD-Antwort).
 
 ## Weiterführend
 

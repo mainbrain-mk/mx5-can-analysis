@@ -5109,3 +5109,66 @@ Bremsdruck und Last aus der DBC, der Pi braucht also die neue DBC per Deploy.
 Datalake inkrementell neu aufgebaut: 56 Logs neu eingelesen (über den Fingerabdruck der
 umgeschriebenen `*_decoded.csv`), `SCHEMA_VERSIONS` unverändert. `BrakePressure_CAN`: Median
 bzw. Ruhelage −0,04 bar, Maximum 75,1 bar, n = 3,26 Mio.
+
+## 2026-09-29 (Abend): Bremsmodell, Pi-Deploy, can_bitsearch-Hinweise, OBD-Suchen wiederholt
+
+**Pi-Deploy.** PR #39 (`a8d8269`) per `git push car HEAD:deployed`, Backend und Dash per PID
+neu gestartet. Mein erster Blick aufs Dash-Log („38 km/h, Auto fährt“) war falsch: Auf dem Pi
+lief seit ~18:50 eine Simulation (`canplayer -I /tmp/mx5_sim_replay.log -l i` auf `vcan0`,
+Zyklus ~7,5 min). Vor einem Neustart deshalb auf `canplayer` und `can0` prüfen, nicht nur auf
+die angezeigte Geschwindigkeit. Details in `docs/status/pi-runtime-state.md`.
+
+**Bremsmodell** (`braking_model.py`) neu gerechnet. Es nutzt `BFP_PRE_MZ` aus der `.dlg`,
+`BrakePressure_CAN` nur als Spitzendruck der Y-Splitter-Fahrt (14 Ereignisse): +2,2 bis +2,5 %.
+CAN-Spitze / OBD-Spitze liegt jetzt bei Median 1,032, Minimum 1,005 (vorher 1,010/0,982). Dass
+der 50-Hz-CAN-Wert die Spitze nie unterschreitet, die das ~2-Hz-OBD-Polling erwischt, passt
+physikalisch. Vorher lag CAN teils darunter.
+
+**`can_bitsearch.py`: drei Hinweise statt einem.**
+- `[Auflösungshinweis]` wählt jetzt den ähnlich guten Kandidaten im selben Layout mit den meisten
+  variierenden Bits, lückenlos, statt den mit dem besten R².
+- Neu `[Layout-Hinweis]`: gleich guter Fit in der anderen Byte-Reihenfolge, nur bei Feldern über
+  mehrere Bytes.
+- Neu `[MSB-Hinweis]`: konstante Bits über dem Feld, die Länge ist dann nur eine untere Schranke.
+
+Geprüft an zwei bekannten Fällen, beide als Selbsttest eingebaut:
+- 0x082 gegen `STEER_SPD_EPS` → 44|11 + Bit 55 konstant = echtes `44|12`
+- 0x215 gegen `WheelSpeed_1` → Layout-Hinweis BE 7|16, Skala 0,01 = echte Definition
+
+Der Gewinner selbst ist bei beiden weiterhin eine Teilspanne bzw. das falsche Layout. Das Ranking
+rundet R² auf 2 Stellen, das war schon auf `main` so. Unterwegs verworfen: „längster Kandidat“
+(belohnt Überbreite über konstante Bytes) und „meiste variierende Bits über alle Layouts“ (hängt
+bei 0x082 das Richtungsbit-Byte als niederwertiges BE-Byte an).
+
+**OBD-Suchen mit korrigiertem Resampling wiederholt.**
+- `can_find_native_counterpart.py` mit denselben 5 Referenzen wie am 15.09. (Logs `15_084853`,
+  `15_171047`). Transfer-R² alt → neu:
+  - Öltemperatur −0,37 → −0,33
+  - Zündwinkel +0,20 → +0,19
+  - Luftmasse +0,57 → +0,58
+  - Soll-Lambda (FuelCut-Flag) +0,88 → +0,96
+
+  Also weiterhin **kein natives Gegenstück**. KnockRetard (erst ab 26.09. gepollt, Logs
+  `26_120235`/`26_142216`): bestes |r| 0,46, keins.
+- `can_byte_search.py` über alle 50 Logs neu, konsolidiert in
+  `results/can_byte_search_consolidated_2026-09-29.csv`. Ohne die inzwischen in der DBC belegten
+  Bytes (0x082, 0x20A Byte 0/1/4, 0x200 Byte 4–5, 0x4DB) ergibt sich **kein neues starkes
+  OBD-Gegenstück**. Übrig bleiben mäßige Treffer:
+  - `0x4FA` Byte 2–3 gegen Moment (9 Logs, r_med 0,65), Drosselklappe (6), ETC_ACT (4) und
+    Luftmasse (3). `can_field_inspect` zeigt als stärkste Rangkorrelation aber
+    Strecke/Zeit/Öltemperatur (0,73), also eher ein Warmlauf-/Adaptionswert mit Lastanteil.
+  - `0x20A` Byte 2–3 gegen Soll-Lambda (7 Logs, 0,69), das widerspricht dem Katalogeintrag
+    „keine Korrelation“.
+  - `0x200` Byte 6–7 gegen Moment (6 Logs, 0,64).
+
+Zwei Fehler in den Werkzeugen dabei gefunden und behoben:
+- **Selbst-Treffer der OBD-Antworten.** Seit dem Vergleich an den Referenz-Zeitstempeln matcht
+  `0x7E8` seine eigene Referenz (native_counterpart: Öltemperatur Transfer-R² 1,000; byte_search:
+  0x7E8 gegen KnockRetard). Beide Skripte schließen 0x700–0x7FF jetzt aus.
+- **`dbc_unclaimed_bytes` war nicht bitgenau.** Motorola-Signale über eine Bytegrenze belegten nur
+  das Startbyte. Der 0x20A-Treffer „Byte 1–2 gegen Soll-Lambda“ (alt 8 Logs) war dadurch das
+  bekannte `PCM_20A_Ramp_raw_maybe` (1|8). Jetzt bitgenau über `can_offline_lab.bit_order`.
+
+Nebenbei: In `can_find_native_counterpart.py` war die KnockRetard-Formel für Einzelwerte statt
+Arrays geschrieben, wurde also nie benutzt. Außerdem stürzte `transfer_check` ohne gemeinsame
+Kandidaten ab. Beides korrigiert.

@@ -27,6 +27,7 @@ from scipy.stats import spearmanr
 
 from can_log_parser import parse_candump, load_db
 from obd_from_can import decode_obd_traffic, extract_did_series
+from can_offline_lab import bit_order
 
 MIN_R = 0.6
 GRID_HZ = 10.0
@@ -114,9 +115,11 @@ def dbc_unclaimed_bytes(db):
     for msg in db.messages:
         claimed = set()
         for sig in msg.signals:
-            byte0 = sig.start // 8
-            n_bytes = max(1, sig.length // 8)
-            claimed.update(range(byte0, byte0 + n_bytes))
+            # bitgenau (seit 29.09.): vorher nur Startbyte + length//8 Bytes, dadurch galt bei
+            # Motorola-Signalen ueber eine Bytegrenze (z.B. 0x20A 1|8 = Byte0 Bit1-0 + Byte1
+            # Bit7-2) das zweite Byte als frei und der Sweep "fand" das bekannte Signal neu.
+            claimed.update(b // 8 for b in bit_order(sig.start, sig.length,
+                                                      sig.byte_order == "big_endian"))
         free = sorted(set(range(msg.length)) - claimed)
         sender = msg.senders[0] if msg.senders else "?"
         out[msg.frame_id] = (msg.length, free, sender, msg.name)
@@ -419,6 +422,10 @@ def search_log(can_path, min_period_s=0.2, max_bytes_to_scan=None, verbose=True)
     rows = []
     n_scanned = 0
     for can_id, (dlc, free_bytes, sender, msg_name) in ordered:
+        # Diagnose-IDs (0x7xx) sind die OBD-Antworten selbst: an den Referenz-Zeitstempeln
+        # (korrigiertes _resample, 29.09.) matchen sie ihren eigenen Anker - kein Broadcast.
+        if 0x700 <= can_id <= 0x7FF:
+            continue
         period = periods.get(can_id)
         if period is None or period > min_period_s * 10:
             pass  # trotzdem scannen, nur nicht bevorzugt - kein hartes Ausschliessen

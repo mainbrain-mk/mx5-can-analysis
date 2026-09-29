@@ -93,11 +93,12 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x200 Byte4-5 (raw−32768) | Last-Domäne, r 0,72–0,94 gegen Pedal/Moment; gleiche Kodierung wie `TCS_TorqueRequest_maybe`, mit ihr r=0,84 | Fahrerwunsch- bzw. indiziertes Moment | C6 (Nm-Bezug über die TCS-Anforderung), C3 |
 | `PCM_TorqueLoss_raw_maybe` 0x200 Byte2-3 (raw−32768) | meist −40…+10, im Mittel −19…−26; in der Rekuperation −30…−36, bei kaltem Motor bis −49; keine Korrelation mit Pedal/Moment | Verlust-/Nebenaggregate-Lastmoment (gleiche Einheit wie Byte4-5) | C1: im Leerlauf Klima/Heckscheibenheizung schalten |
 | `PCM_20A_Ramp_raw_maybe` 0x20A 1\|8 | steigt stufenweise bei Volllast und im Schub, fällt bei Teillast; bisheriges `EngineState_raw_maybe` überdeckte zwei seiner Bits (jetzt 7\|6) | Adaption/Integrator | C9 |
-| 0x20A Byte2-3 | analog, keine Korrelation mit den ~80 Ankern | unbekannt | C9 (Zusatz-PIDs) |
+| 0x20A Byte2-3 | analog, keine Korrelation mit den ~80 Ankern (`can_anchor_sweep`); `can_byte_search` findet aber r≈0,69 gegen Soll-Lambda in 7–8 Logs (29.09.), ungeklärt | unbekannt | C9 (Zusatz-PIDs) |
 | 0x4DA Byte0/1/2/4 | Start bei 50, sinken in Schubphasen, steigen unter Last langsam | Katalysator-Modell (Temperatur/O₂-Speicher) | C9: PID 0x3C (Kat-Temperatur) mitloggen |
 | 0x4DA Byte3 Bit 6 | 1,4 % der Zeit, im Schub, nicht deckungsgleich mit FuelCut | Kat-Spül-/Diagnosezustand | C9 |
 | 0x42B B4-6 ≈ 0x4FA B0-2 | Duplikat, Zustandsbytes, wechseln bei Anfahren/Halt | Lastzuordnung/Leerlaufregelung | C1 (Verbraucher schalten) |
 | 0x4FA Byte1 | 34–40, r=−0,71 gegen Ansaugluft | Temperatur-Kompensation | C9 |
+| 0x4FA Byte2-3 | 29.09.: r≈0,65 gegen Moment/Drosselklappe/ETC/Luftmasse (3–9 Logs), stärker aber mit Strecke/Zeit/Öltemperatur (0,73) | Warmlauf-/Lastadaption? | – |
 | 0x165 Byte7, 0x42B Byte0 | ändern selten, schwach mit Gang/Schub | unbekannt | – |
 | 0x202 Bit 63, 0x45A Bit 15 | Zustandsbits, an Motorbetrieb gekoppelt | unbekannt | – |
 | 0x09D Bits 17/20/22 | **geklärt (26.09.)**: Lenkrad-Tempomattasten `CRU_CON_SW1`, Byte2 ist die invertierte Kopie von Byte0 (Teil A) | - | C8 erledigt |
