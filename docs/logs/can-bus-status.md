@@ -5172,3 +5172,12 @@ Zwei Fehler in den Werkzeugen dabei gefunden und behoben:
 Nebenbei: In `can_find_native_counterpart.py` war die KnockRetard-Formel für Einzelwerte statt
 Arrays geschrieben, wurde also nie benutzt. Außerdem stürzte `transfer_check` ohne gemeinsame
 Kandidaten ab. Beides korrigiert.
+
+**Richtigstellung zu 0x20A Byte 2–3 (2026-09-29, später):** Oben stand, der Byte-Sweep-Treffer
+gegen Soll-Lambda „widerspricht“ dem Katalogeintrag „keine Korrelation“. Das stimmt nicht. Der
+Katalogeintrag stammt aus `can_anchor_sweep.py` mit Trefferschwelle |r| ≥ 0,8, dort lag das Feld
+bei Median r 0,59 (Byte 2 signed) bzw. 0,58 (Byte 2–3 BE signed), also ohne Treffer.
+`can_byte_search.py` zählt ab 0,6 und kommt auf ~0,69. Beide sehen denselben mäßigen
+Zusammenhang, nur mit unterschiedlicher Schwelle. Neu ist höchstens: signed korreliert deutlich
+besser als unsigned (0,59 gegen 0,31), das deutet auf einen vorzeichenbehafteten Wert hin.
+Katalog entsprechend korrigiert.
