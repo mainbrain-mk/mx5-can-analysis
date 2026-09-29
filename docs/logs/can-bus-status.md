@@ -4990,3 +4990,17 @@ behalten).
   Symlinks neu gestartet. `test_can_backend.py`/`test_dash_gui.py` auf dem Pi ok. Screenshot:
   "WARTE AUF CAN-BUS" (kein `can0` am Heimnetz). `session_logger` importiert, DBC-Pfad löst auf.
   Eine echte CAN-Session über die Symlinks steht noch aus (nächste Fahrt).
+
+## 2026-09-29: GPX-Track für die CAN-Logs vom 29.09. nachgetragen
+
+`20260929-162619.gpx` (16:26–18:09 lokal, 6159 Punkte) aus dem Drive von Hand nach `data/can/` geholt
+und in `data/can_gps_pairs.json` beiden Logs zugeordnet. `build_datalake` schneidet das GPS auf das
+jeweilige CAN-Fenster zu: Breite/Länge/Höhe/GPS-Geschwindigkeit, 353 bzw. 208 Punkte.
+
+Zeitabgleich CAN-VehicleSpeed ↔ GPX (`_offset_candidates`):
+- `162615` (NTP): bester Offset 0 s, RMSE 2,40 km/h, n=192. Passt.
+- `164522` (RTC): Minimum bei +5 s, RMSE 4,90 km/h, n=209, aber die Kurve ist flach (0 s: 5,43 km/h).
+  Mit nur ~3,5 min Stadtverkehr ist der Offset nicht auflösbar, also bleibt es bei 0 s wie vom
+  RTC-Zustand angezeigt. Nicht umbenannt.
+
+Beide Logs sind kurz (6 bzw. 3,5 min, beim ersten liefert 0x202 erst ab 16:29), der Track lief deutlich länger.

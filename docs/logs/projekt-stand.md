@@ -6030,3 +6030,11 @@ Auffaelligkeiten:
 - script_error: candump-2026-09-28_102235.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
 - script_error: candump-2026-09-28_103753.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
 - script_error: candump-2026-09-28_105353.log: Uhr beim Start NICHT per NTP bestaetigt (korrigiert): Uhr von 2026-09-13 13:53:44 auf gespeicherte 2026-09-27 16:42:06 vorgestellt (kein NTP). ACHTUNG: der Anker stammt vom Ende der letzten Fahrt - die wahre Zeit liegt um die Standzeit spaeter. Absolute Datierung nur mit externem Anker (Handy-.dlg oder GPS) verlaesslich. Zeitstempel dieses Logs pruefen/gegen ein dlg synchronisieren, bevor sie als Fakt behandelt werden. Automatische Korrektur: kein eindeutiger dlg-Treffer.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-09-29)
+
+- `candump-2026-09-29_162615`
+- `candump-2026-09-29_164522`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
