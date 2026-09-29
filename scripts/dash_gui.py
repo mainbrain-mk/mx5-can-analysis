@@ -118,6 +118,16 @@ DRIVE_STEER_VMAX = 60
 CLUTCH_ACTIVE_RAW = 15  # roh, vor der /1.99-Prozent-Umrechnung - gleiche
                         # Schwelle/Konvention wie can_traction_circle.py und
                         # shift_time_analysis.py fuer "Pedal nicht mehr oben"
+CLUTCH_FULL_RAW = 199   # = 100 % (Kachel rechnet roh / 1.99)
+
+
+def _clutch_gear_color(clutch_raw):
+    """GEAR-Farbe: normal bei geschlossener Kupplung, darueber linear von
+    BABY_BLUE (Schwelle) nach NAVY (100 %) - je weiter getreten, desto dunkler."""
+    if clutch_raw is None or clutch_raw <= CLUTCH_ACTIVE_RAW:
+        return TEXT
+    f = min(1.0, (clutch_raw - CLUTCH_ACTIVE_RAW) / (CLUTCH_FULL_RAW - CLUTCH_ACTIVE_RAW))
+    return tuple(a + (b - a) * f for a, b in zip(BABY_BLUE, NAVY))
 
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
@@ -147,6 +157,7 @@ ORANGE = (1, 0.55, 0.1, 1)
 GREEN = (0.18, 0.8, 0.32, 1)
 BLUE = (0.22, 0.53, 0.9, 1)
 BABY_BLUE = (0.54, 0.81, 0.94, 1)
+NAVY = (0, 0, 0.5, 1)  # #000080 - GEAR-Farbe bei voll getretener Kupplung (Nutzerwunsch 2026-09-29)
 SILVER = (0.75, 0.76, 0.79, 1)
 GOOD = GREEN
 WARN = YELLOW
@@ -872,8 +883,7 @@ class DriveScreen(Screen):
                            clutch_raw, speed)
         if gear is not None:
             self.gear_value.text = gear
-        self.gear_value.color = (
-            BABY_BLUE if clutch_raw is not None and clutch_raw > CLUTCH_ACTIVE_RAW else TEXT)
+        self.gear_value.color = _clutch_gear_color(clutch_raw)
 
         self.coolant_card.set_value(c.get(COOLANT_TEMP_CAN_ID, "CoolantTemp"))
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))

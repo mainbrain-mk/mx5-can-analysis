@@ -313,7 +313,16 @@ def test_gear_display_turns_baby_blue_when_clutch_not_closed():
 
     client.set(304, "Clutch_Pedal_Position_raw", 20.0)
     screen.refresh()
-    assert screen.gear_value.color == list(dash_gui.BABY_BLUE)
+    light = screen.gear_value.color
+    assert light[2] > 0.9 and light[0] > 0.5   # nahe BABY_BLUE
+
+    client.set(304, "Clutch_Pedal_Position_raw", 120.0)
+    screen.refresh()
+    assert sum(screen.gear_value.color[:3]) < sum(light[:3])  # dunkler
+
+    client.set(304, "Clutch_Pedal_Position_raw", 199.0)
+    screen.refresh()
+    assert screen.gear_value.color == list(dash_gui.NAVY)
 
     client.set(304, "Clutch_Pedal_Position_raw", None)
     screen.refresh()
