@@ -327,6 +327,19 @@ zuerst prüfen:
   eigene DID, am 29.09. Transfer-R² 1,000), eine Kopie eines bekannten Signals
   (0x130 = Drehzahl ×2) oder ein Anker aus derselben Botschaft? Nach jeder Änderung
   an einem Werkzeug besonders darauf achten, dort entstand das 0x7E8-Artefakt.
+- **Ein einzelner Init-Frame** kann eine Scheinkorrelation tragen: 0x596, 0x243 und
+  0x488 sind bis auf den ersten Frame nach dem Start (t ≈ 1,5 s) konstant. Fällt der mit
+  einem Init-Sentinel des Ankers zusammen (Radgeschwindigkeit, AmbientTemp), ergibt ein
+  einziger Punkt r ≈ 0,99. Alle Byte-Paare einer Botschaft mit **identischem** r sind
+  das typische Zeichen. `can_byte_search.py` überspringt seit 30.09. Kandidaten mit
+  weniger als max(10, 0,5 %) abweichenden Frames.
+- **Startphase der Anker**: Auch längere Init-Phasen tragen Scheinkorrelationen.
+  DSC_Status (Lampentest ~2,5 s) korrelierte mit sechs Botschaften, mehrfach mit
+  identischem r = 0,875, und AmbientTemp (Init-Wert 0) ebenso. `can_byte_search.py`
+  schneidet seit 30.09. die ersten 5 s **ab dem ersten Frame jedes Ankers** ab (nicht ab
+  Logbeginn, manche Logs starten vor der Zündung) und verwirft Anker, die danach fast
+  konstant sind. Echte Zusammenhänge werden dadurch eher stärker, weil die
+  Init-Sentinels die Korrelation verwässert hatten.
 
 ### 8. Zufallstreffer ausschließen (Nulltest)
 
@@ -467,6 +480,10 @@ noch funktionierten.
 - **Keine Lag-Suche** in den Skripten, ad hoc (Schritt 3).
 - **Keine Mehrfachtest-Korrektur**, Nulltest ad hoc (Schritt 8).
 - **`--ref-did` nur für `KNOWN_DIDS`**, `--ref-signal` nur für rohe DBC-Signale.
+- **Zeitbasis-Effekt auf die Suche ist klein** (A/B 30.09., 50 Logs, gleiche DBC): gegen
+  OBD dieselben Kandidaten, r praktisch gleich, etwas mehr Logs mit Treffer. Die
+  Korrektur zählt vor allem für Skalen und R² von Kalibrierungen, nicht dafür, ob ein
+  Feld gefunden wird.
 - Seit 29.09. behoben, bei älteren Ergebnissen bedenken: `dbc_unclaimed_bytes` belegte bei
   Motorola-Signalen nur das Startbyte (Sweep „fand" bekannte Signale neu), und Diagnose-IDs
   (0x7xx) wurden mitgesucht (Selbst-Treffer der OBD-Antwort).

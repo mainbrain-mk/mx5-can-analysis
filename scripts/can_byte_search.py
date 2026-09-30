@@ -214,7 +214,35 @@ def extract_anchors(raw_df, db, decoded_obd, log_has_obd):
     if p is not None:
         anchors["PROXY_limiter_active"] = p
 
-    return {k: v for k, v in anchors.items() if v is not None and len(v[0]) > 50}
+    return _clean_anchors(anchors)
+
+
+INIT_SKIP_S = 5.0
+
+
+def _clean_anchors(anchors):
+    """Startphase weg und fast konstante Anker verwerfen (30.09.). Im Init nach Zuendung
+    senden viele Botschaften Default-/Sentinel-Werte (Lampentest DSC_Status ~2,5 s,
+    AmbientTemp 0, Radgeschwindigkeit-Sentinel). Jede Botschaft mit eigener Startphase
+    korrelierte dadurch mit diesen Ankern (DSC_Status gegen sechs IDs mit identischem
+    r=0,875). Was nach der Startphase fast konstant bleibt (DSC_Status: nur noch der
+    Abstell-Frame), traegt keine Information fuer eine Korrelation - Flags gehoeren zu
+    can_event_bit_diff/can_rare_bits. Bezugspunkt ist der erste Frame JEDES Ankers, nicht der
+    Logbeginn: manche Logs starten vor der Zuendung (29_162615: 0x202 erst nach ~3 min)."""
+    out = {}
+    for k, v in anchors.items():
+        if v is None:
+            continue
+        t, val = v
+        keep = t >= t.min() + INIT_SKIP_S
+        t, val = t[keep], val[keep]
+        if len(t) <= 50:
+            continue
+        minority = len(val) - np.unique(val, return_counts=True)[1].max()
+        if minority < max(10, 0.005 * len(val)):
+            continue
+        out[k] = (t, val)
+    return out
 
 
 def _abs_proxy(anchors):
@@ -463,6 +491,13 @@ def search_log(can_path, min_period_s=0.2, max_bytes_to_scan=None, verbose=True)
                 break
             if np.nanstd(values) < 1e-9:
                 continue  # konstant
+            # fast konstant: ein einzelner abweichender Frame (0x596: nur der Init-Frame
+            # FFFF.. nach dem Start, sonst immer AA55..) faellt mit dem Init-Sentinel eines
+            # Ankers zusammen und ergibt r=0,99 aus einem Punkt (29.09.). Seltene Flags
+            # gehoeren ohnehin zu can_event_bit_diff/can_rare_bits, nicht in die Korrelation.
+            minority = len(values) - np.unique(values, return_counts=True)[1].max()
+            if minority < max(10, 0.005 * len(values)):
+                continue
             if raw_bytes is not None and is_rolling_counter(raw_bytes):
                 continue  # Rollzaehler, kein Messwert
             hit = correlate_candidate(t_arr, values, t0, t1, prepared_anchors)
@@ -504,6 +539,13 @@ def self_test(can_path):
     grid, v_sparse = _resample(t_sparse, t_sparse, 0.0, 10.0, GRID_HZ)
     assert np.isfinite(v_sparse).sum() == len(t_sparse), np.isfinite(v_sparse).sum()
     assert np.allclose(v_sparse[np.isfinite(v_sparse)], t_sparse)
+    # _clean_anchors: Startphase weg, danach fast konstanter Anker (Lampentest-Muster) faellt raus,
+    # ein echter Anker bleibt
+    tt = np.arange(0.0, 100.0, 0.1)
+    lamp = np.where(tt < 2.5, 1.0, 0.0)
+    real = np.sin(tt)
+    cleaned = _clean_anchors({"lamp": (tt + 60, lamp), "real": (tt, real)})   # lamp startet spaeter
+    assert "lamp" not in cleaned and "real" in cleaned and cleaned["real"][0].min() >= 5.0, cleaned.keys()
     t_dense = np.arange(0.0, 10.0, 0.01)
     _, v_dense = _resample(t_dense, t_dense, 0.0, 9.9, GRID_HZ)
     assert np.isfinite(v_dense).all()

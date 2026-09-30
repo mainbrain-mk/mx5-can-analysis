@@ -5199,3 +5199,51 @@ Neues Skript `scripts/can_sweep_consolidate.py`, der Vergleich von heute Abend a
 fasst die Byte-Sweep-CSVs über alle Logs zusammen, vergleicht optional mit einem älteren Lauf
 und markiert Felder, die in der aktuellen DBC schon belegt sind. Gegenprobe gegen den Lauf vom
 26.09.: alle 10 „weggefallenen“ OBD-Treffer liegen auf inzwischen belegten Bytes.
+
+## 2026-09-30: Byte-Sweep sauber neu, A/B-Vergleich der Zeitbasis, zwei Init-Artefakte behoben
+
+Anlass: Der Sweep vom 29.09. lief mit einem Werkzeugstand, der bei seinem Ende schon überholt
+war. Außerdem ließ sich die Wirkung der Zeitbasis-Korrektur gegen den Lauf vom 26.09. nicht
+isolieren (andere DBC, andere Logs, anderes `_detrend`).
+
+**Vorgehen.** Kurztest an zwei Logs, dann A/B über dieselben 50 Logs mit derselben DBC.
+Der Wrapper tauschte nur `_resample`/`_detrend` gegen den Stand vor dem 29.09.,
+0x7xx-Ausschluss und bitgenaue Belegung waren in beiden Varianten gleich. 100 Läufe,
+4 parallel, ~3 h.
+
+**Ergebnis A/B (Zeitbasis).** Gegen OBD-Anker findet die Suche dieselben Kandidaten:
+12 Paare in beiden Varianten, 1 neu (`0x440` gegen AFR_MZ, 1 Log), 4 weg (Einzel-Log-Treffer
+gegen die Öltemperatur, die nur alle 10 s kommt). Der Median von r ändert sich um +0,003,
+die Zahl der Logs mit Treffer steigt leicht (`0x4FA` Moment 6→9, `0x20A` Lambda 5→7). Die
+Korrektur zählt damit vor allem für Skalen und R² von Kalibrierungen (Nachkalibrierung
+29.09.), kaum dafür, ob ein Feld gefunden wird.
+
+**Zwei Init-Artefakte gefunden und behoben.**
+1. `0x596`, `0x243` und `0x488` sind bis auf **einen** Frame nach dem Start (t ≈ 1,5 s)
+   konstant. Zusammen mit dem Init-Sentinel der Radgeschwindigkeit bzw. von AmbientTemp
+   ergab dieser eine Punkt r ≈ 0,99. Bei `0x596` hatten alle Byte-Paare dasselbe r, das ist
+   das Erkennungszeichen. Aufgedeckt hat es erst die neue Trendbereinigung (kleineres
+   `min_periods` nimmt die Randpunkte mit). → Kandidaten mit weniger als max(10, 0,5 %)
+   abweichenden Frames werden übersprungen.
+2. **DSC_Status** korrelierte mit sechs Botschaften, mehrfach mit identischem r = 0,875
+   (`0x425`, `0x325`, `0x240`). Seine einzige Varianz ist der Lampentest (~2,5 s) und der
+   Abstell-Frame, jede Botschaft mit eigener Startphase passt dazu. AmbientTemp (Init 0)
+   genauso. Der alte Treffer „0x596 gegen DSC_Status, 29 Logs“ war dasselbe. →
+   `_clean_anchors` schneidet die ersten 5 s ab dem ersten Frame jedes Ankers ab und
+   verwirft Anker, die danach fast konstant sind. Der Bezug ist der Anker, nicht der
+   Logbeginn: `29_162615` startet vor der Zündung, dort griff ein Schnitt ab Logbeginn nicht.
+   Nebeneffekt: Echte Zusammenhänge werden stärker (14_173057: OBD-Treffer 5 → 11, u.a. neu
+   `0x3D0` Byte 6–7 gegen Bremsdruck r −0,68, nur in 1 Log).
+
+**Bereinigte Liste** (`results/can_byte_search_consolidated_2026-09-30.csv`: 58 statt 105
+Paare, freie Felder mit ≥ 3 Logs, Byte-Sweep-Schwelle |r| ≥ 0,6):
+
+| Feld | Anker (Logs, r_med) |
+|---|---|
+| `0x20A` Byte 2–3 | FuelCut (15, 0,71), Soll-Lambda (7, 0,69), Stillstand (6, 0,67) |
+| `0x4FA` Byte 2–3 | Moment (11, 0,65), Drosselklappe (6, 0,66), ETC (4, 0,70), Luftmasse (3, 0,74) |
+| `0x200` Byte 6–7 | Moment (6, 0,64), MAP (4, 0,71), Soll-Lambda (3, 0,66) |
+| `0x21F` Byte 4–5 | MAP (6, 0,70) |
+
+Alle mäßig, kein Fund für die DBC. In `can-open-fields.md` Teil B eingetragen bzw.
+aktualisiert. Die Liste vom 29.09. (`..._consolidated_2026-09-29.csv`) ist überholt.
