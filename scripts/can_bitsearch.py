@@ -165,21 +165,37 @@ def search_field(can_df: pd.DataFrame, ref_t: np.ndarray, ref_v: np.ndarray,
 
     reps = _suppress_overlaps(results)[:top]
     if reps:
-        reps[0] = {**reps[0], "wider_alt": _find_wider_ambiguous(results, reps[0])}
+        alt = _find_wider_ambiguous(results, reps[0], changing)
+        reps[0] = {**reps[0], "wider_alt": alt, "layout_alt": _find_other_layout(results, reps[0]),
+                   "const_above": _const_bits_above(alt or reps[0], changing, int(dlc))}
     return reps
 
 
-def _find_wider_ambiguous(results: list[dict], winner: dict, r2_eps: float = 0.005) -> dict | None:
+def _find_wider_ambiguous(results: list[dict], winner: dict, changing: np.ndarray,
+                          r2_eps: float = 0.005) -> dict | None:
     """Ohne Resolution-Refinement (siehe Modul-Docstring) kann ein glattes, langsam
     veraenderliches Signal auch mit weniger Bits fast denselben R² erreichen wie das
     tatsaechlich volle Feld - die Parsimonie-Regel entscheidet sich dann bewusst fuer das
     KUERZERE (per Design). Das ist eine bekannte Grenze dieses vereinfachten Ports, kein
     Bug. Diese Funktion sucht nach einem ueberlappenden, LAENGEREN Kandidaten mit fast
-    gleich gutem R², um den Nutzer auf die Mehrdeutigkeit hinzuweisen statt sie zu verstecken."""
+    gleich gutem R², um den Nutzer auf die Mehrdeutigkeit hinzuweisen statt sie zu verstecken.
+    Gewaehlt wird der Kandidat mit den meisten VARIIERENDEN Bits (bei Gleichstand der mit
+    hoeherem R²): gleicher Fit mit mehr veraenderlichen Bits heisst feinere Aufloesung.
+    Konstante Bits zaehlen nicht, sonst gewaennen Over-Wide-Reads ueber Padding-Bytes. Nur
+    Kandidaten mit DERSELBEN Byte-Reihenfolge wie der Gewinner: eine BE-Lesung haengt sonst
+    ein fremdes Byte als niederwertigen Teil an (0x082: Byte7 mit dem Richtungsbit), was R²
+    kaum stoert. Innerhalb derselben Reihenfolge werden fremde Bits oberhalb des Feldes zu
+    hoechstwertigen Bits und fallen durch das R²-Kriterium. Und nur LUECKENLOSE Kandidaten:
+    zwischen unterstem Bit und hoechstem variierendem Bit kein konstantes Bit (ein echtes
+    Zahlenfeld kippt an den niederwertigen Bits am haeufigsten, READ) - sonst haengt der
+    Hinweis unten fremde Bits ueber eine konstante Luecke an (0x082: Bit 39 ueber die
+    konstanten Bits 40-43).
+    Vorher gewann der mit dem besten R², bei 0x082 gegen STEER_SPD_EPS also 48|7 statt des
+    echten 44|12 (Logbuch 2026-09-29)."""
     ws, wl = _span(winner)
     best = None
     for e in results:
-        if e is winner or e["length"] <= wl:
+        if e is winner or e["length"] <= wl or e["order"] != winner["order"]:
             continue
         s1, l1 = _span(e)
         inter = max(0, min(ws + wl, s1 + l1) - max(ws, s1))
@@ -187,9 +203,58 @@ def _find_wider_ambiguous(results: list[dict], winner: dict, r2_eps: float = 0.0
             continue
         if e["r2"] < winner["r2"] - r2_eps:
             continue
-        if best is None or e["r2"] > best["r2"]:
+        if e["order"] == "little":
+            ch = changing[e["start_bit"]:e["start_bit"] + e["length"]]
+            top = int(np.nonzero(ch)[0].max())
+            if not ch[:top + 1].all():
+                continue
+        key = (_n_changing(e, changing), e["r2"])
+        if key[0] > _n_changing(winner, changing) and (best is None or key > best[0]):
+            best = (key, e)
+    return best[1] if best else None
+
+
+def _find_other_layout(results: list[dict], winner: dict, r2_eps: float = 0.005) -> dict | None:
+    """Bester Kandidat in der ANDEREN Byte-Reihenfolge, der mindestens so gut fittet wie der
+    Gewinner (bis r2_eps). Der Aufloesungshinweis bleibt bewusst beim Layout des Gewinners;
+    ein gleich guter Fit im anderen Layout ist eine eigene Frage (0x215 gegen WheelSpeed_1:
+    Gewinner LE 17|7, das echte Feld ist BE 7|16 mit R² 1,000)."""
+    best = None
+    for e in results:
+        if e["order"] == winner["order"] or e["r2"] < winner["r2"] - r2_eps:
+            continue
+        # Byte-Reihenfolge ist nur bei Feldern ueber mehrere Bytes eine Frage
+        multi = (e["width"] > 1) if e["order"] == "big" else \
+            (e["start_bit"] // 8 != (e["start_bit"] + e["length"] - 1) // 8)
+        if not multi:
+            continue
+        if best is None or (e["r2"], -e["length"]) > (best["r2"], -best["length"]):
             best = e
     return best
+
+
+def _n_changing(e: dict, changing: np.ndarray) -> int:
+    if e["order"] == "little":
+        return int(changing[e["start_bit"]:e["start_bit"] + e["length"]].sum())
+    return int(changing[e["byte"] * 8:(e["byte"] + e["width"]) * 8].sum())
+
+
+def _const_bits_above(e: dict, changing: np.ndarray, dlc: int) -> list[int]:
+    """Bits direkt oberhalb des MSB, die sich im ganzen Log nie aendern. Ein Feld, dessen
+    oberste Bits im Log nie gesetzt werden, liefert mit und ohne diese Bits exakt dieselben
+    Werte - die Laenge ist dann nur eine untere Schranke (0x082: Bit 55 im Log nie gesetzt,
+    das echte Feld ist 12 statt 11 Bit breit). LE: Bits ab start+length aufwaerts; BE
+    (byteweise): das Byte vor dem ersten Feldbyte, falls komplett konstant."""
+    if e["order"] == "little":
+        out, k = [], e["start_bit"] + e["length"]
+        while k < dlc * 8 and not changing[k]:
+            out.append(k)
+            k += 1
+        return out
+    b = e["byte"] - 1
+    if b >= 0 and not changing[b * 8:(b + 1) * 8].any():
+        return list(range(b * 8, (b + 1) * 8))
+    return []
 
 
 def _load_reference(args, db):
@@ -248,6 +313,20 @@ def report(reps: list[dict], can_id: int):
                   f"R²={alt['r2']:.4f}, Scale {alt['scale']:+.6g}. Pruefe beide Kandidaten "
                   f"(z.B. per Plot) oder erzwinge die groessere Breite mit --min-len "
                   f"{alt['length']}.")
+        lay = w.get("layout_alt")
+        if lay:
+            print(f"\n[Layout-Hinweis] In der anderen Byte-Reihenfolge fittet ein Feld mindestens "
+                  f"genauso gut: Startbit {lay['start_bit']}, Laenge {lay['length']}, "
+                  f"{lay['order']}-endian, R²={lay['r2']:.4f}, Scale {lay['scale']:+.6g}. "
+                  f"Layout gegen Nachbarsignale/DBC pruefen.")
+        const = w.get("const_above")
+        if const:
+            base = alt or w
+            print(f"\n[MSB-Hinweis] Bit(s) {const[0]}-{const[-1]} direkt ueber dem Feld "
+                  f"(Start {base['start_bit']}, Laenge {base['length']}) aendern sich in diesem Log "
+                  f"nie. Ein breiteres Feld liefert hier exakt dieselben Werte - die Laenge ist nur "
+                  f"eine UNTERE SCHRANKE. Log mit groesserem Wertebereich pruefen oder im DBC-"
+                  f"Kommentar vermerken.")
 
 
 def self_test():
@@ -287,6 +366,22 @@ def self_test():
     assert ok, "Selbsttest fehlgeschlagen: Parsimonie hat den Over-Wide-Read nicht demotet"
     print("Selbsttest OK: Over-Wide-Read (Duplikat-Byte, faelschlich 256x kleinere Scale) "
           "korrekt vermieden.")
+
+    # Fall 0x082: 12-Bit-Feld ab Bit 44, oberstes Bit (55) nie gesetzt, grobe Referenz
+    # (loest die unteren 4 Bit nicht auf). Der Hinweis muss das lange Feld nennen und das
+    # konstante MSB melden.
+    val = (650 + 650 * np.sin(t_arr / 3.0)).round().astype(np.uint64)   # 0..1300 < 2048
+    frames2 = (val << np.uint64(44)) | (np.uint64(4) << np.uint64(40))
+    frames2 |= (rng.random(n) < 0.5).astype(np.uint64)            # Bit 0 Rauschen
+    can_df2 = pd.DataFrame({"t": t_arr, "data": [int(v).to_bytes(8, "little") for v in frames2]})
+    ref2 = np.floor(val / 16.0)                                    # grobe Referenz
+    reps2 = search_field(can_df2, t_arr, ref2, min_len=4, max_len=16, top=5)
+    w2 = reps2[0]
+    alt2 = w2["wider_alt"] or w2
+    assert alt2["order"] == "little" and alt2["start_bit"] == 44, (w2, alt2)
+    assert 55 in w2["const_above"], w2["const_above"]
+    print(f"Selbsttest OK: Aufloesungshinweis nennt {alt2['start_bit']}|{alt2['length']}, "
+          f"MSB-Hinweis Bits {w2['const_above'][0]}-{w2['const_above'][-1]} konstant.")
 
 
 if __name__ == "__main__":

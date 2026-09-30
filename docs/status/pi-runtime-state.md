@@ -6,6 +6,15 @@ das die Ersteinrichtung/Reproduzierbarkeit beschreibt). **In-place aktualisieren
 bei jedem Neustart/Umbau auf dem Pi**. Welcher Code-Stand läuft, sagt seit 2026-09-28
 das Git auf dem Pi (siehe unten), nicht mehr dieses Dokument.
 
+> **Deploy 2026-09-29 ~21:57:** `deployed` = `a8d8269` (Branch `can-resample-obd-skalen`, PR #39,
+> noch nicht in `main`). Neu auf dem Pi ist vor allem die DBC mit nachkalibriertem
+> `BrakePressure`/`ActualEnginePercentTorque`/`BattSensor_Voltage_maybe`. Backend und Dash per PID
+> neu gestartet, `respawn.sh` hat sie nach 2 s wieder hochgefahren, Backend ~2800 fps. Zu dem
+> Zeitpunkt lief auf dem Pi eine Simulation: `canplayer -I /tmp/mx5_sim_replay.log -l i` auf
+> `vcan0` seit ~18:50, kein `can0`, kein Auto. Die Simulation wurde nicht angefasst.
+> Danach den Folge-Commit derselben Branch nachgeschoben (nur Analyse-Skripte und Doku, keine
+> Pi-Dateien, kein Neustart nötig). `deployed` = Kopf von `can-resample-obd-skalen`.
+>
 > **Git auf dem Pi (2026-09-28, ~19:00):** `/home/pi/canlogs/repo`, Branch `deployed` = `main`
 > `158f154` (nach Merge von PR #33-#35). Vorher alle Pi-Dateien per md5 gegen `main` geprüft:
 > identisch, kein Drift. Die Dateien in `canlogs/` sind jetzt Symlinks ins Repo, Originale in

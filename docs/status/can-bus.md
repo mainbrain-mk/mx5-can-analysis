@@ -13,6 +13,8 @@ rendert nur noch, wenn er sichtbar ist, Drehzahlbalken und LEDs ohne Canvas-Neua
 Dash gelesene Signal gegen Backend-Filter und DBC.
 
 
+**Status 2026-09-29 — Resampling-Fehler in den Sweep-Werkzeugen behoben, OBD-Skalen nachgerechnet.** `can_byte_search._resample` und `can_find_native_counterpart.py` hatten dünne OBD-Referenzen linear interpoliert, was R² und Skala drückte. Nachrechnung (`scripts/can_obd_scale_recheck.py`, alle 50 Logs): Kupplung ist exakt `% = 0,5·raw` (bisher 0,4665·raw+0,56, +7,2 %), Bremsdruck +2,4 %, `ActualEnginePercentTorque` +2,6 %, `BattSensor_Voltage_maybe` passt besser zu 0,002 V/LSB. Spannungen, Tank und Lenkrate sind bestätigt (±1,5 %). Bremsdruck, Moment und Batteriesensor sind in die DBC übernommen und die `*_decoded.csv` umgerechnet. Datalake ist neu aufgebaut. `braking_model.py` und der Pi-Deploy stehen noch aus. Logbuch: "Resampling in den Sweep-Werkzeugen korrigiert…".
+
 **Status 2026-09-28 — acht No-RTC-Versätze per `data/can_clock_offsets.json` korrigiert.** Die Handy-IMU-Zuordnung (`can_phone_imu_sweep.py`) lieferte die wahre Startzeit von `14_163711`, `14_173057`, `17_084511`, `17_131635`, `17_133436`, `18_093544`, `18_162411` und `18_165510` (−26 s bis +5,1 h). `log_start_epoch()` nimmt dafür Dateiname + Versatz, ohne umzubenennen. Nach dem Neubau passt CAN-Speed zur Handy-Speed auf ≤ 1,1 s, alle acht Logs haben jetzt dlg-GPS. `DLG_GPS_EXCLUDE` ist auf `18_170350`/`26_154000` geschrumpft. Kurvenanalyse nicht betroffen. `18_170350`/`_171150` sind vermutlich auch falsch datiert, es gibt aber keinen Anker. Logbuch: "No-RTC-Versätze aus der Handy-Zuordnung…".
 
 **Status 2026-09-27 abends — sechster No-RTC-Fall per GPX korrigiert.** `candump-2026-09-27_144352`/`_150720` → `_163940`/`_170308` (+6948 s gegen `20260927-163740.gpx`, RMSE 1,6/3,5 km/h; NTP-Logs desselben Tages liefern ±0 s als Gegenprobe). Die Pipeline nimmt GPX jetzt als Zeitanker, ordnet Tracks nach Zeitüberlappung zu (ein Track kann mehrere Logs abdecken) und übernimmt keine `.log.gz.tmp` vom Pi mehr. GPX-Download aus dem Drive bleibt manuell. CAN-Logs ohne GPX bekommen jetzt das GPS der überlappenden dlg (18 Logs, alle auf ≤ 2 s geprüft; 5 per `DLG_GPS_EXCLUDE` ausgeschlossen, darunter `14_163711`, das 68 s falsch datiert ist); seit 28.09. korrigiert, siehe oben). Logbuch: "Pipeline-Absturz an `.log.gz.tmp`…".
@@ -310,7 +312,7 @@ vertrauen, Details im Logbuch unten.
   Saugrohrdruck), VS1_Vaccum_Sensor_1 (kPa), MT_Gear_Actual✓ (0-6, Gang aus Drehzahl/v; 0 auch
   im Rückwärtsgang, 7 = Initwert ~2 s nach Zündung EIN), MT_Gear_Position/MT_Gear_Select/MT_Gear_Recommend (weitere
   Getriebe-Rohsignale), Clutch_Pedal_Position_raw✓ (0-199 roh, **kalibriert:**
-  `CPP_PER_MZ% ≈ 0,4665·raw+0,56`, sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
+  `CPP_PER_MZ% = 0,5·raw` (29.09. nachgerechnet, R²=1,000; die alte Formel 0,4665·raw+0,56 war ein Resampling-Artefakt), sein Duplikat `Clutch_Pedal_Position_related_2`@0x166
   2026-09-14 über alle 4 Logs mit OBD-Traffic bestätigt, r=0,999), Fuel_Tank✓ (roh 0x09E,
   **kalibriert:** `FLI% ≈ 2,486·raw-0,02`), `ActualEnginePercentTorque`✓ (0x167 Byte4, bis
   2026-09-15 `EngineLoad_or_Torque_pct_maybe`; ersetzte seinerzeit die Fehlannahme

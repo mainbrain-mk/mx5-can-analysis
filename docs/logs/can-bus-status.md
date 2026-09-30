@@ -5004,3 +5004,246 @@ Zeitabgleich CAN-VehicleSpeed ↔ GPX (`_offset_candidates`):
   RTC-Zustand angezeigt. Nicht umbenannt.
 
 Beide Logs sind kurz (6 bzw. 3,5 min, beim ersten liefert 0x202 erst ab 16:29), der Track lief deutlich länger.
+
+## 2026-09-29: Skill-Test mit bekanntem Signal, zwei Schwächen der Sweep-Werkzeuge
+
+Beim Test des überarbeiteten RE-Skills `can_bitsearch.py 0x082 --ref-did STEER_SPD_EPS` auf
+`candump-2026-09-14_173057` laufen lassen, also gegen ein Feld mit bekannter Lösung
+(`SteeringRate_Abs_maybe`, `44|12@1+`). Ergebnis: Gewinner war `48|7` LE (R²=0,886, Skala 1,74),
+das echte 12-Bit-Feld tauchte gar nicht auf, auch nicht mit `--min-len 12`.
+
+1. **Felder mit nie gesetztem MSB werden übersprungen.** `search_field()` erzeugt nur Kandidaten,
+   deren letztes Bit sich im Log ändert. Bit 55 ist in diesem Log nie gesetzt (Maximum 1304 von
+   4095), damit fehlt `44|12` in der Kandidatenliste. Die Parsimonie-Regel wählt danach eine
+   Teilspanne, weil die OBD-Referenz (0-149) die unteren Bits nicht auflöst.
+2. **Resampling-Richtung.** `can_byte_search._resample` (auch in `can_bitsearch.py`)
+   interpoliert die OBD-Referenz (Median-Abstand 0,48 s, 353 Werte) linear auf ein 10-Hz-Raster,
+   statt den Kandidaten auf die Referenz-Zeitstempel. Am selben Feld `48|7`:
+   - Kandidat auf die Referenz-Zeitpunkte: R² 0,990, Steigung 1,94
+   - wie das Tool: R² 0,886, Steigung 1,74 (−10 %)
+
+   `44|12` und `44|11` liefern in richtiger Richtung ebenfalls R² 0,989.
+
+Folge: Rangfolgen aus den Sweeps sind meist brauchbar. Skalen und R² aus Sweeps gegen OBD-DIDs
+sind aber zu niedrig bzw. verzerrt und müssen vor der Übernahme ad hoc nachgerechnet werden.
+Werkzeuge nicht geändert. In der Skill-Doku
+(`.claude/skills/mx5-can-reverse-engineering/`) als bekannte Grenze vermerkt. Nebenbefund:
+Die EPS-DID 0x3301 steckt nur in 4 Logs (`12_211833`, `14_081105`, `14_163711`, `14_173057`).
+
+## 2026-09-29: Resampling in den Sweep-Werkzeugen korrigiert, OBD-Skalen nachgerechnet
+
+**Werkzeuge.** `can_byte_search._resample` behält jetzt nur Rasterpunkte, an denen im
+Abstand von höchstens einer halben Rasterweite (±0,05 s) eine echte Stützstelle liegt, alle
+anderen werden NaN. Dünne OBD-Referenzen zählen damit nur an ihren eigenen Zeitpunkten, und
+Log-Lücken werden nicht mehr linear überbrückt. Betroffen sind alle Aufrufer:
+`can_byte_search`, `can_bitsearch`, `can_field_segmentation --correlate`,
+`can_opendbc_crosscheck`, `can_retest_maybe_signals`. `_detrend` braucht dafür nur noch
+w/20 statt w/2 Punkte im Fenster. Folge: Referenzen mit ≤ 0,1 Hz (PID 0x42) bekommen in
+`can_byte_search` keinen trendbereinigten Wert mehr, dafür bleibt `can_anchor_sweep`.
+`can_find_native_counterpart.py` vergleicht jetzt direkt an den Referenz-Zeitstempeln statt
+auf einem 5-s-Raster. `can_anchor_sweep.py` blieb unverändert: Sample-and-hold, nur
+Rangkorrelation, keine Skalen. Nebenbei: Der Selbsttest von `can_byte_search --demo`
+prüfte noch „0x211 komplett leer“ und war seit dem ABS-Fund rot, jetzt angepasst.
+Kontrolle am bekannten Feld 0x082 gegen `STEER_SPD_EPS`: `can_bitsearch` liefert jetzt
+R² 0,98 und Steigung 1,87 statt 0,886/1,74.
+
+**Rohwert-Formeln der Y-Splitter-DIDs** exakt bestimmt (R² = 1,000, DID-Antworten im CAN-Log
+gegen dieselben Werte in `2026-09-12 211851.dlg`, Versatz −0,5 s):
+`BFP_PRE_MZ` kPa = raw, `CPP_PER_MZ` % = raw·100/65535, `FLI` % = raw·100/256.
+
+**Nachrechnung** mit `scripts/can_obd_scale_recheck.py` über alle 50 Logs ≥ 20 MB:
+Kandidat an den Referenz-Zeitstempeln abgelesen, Lag-Suche ±1 s, Fit
+`Referenz = a·Bit-Rohwert + b`. Zum Vergleich die alte Methode (beides linear auf ein 5-Hz-Raster):
+
+| Signal | Referenz | Logs | bisher | neu (gepoolt) | R² neu | Skala |
+|---|---|---|---|---|---|---|
+| `Clutch_Pedal_Position_raw` | CPP_PER_MZ | 4 | 0,4665·raw + 0,56 % | **0,5002·raw + 0,00 %** | 0,9999 | **+7,2 %** |
+| `ActualEnginePercentTorque` | PID 0x62 | 25 | 3,0242·raw − 177,85 % | 3,1028·raw − 183,0 % | 0,977 | +2,6 % |
+| `BrakePressure` | BFP_PRE_MZ | 4 | 0,0012413·raw + 32,80 bar | 0,0012709·raw + 33,55 bar | 0,9998 | +2,4 % |
+| `BattSensor_Voltage_maybe` | PID 0x42 | 22 | 1/512 V (Fit 0,00196·raw + 0,19) | 0,0020026·raw − 0,10 V | 0,997 | +2,2 % gegen den Fit, +2,5 % gegen die DBC |
+| `SteeringRate_Abs_maybe` | STEER_SPD_EPS | 4 | EPS = 0,241–0,247·Kanal − 1 | 0,2406·Kanal − 0,47 | 0,972 | −1,4 % |
+| `BCM_SupplyVoltage` | PID 0x42 | 22 | 0,016·raw + 0,68 V | 0,016067·raw + 0,645 V | 0,997 | +0,4 % |
+| `DCDC_Voltage` | PID 0x42 | 22 | 0,0199·raw + 0,08 (DBC 0,02) | 0,019969·raw + 0,031 V | 0,998 | +0,3 % |
+| `Fuel_Tank` | FLI | 27 | FLI % = 2,486·DBC-Wert − 0,02 | 2,4919·DBC-Wert − 0,015 | 0,999 | +0,2 % |
+
+Deutung:
+- **Kupplung**: Der CAN-Rohwert ist exakt 2 × Pedalweg in % (0–199 → 0–99,5 %), bei Lag 0 und
+  R² = 1,000. Das ist dieselbe Größe wie die DID. Die alte Kalibrierung (R² 0,92, RMSE 6,4 %-Punkte,
+  „Sampling-Artefakt“) war genau der Interpolationsfehler plus die Uhrenpaarung CAN↔dlg.
+  Den Bisspunkt (roh 114–123) setzt das von 55,6 % auf 57–61,5 %.
+- **Bremsdruck**: Lag jetzt −0,02 s statt −0,3 s. Die −0,3 s kamen aus der Zeitpaarung mit der
+  `.dlg`. Die Ruhelage bleibt bei ~0 bar (raw −26429 → −0,04 bar).
+- **Motormoment**: Steigung je Log 2,88–3,25. Die neue gepoolte Formel ist 2,6 % steiler, die
+  Streuung zwischen den Fahrten bleibt aber größer als die Korrektur.
+- **Batteriesensor**: 0,002 V/LSB mit −0,10 V passt besser als 1/512. Beides ist rund, der Befund
+  bleibt `_maybe`.
+- **Lenkgeschwindigkeit**: 0,2406 EPS-Schritte je deg/s Kanal. Bei 4 deg/s je EPS-Schritt sind
+  das 0,481 deg/s je Bit. Das deckt sich mit der Steigung 0,468–0,486 gegen die Winkelableitung
+  (26.09.). Zwei unabhängige Anker liegen damit ~4 % unter der DBC-Skala 0,5.
+- **Spannungen, Tank**: bestätigt, die langsamen Größen waren kaum betroffen.
+- Die alte Methode lag je Log 0,5–80 % daneben (Median 1,7–13 %). Am schlimmsten traf es kurze
+  Logs und dünne Referenzen (PID 0x42 alle 10 s: Median +11 %).
+
+DBC und Datalake **noch nicht geändert**. Die Korrekturen für Kupplung, Bremsdruck, Moment und
+Batteriesensor stehen zur Entscheidung aus. Einzelwerte je Log: `results/can_obd_scale_recheck.csv`.
+
+### Nachkalibrierung in die DBC übernommen (2026-09-29)
+
+Aus der Nachrechnung oben (`can_obd_scale_recheck.py`, gepoolte Fits):
+- `BrakePressure` (0x078): (0.0012413, 32.7986) → **(0.0012709, 33.5487)**
+- `ActualEnginePercentTorque` (0x167): (3.0242, −177.849) → **(3.1028, −183.019)**, Bereich [−183.019|608.195]
+- `BattSensor_Voltage_maybe` (0x45A): (1/512, 0) → **(0.002, −0.1)**. Das ist die runde Skala, der Fit lag bei 0,00200264/−0,1006.
+- `Clutch_Pedal_Position_raw`: DBC bleibt Rohwert (1,0), neuer Kommentar „% = raw/2“.
+
+Nicht übernommen: `SteeringRate_Abs_maybe`. Die EPS-Referenz hat selbst keine bestätigte
+deg/s-Einheit, also bleibt es bei 0,5. Zwei Anker deuten auf ~0,48.
+
+Alle `CM_`-Nachträge tragen das Datum 2026-09-29. Die `*_decoded.csv` wurden wie beim
+AmbientTemp-Fix nur für diese drei Signale umgerechnet (Rohwert aus alter Skala, neue Skala
+angewendet). Gegenprobe an `candump-2026-09-29_164522` gegen eine frische
+`can_log_parser.py`-Ausgabe: byteidentisch. `test_can_backend.py` und `test_can_log_parser.py`
+laufen durch. Im Datalake ändert sich nur `BrakePressure_CAN`, CAN-Moment und Batteriesensor
+stehen nicht in `CAN_SIGNAL_MAP`. Betroffene Auswertung: `braking_model.py`. Das Dash zeigt
+Bremsdruck und Last aus der DBC, der Pi braucht also die neue DBC per Deploy.
+
+Datalake inkrementell neu aufgebaut: 56 Logs neu eingelesen (über den Fingerabdruck der
+umgeschriebenen `*_decoded.csv`), `SCHEMA_VERSIONS` unverändert. `BrakePressure_CAN`: Median
+bzw. Ruhelage −0,04 bar, Maximum 75,1 bar, n = 3,26 Mio.
+
+## 2026-09-29 (Abend): Bremsmodell, Pi-Deploy, can_bitsearch-Hinweise, OBD-Suchen wiederholt
+
+**Pi-Deploy.** PR #39 (`a8d8269`) per `git push car HEAD:deployed`, Backend und Dash per PID
+neu gestartet. Mein erster Blick aufs Dash-Log („38 km/h, Auto fährt“) war falsch: Auf dem Pi
+lief seit ~18:50 eine Simulation (`canplayer -I /tmp/mx5_sim_replay.log -l i` auf `vcan0`,
+Zyklus ~7,5 min). Vor einem Neustart deshalb auf `canplayer` und `can0` prüfen, nicht nur auf
+die angezeigte Geschwindigkeit. Details in `docs/status/pi-runtime-state.md`.
+
+**Bremsmodell** (`braking_model.py`) neu gerechnet. Es nutzt `BFP_PRE_MZ` aus der `.dlg`,
+`BrakePressure_CAN` nur als Spitzendruck der Y-Splitter-Fahrt (14 Ereignisse): +2,2 bis +2,5 %.
+CAN-Spitze / OBD-Spitze liegt jetzt bei Median 1,032, Minimum 1,005 (vorher 1,010/0,982). Dass
+der 50-Hz-CAN-Wert die Spitze nie unterschreitet, die das ~2-Hz-OBD-Polling erwischt, passt
+physikalisch. Vorher lag CAN teils darunter.
+
+**`can_bitsearch.py`: drei Hinweise statt einem.**
+- `[Auflösungshinweis]` wählt jetzt den ähnlich guten Kandidaten im selben Layout mit den meisten
+  variierenden Bits, lückenlos, statt den mit dem besten R².
+- Neu `[Layout-Hinweis]`: gleich guter Fit in der anderen Byte-Reihenfolge, nur bei Feldern über
+  mehrere Bytes.
+- Neu `[MSB-Hinweis]`: konstante Bits über dem Feld, die Länge ist dann nur eine untere Schranke.
+
+Geprüft an zwei bekannten Fällen, beide als Selbsttest eingebaut:
+- 0x082 gegen `STEER_SPD_EPS` → 44|11 + Bit 55 konstant = echtes `44|12`
+- 0x215 gegen `WheelSpeed_1` → Layout-Hinweis BE 7|16, Skala 0,01 = echte Definition
+
+Der Gewinner selbst ist bei beiden weiterhin eine Teilspanne bzw. das falsche Layout. Das Ranking
+rundet R² auf 2 Stellen, das war schon auf `main` so. Unterwegs verworfen: „längster Kandidat“
+(belohnt Überbreite über konstante Bytes) und „meiste variierende Bits über alle Layouts“ (hängt
+bei 0x082 das Richtungsbit-Byte als niederwertiges BE-Byte an).
+
+**OBD-Suchen mit korrigiertem Resampling wiederholt.**
+- `can_find_native_counterpart.py` mit denselben 5 Referenzen wie am 15.09. (Logs `15_084853`,
+  `15_171047`). Transfer-R² alt → neu:
+  - Öltemperatur −0,37 → −0,33
+  - Zündwinkel +0,20 → +0,19
+  - Luftmasse +0,57 → +0,58
+  - Soll-Lambda (FuelCut-Flag) +0,88 → +0,96
+
+  Also weiterhin **kein natives Gegenstück**. KnockRetard (erst ab 26.09. gepollt, Logs
+  `26_120235`/`26_142216`): bestes |r| 0,46, keins.
+- `can_byte_search.py` über alle 50 Logs neu, konsolidiert in
+  `results/can_byte_search_consolidated_2026-09-29.csv`. Ohne die inzwischen in der DBC belegten
+  Bytes (0x082, 0x20A Byte 0/1/4, 0x200 Byte 4–5, 0x4DB) ergibt sich **kein neues starkes
+  OBD-Gegenstück**. Übrig bleiben mäßige Treffer:
+  - `0x4FA` Byte 2–3 gegen Moment (9 Logs, r_med 0,65), Drosselklappe (6), ETC_ACT (4) und
+    Luftmasse (3). `can_field_inspect` zeigt als stärkste Rangkorrelation aber
+    Strecke/Zeit/Öltemperatur (0,73), also eher ein Warmlauf-/Adaptionswert mit Lastanteil.
+  - `0x20A` Byte 2–3 gegen Soll-Lambda (7 Logs, 0,69), das widerspricht dem Katalogeintrag
+    „keine Korrelation“.
+  - `0x200` Byte 6–7 gegen Moment (6 Logs, 0,64).
+
+Zwei Fehler in den Werkzeugen dabei gefunden und behoben:
+- **Selbst-Treffer der OBD-Antworten.** Seit dem Vergleich an den Referenz-Zeitstempeln matcht
+  `0x7E8` seine eigene Referenz (native_counterpart: Öltemperatur Transfer-R² 1,000; byte_search:
+  0x7E8 gegen KnockRetard). Beide Skripte schließen 0x700–0x7FF jetzt aus.
+- **`dbc_unclaimed_bytes` war nicht bitgenau.** Motorola-Signale über eine Bytegrenze belegten nur
+  das Startbyte. Der 0x20A-Treffer „Byte 1–2 gegen Soll-Lambda“ (alt 8 Logs) war dadurch das
+  bekannte `PCM_20A_Ramp_raw_maybe` (1|8). Jetzt bitgenau über `can_offline_lab.bit_order`.
+
+Nebenbei: In `can_find_native_counterpart.py` war die KnockRetard-Formel für Einzelwerte statt
+Arrays geschrieben, wurde also nie benutzt. Außerdem stürzte `transfer_check` ohne gemeinsame
+Kandidaten ab. Beides korrigiert.
+
+**Richtigstellung zu 0x20A Byte 2–3 (2026-09-29, später):** Oben stand, der Byte-Sweep-Treffer
+gegen Soll-Lambda „widerspricht“ dem Katalogeintrag „keine Korrelation“. Das stimmt nicht. Der
+Katalogeintrag stammt aus `can_anchor_sweep.py` mit Trefferschwelle |r| ≥ 0,8, dort lag das Feld
+bei Median r 0,59 (Byte 2 signed) bzw. 0,58 (Byte 2–3 BE signed), also ohne Treffer.
+`can_byte_search.py` zählt ab 0,6 und kommt auf ~0,69. Beide sehen denselben mäßigen
+Zusammenhang, nur mit unterschiedlicher Schwelle. Neu ist höchstens: signed korreliert deutlich
+besser als unsigned (0,59 gegen 0,31), das deutet auf einen vorzeichenbehafteten Wert hin.
+Katalog entsprechend korrigiert.
+
+### Lehren aus dem Tag in den RE-Skill übernommen (2026-09-29)
+
+In `.claude/skills/mx5-can-reverse-engineering/SKILL.md` neu:
+- Zahlen berichten statt Urteile, mit einer Tabelle der Trefferschwellen je Werkzeug.
+- Zwei Sweep-Läufe nur bei gleicher DBC-Abdeckung vergleichen.
+- Zu gute Treffer (R² ≥ 0,999) zuerst als Selbst-Treffer oder Duplikat prüfen.
+- Testfälle mit bekannter Lösung für Werkzeug-Änderungen (0x082, 0x215, Bremslicht,
+  Kupplungsskala).
+- Bei jeder Kalibrierung Bit-Rohwert und DBC-Wert ausdrücklich unterscheiden.
+- Kalibrieren gegen die OBD-Antwort im CAN-Log statt gegen die `.dlg`.
+- Signed/unsigned-Vergleich als Hinweis.
+- Praxis für Sweeps über den ganzen Bestand (Laufzeit, Ergebnisse vorher sichern).
+
+Neues Skript `scripts/can_sweep_consolidate.py`, der Vergleich von heute Abend als Werkzeug:
+fasst die Byte-Sweep-CSVs über alle Logs zusammen, vergleicht optional mit einem älteren Lauf
+und markiert Felder, die in der aktuellen DBC schon belegt sind. Gegenprobe gegen den Lauf vom
+26.09.: alle 10 „weggefallenen“ OBD-Treffer liegen auf inzwischen belegten Bytes.
+
+## 2026-09-30: Byte-Sweep sauber neu, A/B-Vergleich der Zeitbasis, zwei Init-Artefakte behoben
+
+Anlass: Der Sweep vom 29.09. lief mit einem Werkzeugstand, der bei seinem Ende schon überholt
+war. Außerdem ließ sich die Wirkung der Zeitbasis-Korrektur gegen den Lauf vom 26.09. nicht
+isolieren (andere DBC, andere Logs, anderes `_detrend`).
+
+**Vorgehen.** Kurztest an zwei Logs, dann A/B über dieselben 50 Logs mit derselben DBC.
+Der Wrapper tauschte nur `_resample`/`_detrend` gegen den Stand vor dem 29.09.,
+0x7xx-Ausschluss und bitgenaue Belegung waren in beiden Varianten gleich. 100 Läufe,
+4 parallel, ~3 h.
+
+**Ergebnis A/B (Zeitbasis).** Gegen OBD-Anker findet die Suche dieselben Kandidaten:
+12 Paare in beiden Varianten, 1 neu (`0x440` gegen AFR_MZ, 1 Log), 4 weg (Einzel-Log-Treffer
+gegen die Öltemperatur, die nur alle 10 s kommt). Der Median von r ändert sich um +0,003,
+die Zahl der Logs mit Treffer steigt leicht (`0x4FA` Moment 6→9, `0x20A` Lambda 5→7). Die
+Korrektur zählt damit vor allem für Skalen und R² von Kalibrierungen (Nachkalibrierung
+29.09.), kaum dafür, ob ein Feld gefunden wird.
+
+**Zwei Init-Artefakte gefunden und behoben.**
+1. `0x596`, `0x243` und `0x488` sind bis auf **einen** Frame nach dem Start (t ≈ 1,5 s)
+   konstant. Zusammen mit dem Init-Sentinel der Radgeschwindigkeit bzw. von AmbientTemp
+   ergab dieser eine Punkt r ≈ 0,99. Bei `0x596` hatten alle Byte-Paare dasselbe r, das ist
+   das Erkennungszeichen. Aufgedeckt hat es erst die neue Trendbereinigung (kleineres
+   `min_periods` nimmt die Randpunkte mit). → Kandidaten mit weniger als max(10, 0,5 %)
+   abweichenden Frames werden übersprungen.
+2. **DSC_Status** korrelierte mit sechs Botschaften, mehrfach mit identischem r = 0,875
+   (`0x425`, `0x325`, `0x240`). Seine einzige Varianz ist der Lampentest (~2,5 s) und der
+   Abstell-Frame, jede Botschaft mit eigener Startphase passt dazu. AmbientTemp (Init 0)
+   genauso. Der alte Treffer „0x596 gegen DSC_Status, 29 Logs“ war dasselbe. →
+   `_clean_anchors` schneidet die ersten 5 s ab dem ersten Frame jedes Ankers ab und
+   verwirft Anker, die danach fast konstant sind. Der Bezug ist der Anker, nicht der
+   Logbeginn: `29_162615` startet vor der Zündung, dort griff ein Schnitt ab Logbeginn nicht.
+   Nebeneffekt: Echte Zusammenhänge werden stärker (14_173057: OBD-Treffer 5 → 11, u.a. neu
+   `0x3D0` Byte 6–7 gegen Bremsdruck r −0,68, nur in 1 Log).
+
+**Bereinigte Liste** (`results/can_byte_search_consolidated_2026-09-30.csv`: 58 statt 105
+Paare, freie Felder mit ≥ 3 Logs, Byte-Sweep-Schwelle |r| ≥ 0,6):
+
+| Feld | Anker (Logs, r_med) |
+|---|---|
+| `0x20A` Byte 2–3 | FuelCut (15, 0,71), Soll-Lambda (7, 0,69), Stillstand (6, 0,67) |
+| `0x4FA` Byte 2–3 | Moment (11, 0,65), Drosselklappe (6, 0,66), ETC (4, 0,70), Luftmasse (3, 0,74) |
+| `0x200` Byte 6–7 | Moment (6, 0,64), MAP (4, 0,71), Soll-Lambda (3, 0,66) |
+| `0x21F` Byte 4–5 | MAP (6, 0,70) |
+
+Alle mäßig, kein Fund für die DBC. In `can-open-fields.md` Teil B eingetragen bzw.
+aktualisiert. Die Liste vom 29.09. (`..._consolidated_2026-09-29.csv`) ist überholt.

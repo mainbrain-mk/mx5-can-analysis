@@ -27,6 +27,7 @@ from scipy.stats import spearmanr
 
 from can_log_parser import parse_candump, load_db
 from obd_from_can import decode_obd_traffic, extract_did_series
+from can_offline_lab import bit_order
 
 MIN_R = 0.6
 GRID_HZ = 10.0
@@ -114,9 +115,11 @@ def dbc_unclaimed_bytes(db):
     for msg in db.messages:
         claimed = set()
         for sig in msg.signals:
-            byte0 = sig.start // 8
-            n_bytes = max(1, sig.length // 8)
-            claimed.update(range(byte0, byte0 + n_bytes))
+            # bitgenau (seit 29.09.): vorher nur Startbyte + length//8 Bytes, dadurch galt bei
+            # Motorola-Signalen ueber eine Bytegrenze (z.B. 0x20A 1|8 = Byte0 Bit1-0 + Byte1
+            # Bit7-2) das zweite Byte als frei und der Sweep "fand" das bekannte Signal neu.
+            claimed.update(b // 8 for b in bit_order(sig.start, sig.length,
+                                                      sig.byte_order == "big_endian"))
         free = sorted(set(range(msg.length)) - claimed)
         sender = msg.senders[0] if msg.senders else "?"
         out[msg.frame_id] = (msg.length, free, sender, msg.name)
@@ -211,7 +214,35 @@ def extract_anchors(raw_df, db, decoded_obd, log_has_obd):
     if p is not None:
         anchors["PROXY_limiter_active"] = p
 
-    return {k: v for k, v in anchors.items() if v is not None and len(v[0]) > 50}
+    return _clean_anchors(anchors)
+
+
+INIT_SKIP_S = 5.0
+
+
+def _clean_anchors(anchors):
+    """Startphase weg und fast konstante Anker verwerfen (30.09.). Im Init nach Zuendung
+    senden viele Botschaften Default-/Sentinel-Werte (Lampentest DSC_Status ~2,5 s,
+    AmbientTemp 0, Radgeschwindigkeit-Sentinel). Jede Botschaft mit eigener Startphase
+    korrelierte dadurch mit diesen Ankern (DSC_Status gegen sechs IDs mit identischem
+    r=0,875). Was nach der Startphase fast konstant bleibt (DSC_Status: nur noch der
+    Abstell-Frame), traegt keine Information fuer eine Korrelation - Flags gehoeren zu
+    can_event_bit_diff/can_rare_bits. Bezugspunkt ist der erste Frame JEDES Ankers, nicht der
+    Logbeginn: manche Logs starten vor der Zuendung (29_162615: 0x202 erst nach ~3 min)."""
+    out = {}
+    for k, v in anchors.items():
+        if v is None:
+            continue
+        t, val = v
+        keep = t >= t.min() + INIT_SKIP_S
+        t, val = t[keep], val[keep]
+        if len(t) <= 50:
+            continue
+        minority = len(val) - np.unique(val, return_counts=True)[1].max()
+        if minority < max(10, 0.005 * len(val)):
+            continue
+        out[k] = (t, val)
+    return out
 
 
 def _abs_proxy(anchors):
@@ -305,16 +336,30 @@ def _limiter_proxy(anchors):
 
 
 def _resample(t, v, t0, t1, hz):
+    """Auf ein festes Raster legen, aber NUR Rasterpunkte mit einer echten Stuetzstelle im
+    Abstand <= halbe Rasterweite behalten, der Rest wird NaN. Fuer schnelle CAN-Signale
+    aendert das nichts. Fuer duenne Referenzen (OBD alle 0,5-10 s) bleibt so nur je Sample
+    ein Rasterpunkt uebrig, der Vergleich laeuft also an den Referenz-Zeitstempeln statt
+    gegen deren lineare Interpolation (die hatte R2 und Skala verzerrt: 0x082 gegen
+    STEER_SPD_EPS R2 0,990 -> 0,886, Steigung -10 %, siehe Logbuch 2026-09-29). Nebenbei
+    werden Log-Luecken (Uhrspruenge) nicht mehr linear ueberbrueckt."""
     grid = np.arange(t0, t1, 1.0 / hz)
     if len(t) < 2:
         return grid, np.full_like(grid, np.nan)
     order = np.argsort(t)
-    return grid, np.interp(grid, t[order], v[order], left=np.nan, right=np.nan)
+    t, v = t[order], v[order]
+    out = np.interp(grid, t, v, left=np.nan, right=np.nan)
+    i = np.clip(np.searchsorted(t, grid), 1, len(t) - 1)
+    gap = np.minimum(np.abs(grid - t[i - 1]), np.abs(t[i] - grid))
+    out[gap > 0.5 / hz] = np.nan
+    return grid, out
 
 
 def _detrend(v, hz, window_s):
+    # min_periods klein, damit duenne Referenzen (nach _resample nur ~1 Punkt je Sample)
+    # ueberhaupt einen gleitenden Median bekommen - frueher w//2, das fiel bei OBD durch.
     w = max(3, int(window_s * hz))
-    med = pd.Series(v).rolling(w, center=True, min_periods=w // 2).median().to_numpy()
+    med = pd.Series(v).rolling(w, center=True, min_periods=max(3, w // 20)).median().to_numpy()
     return v - med
 
 
@@ -405,6 +450,10 @@ def search_log(can_path, min_period_s=0.2, max_bytes_to_scan=None, verbose=True)
     rows = []
     n_scanned = 0
     for can_id, (dlc, free_bytes, sender, msg_name) in ordered:
+        # Diagnose-IDs (0x7xx) sind die OBD-Antworten selbst: an den Referenz-Zeitstempeln
+        # (korrigiertes _resample, 29.09.) matchen sie ihren eigenen Anker - kein Broadcast.
+        if 0x700 <= can_id <= 0x7FF:
+            continue
         period = periods.get(can_id)
         if period is None or period > min_period_s * 10:
             pass  # trotzdem scannen, nur nicht bevorzugt - kein hartes Ausschliessen
@@ -442,6 +491,13 @@ def search_log(can_path, min_period_s=0.2, max_bytes_to_scan=None, verbose=True)
                 break
             if np.nanstd(values) < 1e-9:
                 continue  # konstant
+            # fast konstant: ein einzelner abweichender Frame (0x596: nur der Init-Frame
+            # FFFF.. nach dem Start, sonst immer AA55..) faellt mit dem Init-Sentinel eines
+            # Ankers zusammen und ergibt r=0,99 aus einem Punkt (29.09.). Seltene Flags
+            # gehoeren ohnehin zu can_event_bit_diff/can_rare_bits, nicht in die Korrelation.
+            minority = len(values) - np.unique(values, return_counts=True)[1].max()
+            if minority < max(10, 0.005 * len(values)):
+                continue
             if raw_bytes is not None and is_rolling_counter(raw_bytes):
                 continue  # Rollzaehler, kein Messwert
             hit = correlate_candidate(t_arr, values, t0, t1, prepared_anchors)
@@ -473,10 +529,28 @@ def self_test(can_path):
     unclaimed = dbc_unclaimed_bytes(db)
     dlc, free, _, _ = unclaimed[0x202]
     assert free == [6, 7], f"0x202 sollte nur Bytes 6-7 frei haben, tatsaechlich: {free}"
+    # 0x211 war bis 15.09. komplett leer, traegt jetzt ABS/TCS - frei sind nur noch Bytes
+    # ohne jedes Signal (Stand 2026-09-29: 0, 1, 4, 7).
     dlc, free_211, _, _ = unclaimed[0x211]
-    assert free_211 == list(range(8)), f"0x211 (komplett leer in der DBC) sollte alle 8 Bytes frei zeigen: {free_211}"
+    assert 0 < len(free_211) < 8, f"0x211 sollte teils belegt, teils frei sein: {free_211}"
+    # _resample: duenne Referenz (alle 0,5 s) darf nur an ihren eigenen Zeitpunkten Werte
+    # liefern, dichtes Signal (100 Hz) bleibt voll erhalten.
+    t_sparse = np.arange(0.0, 10.0, 0.5)
+    grid, v_sparse = _resample(t_sparse, t_sparse, 0.0, 10.0, GRID_HZ)
+    assert np.isfinite(v_sparse).sum() == len(t_sparse), np.isfinite(v_sparse).sum()
+    assert np.allclose(v_sparse[np.isfinite(v_sparse)], t_sparse)
+    # _clean_anchors: Startphase weg, danach fast konstanter Anker (Lampentest-Muster) faellt raus,
+    # ein echter Anker bleibt
+    tt = np.arange(0.0, 100.0, 0.1)
+    lamp = np.where(tt < 2.5, 1.0, 0.0)
+    real = np.sin(tt)
+    cleaned = _clean_anchors({"lamp": (tt + 60, lamp), "real": (tt, real)})   # lamp startet spaeter
+    assert "lamp" not in cleaned and "real" in cleaned and cleaned["real"][0].min() >= 5.0, cleaned.keys()
+    t_dense = np.arange(0.0, 10.0, 0.01)
+    _, v_dense = _resample(t_dense, t_dense, 0.0, 9.9, GRID_HZ)
+    assert np.isfinite(v_dense).all()
     print("Selbsttest OK: DBC-Coverage-Diff reproduziert den bekannten Stand (0x202 nur "
-          "Bytes 6-7 frei, 0x211 komplett frei).")
+          "Bytes 6-7 frei, 0x211 teils belegt), _resample behaelt nur echte Stuetzstellen.")
 
 
 if __name__ == "__main__":

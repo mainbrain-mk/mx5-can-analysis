@@ -39,7 +39,7 @@ Spalte "Test" verweist auf Teil C.
 | `iELOOP_CapVoltage_maybe` (+`_2`) | 0x08A 13\|10, 53\|10 | 0,04 V/LSB (angenommen) | 13,8–24,6 V; steigt in Rekuperation, fällt sonst | _maybe (Skala) | C1 |
 | `DCDC_Active_maybe` | 0x08A Bit 6 | Flag | = Motor läuft | _maybe | – |
 | `BCM_SupplyVoltage` | 0x43F 19\|10 | 0,016 V/LSB | r=0,998, konstant 0,68 V unter PCM/DCDC | **bestätigt** | C1 |
-| `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 1/512 V/LSB | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
+| `BattSensor_Voltage_maybe` | 0x45A 45\|13 | 0,002 V/LSB − 0,1 V (seit 29.09., vorher 1/512; gegen PID 0x42 R²=0,997) | r=0,966, bricht beim Anlassen auf 9,65 V ein | _maybe | C1 |
 | `BattSensor_Temp_maybe` | 0x45A Byte3 | raw − 40 °C | Kaltstarts r=0,966; in der Fahrt fast konstant | _maybe | C1 |
 | `FuelConsumption_Counter` | 0x420 Byte2 (8 Bit) | **4834 Schritte je echtem Liter** (0,207 ml; Voll-bis-Voll 16.→26.09.: 34,4 l getankt gegen 33,09 l Bordcomputer; der Bordcomputer selbst rechnet mit 5025 Schritten/l, zeigt also 4 % zu wenig) | Rate r=0,99–0,999 gegen Luftmasse/Lambda; Anzeige folgt dem Zähler auf 2,6 ml (zwei Logs 5024/5026) | **bestätigt** | C3 erledigt, absolut kalibriert |
 | `Travel_distance_related` | 0x420 Byte1 | **0,1992 m/Schritt** (26.09. gegen ODO-Inkremente, 5 Logs; die 0,209 kamen aus dem ~5 % zu hohen VehicleSpeed) | r=1,000 gegen integrierte Geschwindigkeit | **bestätigt** | – |
@@ -93,11 +93,14 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x200 Byte4-5 (raw−32768) | Last-Domäne, r 0,72–0,94 gegen Pedal/Moment; gleiche Kodierung wie `TCS_TorqueRequest_maybe`, mit ihr r=0,84 | Fahrerwunsch- bzw. indiziertes Moment | C6 (Nm-Bezug über die TCS-Anforderung), C3 |
 | `PCM_TorqueLoss_raw_maybe` 0x200 Byte2-3 (raw−32768) | meist −40…+10, im Mittel −19…−26; in der Rekuperation −30…−36, bei kaltem Motor bis −49; keine Korrelation mit Pedal/Moment | Verlust-/Nebenaggregate-Lastmoment (gleiche Einheit wie Byte4-5) | C1: im Leerlauf Klima/Heckscheibenheizung schalten |
 | `PCM_20A_Ramp_raw_maybe` 0x20A 1\|8 | steigt stufenweise bei Volllast und im Schub, fällt bei Teillast; bisheriges `EngineState_raw_maybe` überdeckte zwei seiner Bits (jetzt 7\|6) | Adaption/Integrator | C9 |
-| 0x20A Byte2-3 | analog, keine Korrelation mit den ~80 Ankern | unbekannt | C9 (Zusatz-PIDs) |
+| 0x20A Byte2-3 | analog, vermutlich signed (Byte2 signed r 0,59 gegen Soll-Lambda, unsigned 0,31). Bereinigter Byte-Sweep 30.09. (r ≥ 0,6, 50 Logs): **FuelCut 15 Logs r_med 0,71**, Soll-Lambda 7 Logs 0,69, Stillstand 6 Logs 0,67. Unter der 0,8-Schwelle von `can_anchor_sweep` | Gemisch-/Schubzustand, Lambda-Regelgröße? | C9 (Zusatz-PIDs) |
 | 0x4DA Byte0/1/2/4 | Start bei 50, sinken in Schubphasen, steigen unter Last langsam | Katalysator-Modell (Temperatur/O₂-Speicher) | C9: PID 0x3C (Kat-Temperatur) mitloggen |
 | 0x4DA Byte3 Bit 6 | 1,4 % der Zeit, im Schub, nicht deckungsgleich mit FuelCut | Kat-Spül-/Diagnosezustand | C9 |
 | 0x42B B4-6 ≈ 0x4FA B0-2 | Duplikat, Zustandsbytes, wechseln bei Anfahren/Halt | Lastzuordnung/Leerlaufregelung | C1 (Verbraucher schalten) |
 | 0x4FA Byte1 | 34–40, r=−0,71 gegen Ansaugluft | Temperatur-Kompensation | C9 |
+| 0x4FA Byte2-3 | Bereinigter Byte-Sweep 30.09.: Moment 11 Logs r_med 0,65, Drosselklappe 6, ETC 4, Luftmasse 3 (0,74). `can_field_inspect` zeigt als stärkste Rangkorrelation Strecke/Zeit/Öltemperatur (0,73), Lastanteil also vorhanden, Trendanteil auch | Last-/Warmlaufadaption? | – |
+| 0x200 Byte6-7 | Bereinigter Byte-Sweep 30.09.: Moment 6 Logs r_med 0,64, MAP 4 Logs 0,71, Soll-Lambda 3 Logs | Last-Domäne, Nachbar von Byte4-5 | – |
+| 0x21F Byte4-5 | Bereinigter Byte-Sweep 30.09.: MAP 6 Logs r_med 0,70 (in opendbc heißt 0x21F CRZ_EVENTS) | Saugrohr-/Lastgröße? | – |
 | 0x165 Byte7, 0x42B Byte0 | ändern selten, schwach mit Gang/Schub | unbekannt | – |
 | 0x202 Bit 63, 0x45A Bit 15 | Zustandsbits, an Motorbetrieb gekoppelt | unbekannt | – |
 | 0x09D Bits 17/20/22 | **geklärt (26.09.)**: Lenkrad-Tempomattasten `CRU_CON_SW1`, Byte2 ist die invertierte Kopie von Byte0 (Teil A) | - | C8 erledigt |

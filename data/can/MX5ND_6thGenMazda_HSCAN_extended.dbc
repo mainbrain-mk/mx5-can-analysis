@@ -181,7 +181,7 @@ BO_ 1776 HS_IC_NSWdiag: 8 HS_IC
 BO_ 1778 HS_IC_NSWdiag: 8 HS_IC
 
 BO_ 120 HS_ABS: 8 HS_ABS
-   SG_ BrakePressure : 39|16@0- (0.0012413,32.7986) [0|45] "bar" Vector__XXX
+   SG_ BrakePressure : 39|16@0- (0.0012709,33.5487) [0|45] "bar" Vector__XXX
    SG_ Longi_Acc_Corr : 7|16@0+ (0.000512295,-29.2787) [0|1] "G" Vector__XXX
    SG_ YawRate_related : 23|16@0- (0.0011,0) [-45|45] "deg/s" Vector__XXX
 
@@ -243,7 +243,7 @@ BO_ 1087 HS_BCMM: 8 HS_BCMM
    SG_ Fuel_Related : 7|10@0+ (1,0) [0|1] "" Vector__XXX
 
 BO_ 1114 HS_BCMM: 8 HS_BCMM
-   SG_ BattSensor_Voltage_maybe : 45|13@0+ (0.001953125,0) [0|16] "V" Vector__XXX
+   SG_ BattSensor_Voltage_maybe : 45|13@0+ (0.002,-0.1) [0|16] "V" Vector__XXX
    SG_ BattSensor_Current_raw_maybe : 3|12@0+ (1,0) [0|4095] "" Vector__XXX
    SG_ BattSensor_Temp_maybe : 31|8@0+ (1,-40) [-40|215] "degC" Vector__XXX
    SG_ BattSensor_Byte4_maybe : 39|8@0+ (1,0) [0|255] "" Vector__XXX
@@ -333,7 +333,7 @@ BO_ 304 HS_PCM: 8 HS_PCM
 BO_ 359 HS_PCM: 8 HS_PCM
    SG_ iStop_StopRequest_PCM : 22|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ APP_Accelerator_Pedal_Position : 7|10@0+ (0.1,0) [0|1] "%" Vector__XXX
-   SG_ ActualEnginePercentTorque : 39|8@0+ (3.0242,-177.849) [-177.849|593.3] "%" Vector__XXX
+   SG_ ActualEnginePercentTorque : 39|8@0+ (3.1028,-183.019) [-183.019|608.195] "%" Vector__XXX
    SG_ BrakeSwitch_PCM : 19|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ BrakeSwitch_PCM_Inv : 18|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ BrakeSwitch_PCM_2 : 16|1@0+ (1,0) [0|1] "" Vector__XXX
@@ -816,3 +816,7 @@ CM_ SG_ 1243 DCDC_RegenLevel_maybe "Byte0 Bits 7-5, in der Rekuperation Stufen 0
 CM_ SG_ 522 EngineState_raw_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-26), aus dem Sweep-Neulauf (0x20A gegen Soll-Lambda, 22 Logs). Byte0 ist ein Motorzustands-Byte (rohe Werte). Aus zwei Logs mit Kaltstart bzw. Auto-Stopp: 17-54 (meist 53) = Zuendung an, Motor steht (Drehzahl 0-1); 86 = Anlassen (2 Frames, Kupplung durchgetreten); 117/118 = Motor laeuft (Leerlauf bzw. Fahrt, Bit0/1 wechseln zwischen 117 und 118, Bedeutung offen); 245/246 = Motor steht wieder nach dem Lauf (Drehzahl ~20, Kuehlwasser 90 Grad, nur im Log 09-14_081105, vermutlich i-stop-Automatikstopp). Nur aus 2 Logs gelesen, Zuordnung nicht referenzgestuetzt.";
 CM_ SG_ 522 FuelNotCut_maybe "Eigene Reverse-Engineering-Ergaenzung (2026-09-26). Byte4 Bit7: 1 im Normalbetrieb, 0 in einer TEILMENGE der Schubabschaltung. Gegen Soll-Lambda > 1,9 (PID 0x44) in drei Logs: P(Bit=0 | Schub) = 0,81/0,85/0,83, P(Schub | Bit=0) = 0,95/0,96/0,77; nie 0 bei Gaspedal >= 1 (0,000), zu 18-23% bei Pedal zu. FuelCut (0x0FD Byte5 Bit1) deckt den Schub besser ab (P=0,98/0,98/0,91), dieses Bit liefert also nichts Neues, eher eine Untermenge (vermutlich 'stabile' Schubabschaltung nach Verzoegerungszeit). Damit ist auch der Sweep-Treffer 0x20A gegen Soll-Lambda (r 0,64-0,85 in 22 Logs) erklaert.";
 CM_ SG_ 130 SteeringRate_Abs_maybe "ERSETZT (2026-09-26) das am 2026-09-20 eingetragene SteeringWheelSpeed_related (54|9@0+, 9 Bit, ohne Vorzeichen, gegen STEER_SPD_EPS bestaetigt). Beide sind dieselbe Groesse (r=0,995 bzw. 0,987 zwischen altem 9-Bit- und diesem 12-Bit-Betrag in zwei Logs, beide r=0,99 gegen |d Winkel/dt|), das neue Feld ist aber feiner aufgeloest (12 statt 9 Bit, Startbit 44 statt 48) und traegt mit SteeringRate_Dir_maybe das Vorzeichen; ein Ueberlapp haette beide Definitionen im DBC unmoeglich gemacht.";
+CM_ SG_ 120 BrakePressure "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_recheck.py): Skala 0.0012413 -> 0.0012709, Offset 32.7986 -> 33.5487 (+2,4 %). Die 12.09.-Kalibrierung hatte die ~2-Hz-Referenz linear auf ein 5-Hz-Raster interpoliert und gegen die .dlg-Zeitachse gepaart (daher Lag -0,3 s). Jetzt gegen die DID 0x280A direkt aus dem CAN-Log (BFP_PRE_MZ kPa = raw, exakt gegen die .dlg bestimmt), Kandidat an den Referenz-Zeitstempeln abgelesen: 4 Logs (12_211833, 14_081105, 14_163711, 14_173057), je Log 0.0012663-0.0012719, R2 0,999-1,000, Lag -0,02 s, gepoolt n=14053. Ruhelage raw -26429 -> -0,04 bar.";
+CM_ SG_ 359 ActualEnginePercentTorque "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_recheck.py): 3.0242*raw-177.849 -> 3.1028*raw-183.019 (+2,6 %). Die 15.09.-Kalibrierung (can_find_native_counterpart.py) hatte PID 0x62 linear auf ein 5-s-Raster interpoliert. Jetzt Kandidat an den PID-Zeitstempeln abgelesen, 25 Logs, gepoolt n=109490, R2 0,977, Lag 0-0,02 s. Streuung der Steigung je Fahrt 2,88-3,25 bleibt groesser als die Korrektur - Genauigkeit weiterhin ~4 Prozentpunkte.";
+CM_ SG_ 1114 BattSensor_Voltage_maybe "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_recheck.py): 1/512 V -> 0,002 V/LSB mit -0,1 V Offset. Gegen PID 0x42 (alle 10 s) an den PID-Zeitstempeln: 22 Logs, gepoolt 0,00200264*raw-0,1006 V, R2 0,997 (vorher r=0,966 mit interpolierter Referenz). Die runde Skala weicht bei 12,5 V um 0,016 V vom Fit ab. Weiter _maybe (Messpunkt/Bedeutung nicht per Multimeter bestaetigt).";
+CM_ SG_ 304 Clutch_Pedal_Position_raw "NACHGERECHNET (2026-09-29, scripts/can_obd_scale_recheck.py): Pedalweg in % = raw/2 exakt (gegen CPP_PER_MZ DID 0x0478, % = raw*100/65535, 4 Logs, R2 1,000, Lag 0). Die fruehere Kalibrierung 0,4665*raw+0,56 (12.09.) war ein Interpolations-/Uhrenpaarungs-Artefakt. Bisspunkt raw 114-123 = 57-61,5 %. Signal bleibt als Rohwert (1,0) definiert.";

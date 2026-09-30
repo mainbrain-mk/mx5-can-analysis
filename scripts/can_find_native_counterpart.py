@@ -47,7 +47,8 @@ from obd_from_can import decode_obd_traffic, extract_did_series
 
 OUT_CSV = "results/can_native_counterpart.csv"
 MIN_FRAMES = 500
-GRID_S = 5.0          # Referenzen kommen mit 1-2 Hz - feiner lohnt nicht
+# Verglichen wird an den Zeitstempeln der Referenz selbst (seit 2026-09-29, vorher 5-s-Raster
+# mit linear interpolierter Referenz - das verzerrte R2 und Skala, siehe Logbuch).
 MIN_POINTS = 60
 
 # OBD-Referenzen: (mode, id). Die Oeltemperatur ist der Anlass fuer dieses Skript.
@@ -57,7 +58,7 @@ OBD_REFS = {
     "OBD1_LambdaCommanded": ("mode1", 0x44, lambda r: r / 32768),
     "OBD1_TimingAdvance": ("mode1", 0x0E, lambda r: r / 2 - 64),
     "OBD1_EnginePercentTorque": ("mode1", 0x62, lambda r: r - 125),
-    "KnockRetard": ("mode22", 0x03EC, lambda r: (r - 65536 if r >= 32768 else r) / 512),
+    "KnockRetard": ("mode22", 0x03EC, lambda r: np.where(r >= 32768, r - 65536, r) / 512),
     "STEER_ANGL_EPS": ("mode22", 0x3302, lambda r: r),
 }
 
@@ -165,7 +166,7 @@ def search(log_path, ref_name, control_name=None, verbose=True):
         t_ref, v_ref = dbc_series(raw_df, db, *DBC_REFS[ref_name])
 
     t0, t1 = float(t_ref.min()), float(t_ref.max())
-    grid = np.arange(t0, t1, GRID_S)
+    grid = np.unique(t_ref)
     Y = to_grid(t_ref, v_ref, grid)
 
     if control_name:
@@ -184,7 +185,9 @@ def search(log_path, ref_name, control_name=None, verbose=True):
 
     rows = []
     for can_id, sub in raw_df.groupby("can_id"):
-        if len(sub) < MIN_FRAMES:
+        # Diagnose-IDs (0x7xx) ausschliessen: seit dem Vergleich an den Referenz-Zeitstempeln
+        # (29.09.) ist dort genau der Antwort-Frame der Referenz selbst -> Transfer-R2 1,000.
+        if len(sub) < MIN_FRAMES or 0x700 <= can_id <= 0x7FF:
             continue
         payloads = list(sub["data"])
         dlc = max(len(p) for p in payloads)
@@ -258,7 +261,8 @@ def transfer_check(df, logs, ref_name, control_name, top=40):
         ss = 1 - ((Yb[mb] - pred) ** 2).sum() / max(((Yb[mb] - Yb[mb].mean()) ** 2).sum(), 1e-12)
         out.append(dict(can_id=row["can_id"], field=row["field"],
                         r2_logA=r2a, r2_logB=r2b, r2_transfer=ss))
-    return pd.DataFrame(out).sort_values("r2_transfer", ascending=False)
+    cols = ["can_id", "field", "r2_logA", "r2_logB", "r2_transfer"]
+    return pd.DataFrame(out, columns=cols).sort_values("r2_transfer", ascending=False)
 
 
 def _log_context(path, ref_name, control_name):
@@ -271,7 +275,7 @@ def _log_context(path, ref_name, control_name):
         v_ref = formula(s["raw_value"].to_numpy(dtype=float))
     else:
         t_ref, v_ref = dbc_series(raw_df, db, *DBC_REFS[ref_name])
-    grid = np.arange(float(t_ref.min()), float(t_ref.max()), GRID_S)
+    grid = np.unique(t_ref)
     return dict(raw=raw_df, grid=grid, Y=to_grid(t_ref, v_ref, grid))
 
 
