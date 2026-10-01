@@ -6056,3 +6056,202 @@ Auffaelligkeiten:
 Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - shift_record: Neue Bestzeit 3 -> 2 (downshift): 1.34s (vorher 1.40s), candump-2026-10-01_135820 @ t=278.4s.
+
+## 0–175-km/h-Pull vom 01.10.2026 (`candump-2026-10-01_142300`, t≈181–204 s)
+
+Auswertung auf 50 Hz aus den CAN-Radgeschwindigkeiten. Wahre Geschwindigkeit = Mittel
+der Vorderräder × 0,976 (GPS-Abgleich in diesem Log; VS/Vorderrad = 1,006, passt zum
+dokumentierten VS/GPS-Faktor 0,971). t0 = erste Vorderradbewegung. Masse **1251,8 kg**
+(1073 + 86 Fahrer + 75 Beifahrer laut 0x340 Sitz+Gurt + 23,9 l ≈ 17,8 kg Kraftstoff).
+Strecke laut DGM eben (±0,3 m) bis t≈201 s, danach ~3 % Steigung.
+
+| Marke (wahr) | 0–50 | 0–100 | 0–150 | 0–170 | 80–120 | 100–150 |
+|---|---|---|---|---|---|---|
+| Zeit [s] | 2,80 | 7,62 | 15,60 | 20,58 | 4,92 | 7,98 |
+
+Vmax des Pulls 173,6 km/h wahr (VS 178,5, GPS 175,0, Tacho 185) nach 21,9 s / 693 m.
+
+- **Radzuordnung bestätigt:** beim Launch drehen `WheelSpeed_CAN_3/4` auf ~35 km/h,
+  `_1/_2` stehen fast → 1/2 = vorn, 3/4 = hinten.
+- **Launch:** Kupplung bei ~4400 min⁻¹, Hinterräder +35 km/h Überdrehung, TCS-Anforderung
+  (0x211) und DSC-Lampe blinkt, Drehzahl fällt auf 1640 min⁻¹. Trotzdem kaum Zeitverlust:
+  0–50 in 2,80 s vs. 2,71 s bei konstant 5,1 m/s².
+- **Gang 1 widerlegt den Traktionsdeckel:** gemessen 5,13 m/s² (≈ 6,6 kN Radkraft) gegen
+  `TRACTION_MAX_FORCE_N` = 4450 N (Modell 3,39 m/s²). Der Deckel ist nur aus Gang 2–6
+  gefittet und gilt für Gang 1 mit den NS-R2 nicht. Stationärer Schlupf Gang 1 ≈ 3 %
+  (scheinbare Übersetzung 5,256 statt 5,087), Gang 2 1 %, Gang 3/4 < 0,5 %.
+- **Gemessen/Modell (raw, 1252 kg):** Gang 2 0,89 (traktionsbegrenzt 1,04), Gang 3 0,92,
+  Gang 4 0,88 (bis t=201,5 s, eben). Gang 4 liegt am unteren Rand der bekannten
+  5–10 %-Optimismus des Modells; Wind unbekannt (nur eine Richtung).
+- **Schalten:** jedes Mal auf dem Begrenzer (~7450 min⁻¹): Gang 1 0,16 s, Gang 2 **0,40 s**
+  mit fast null Beschleunigung vor dem Kuppeln. Zugkraftlücken 0,28 / ~0,25 / 0,26 s
+  (1→2 / 2→3 / 3→4) gegen ATTACK 0,15 / 0,15 / 0,17 s. Nach 1→2 nochmals +25 km/h
+  Hinterrad-Überdrehung mit TCS-Eingriff. Geschätzter Fahrerverlust zusammen ≈ 0,8 s.
+- **Bremsung danach:** ab 203,4 s, bis 75 bar, ax_CAN min −1,02 g, ABS aktiv ab 204,5 s,
+  `HighDecel_CAN` ab 203,9 s, `EmergencyStopSignal_CAN` (Warnblinker) ab 204,9 s.
+
+### Nachtrag 01.10.2026: Gang-1-Traktionsdeckel angepasst
+
+Der Befund oben (Gang 1 weit über dem 4450-N-Deckel) mit allen CAN-Logs gegengeprüft.
+Gesucht: APP > 95 %, Gang 1, Kupplung zu, keine Bremse, v > 18 km/h, ≥ 0,5 s.
+Beschleunigung aus den Vorderrädern, Masse pro Log (Tank aus `FuelTank_CAN_raw`, Beifahrer
+aus 0x340). Radkraft = m·a + Luft + Rollwiderstand:
+
+| Log | t [s] | v [km/h] | m [kg] | a [m/s²] | F [N] |
+|---|---|---|---|---|---|
+| candump-2026-09-18_093544 | 572,8 | 18–46 | 1178 | 4,12 | 5033 |
+| candump-2026-09-26_135855 | 54,4 | 30–55 | 1242 | 4,15 | 5360 |
+| candump-2026-09-26_135855 | 508,8 | 18–38 | 1242 | 5,09 | 6504 |
+| candump-2026-09-26_135855 | 819,7 | 18–55 | 1242 | 4,32 | 5562 |
+| candump-2026-09-26_142216 | 1020,5 | 38–55 | 1266 | 5,08 | 6660 |
+| candump-2026-10-01_142300 | 49,4 | 44–55 | 1250 | 4,72 | 6131 |
+| candump-2026-10-01_142300 | 95,4 | 37–49 | 1250 | 4,46 | 5792 |
+| candump-2026-10-01_142300 | 182,4 | 23–55 | 1250 | 5,11 | 6592 |
+
+Median ~5950 N, alle über 4450 N. Der Motor könnte hier 8,4–9,3 kN liefern, die Grenze
+ist also Traktion bzw. Momentenmanagement der ECU. Neuer Wert
+`TRACTION_MAX_FORCE_GEAR1_N = 5950` in `performance_simulation.py`; `accel()` nimmt ihn in
+Gang 1, sobald ein `f_max` gesetzt ist. Damit greift er auch in `spreewaldring_lap_simulation.py`
+und `spreewaldring_racing_line_optimal.py`. In `spreewaldring_racing_line_search.py` und im
+JS des Editors (`spreewaldring_racing_line_editor.py`) ist er nachgezogen; ältere exportierte
+Parameterdateien ohne den Schlüssel fallen auf 4450 N zurück. Median statt Bestwert gewählt,
+weil auch die 4450 N als RMSE-Fit über typische Segmente entstanden sind.
+
+Wirkung:
+- `performance_simulation.py` traktionsbegrenzt: Schaltung 1→2 bei 57,9 statt 26,8 km/h
+  (vorher ein Artefakt des zu niedrigen Deckels), 0–100 7,08 statt 8,16 s, 0–200 26,23 statt
+  27,31 s. Raw und bias-korrigiert bleiben unverändert.
+- `spreewaldring_lap_simulation.py`: μ=1,0 110,52 → 107,42 s; μ=1,3 99,54 → 96,59 s;
+  μ=1,0 mit Kraftkreis 114,01 → 111,37 s; μ=1,3 mit Kraftkreis 102,21 → 99,70 s;
+  gemessener Kraftkreis 108,18 → 105,76 s.
+- `test_spreewaldring_lap_simulation.py` läuft weiter durch (OK).
+
+Offen: Gang 2 lag am 01.10. auch über dem Deckel (gemessen/traktionsbegrenzt 1,04), das
+reicht aber noch nicht für einen eigenen Wert.
+
+### Nachtrag 01.10.2026: Vergleich mit dem 0–100-Pull vom 26.09. (`candump-2026-09-26_142216`, t≈1019 s)
+
+Gleiche Methode (Vorderräder × 0,976, t0 = erste Vorderradbewegung). Beide mit Beifahrer.
+
+| | 0–30 | 0–50 | 0–60 | 0–80 | 0–100 | 0–120 | Masse |
+|---|---|---|---|---|---|---|---|
+| 26.09. | 1,42 s | 2,48 s | 3,26 s | 4,94 s | **6,98 s** | 9,56 s | 1266 kg |
+| 01.10. | 1,68 s | 2,80 s | 3,66 s | 5,24 s | 7,62 s | 10,16 s | 1254 kg |
+
+- Das Auto war an beiden Tagen gleich stark: Gang 1 5,09 / 5,11 m/s², Gang 2 3,34 / 3,38 m/s²
+  (je ~4590 N, also auch Gang 2 beide Male leicht über 4450 N).
+- **Der Unterschied ist Fahrtechnik.** Launch am 26.09.: Drehzahl bei ~6300 min⁻¹ gehalten,
+  Kupplung ~1,7 s schleifend (roh 70–90) bis 38 km/h, fast kein Radschlupf, Spitze 0,69 g.
+  Erst beim vollen Einkuppeln kurz +17 km/h Hinterrad-Überdrehung und TCS. Am 01.10. dagegen
+  Kupplung bei ~4500 min⁻¹ schnell eingekuppelt, +35 km/h Überdrehung, Drehzahl auf 1625 min⁻¹.
+  Das kostet bis 30 km/h 0,26 s. Dazu kommen am 01.10. 0,5 s auf dem Begrenzer; am 26.09. kaum.
+  Schaltlücken waren an beiden Tagen ~0,30 s.
+- **Folge für den Gang-1-Deckel:** Mit 5950 N und realer Masse (1266 kg) liefert
+  `performance_simulation.py` 0–50 in 3,22 s und 0–100 in 7,93 s (wahre km/h). Das ist
+  0,7 bzw. 1,0 s langsamer als der Pull vom 26.09. Bis 30 km/h hat die schleifende Kupplung
+  im Mittel ~7,6 kN übertragen. Der Median-Deckel beschreibt also Fahrten wie heute, nicht
+  den besten Launch. Mit 6650 N (Bestwert der Segmente) werden es 2,96 / 7,62 s. Die
+  Startphase mit schleifender Kupplung lässt sich mit einer konstanten Obergrenze ohnehin nicht abbilden.
+
+### Nachtrag 01.10.2026: Gang-1-Deckel auf 6650 N (Nutzerentscheid)
+
+Statt des Medians (5950 N) jetzt der Bestwert der acht Segmente: `TRACTION_MAX_FORCE_GEAR1_N = 6650`.
+Begründung: Die Simulation bildet maximale Fahrleistung ab, so wie die ATTACK-Schaltzeiten.
+Mit dem Median lag sie ~1 s hinter dem 26.09. Die in den Abschnitten oben genannten
+5950-N-Werte sind damit überholt.
+
+- `performance_simulation.py` traktionsbegrenzt: 0–100 6,79 s, 0–200 25,94 s (Schaltung 1→2 bei
+  57,9 km/h). Mit realer Masse 1266 kg in wahren km/h: 0–50 2,96 s, 0–100 7,62 s gegen
+  2,48 / 6,98 s am 26.09. Die Lücke ist die schleifende Kupplung beim Start.
+- `spreewaldring_lap_simulation.py` (vorher mit 4450 N → jetzt): μ=1,0 110,52 → 106,29 s;
+  μ=1,3 99,54 → 95,54 s; μ=1,0 Kraftkreis 114,01 → 110,45 s; μ=1,3 Kraftkreis
+  102,21 → 98,81 s; gemessener Kraftkreis 108,18 → 104,96 s. Test OK.
+
+### Nachtrag 01.10.2026: Moment im 2. Gang → fehlende Drehträgheit statt Traktionsgrenze
+
+Methode: Volllast-Samples aller CAN-Logs. Bedingungen: APP > 95 %, Gang aus Drehzahl/Hinterrad
+(±3 %), Kupplung zu, keine Bremse, kein TCS, 2500–7350 min⁻¹, Abschnitte ≥ 0,6 s, die ersten
+0,3 s verworfen. Beschleunigung aus den Vorderrädern (VS-Skala, wie das Modell kalibriert ist),
+Masse pro Log. Datenbasis in Sekunden: Gang 1 2,8 s (2 Logs), Gang 2 67 s (16 Logs),
+Gang 3 220 s (21), Gang 4 161 s (17), Gang 5 214 s (15).
+
+**Gang 2 einzeln:** Das aus der Beschleunigung zurückgerechnete Motormoment (η = 0,93) folgt der
+Form der Volllastkurve. Es liegt über die ganze Drehzahl konstant bei 0,88–0,93 der Kurve
+(2500: 168 Nm, 4500: 189 Nm, 7000: 159 Nm). Die Radkraft liegt bei 4260–5050 N, also
+überwiegend **über** dem 4450-N-Deckel. Der Schlupf ist konstant ~1,5 %. Eine harte
+Kraftgrenze würde eine flache Radkraft zeigen, eine Momentkurve gerade nicht. Gang 2 ist also
+nicht traktionsbegrenzt.
+
+**Über alle Gänge** wächst das Defizit gemessen/Modell mit der Gesamtübersetzung:
+Gang 1 0,72 · 2 0,895 · 3 0,945 · 4 0,96 · 5 1,00. Genau so wirkt Drehträgheit von
+Motor, Kupplung und Getriebe-Eingang, deren Ersatzmasse mit (i_g·i_f/r)² wächst. Das Modell
+(`drivetrain_model_validation.py`, `performance_simulation.py`) hat **keinen** Trägheitsterm.
+Der Schlupf wächst etwa linear mit der Radkraft (0,8 % → 3 %) und zeigt ebenfalls keine Sättigung.
+
+**Fit** von a = (F_Modell − F_Luft − F_Roll) / (m + J_e·(i_g·i_f/r)²) an Gang 2–5, ein Parameter,
+jeder Gang gleich gewichtet: **J_e = 0,143 kg·m²** (Motor + Kupplung + Getriebe-Eingang,
+plausible Größenordnung). Mit zusätzlichem freiem Rad-Term ergibt sich J_e = 0,186
+(Bootstrap über Logs, 90 %: 0,15–0,21) bei unphysikalisch negativer Radmasse (−30 kg). Ein
+zusätzlicher freier Kraftfaktor ist nicht identifizierbar (kollinear). Danach gemessen/Modell:
+
+| Gang | 1 (nicht im Fit) | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| ohne Trägheit | 0,72 | 0,895 | 0,945 | 0,96 | 1,00 |
+| mit J_e = 0,143 | **0,92** | 0,98 | 0,99 | 0,99 | 1,02 |
+
+Gang 1 war nicht im Fit, wird aber trotzdem fast getroffen. Der Rest von ~8 % ist dort
+die echte Traktions-/TCS-Grenze. Der 4450-N-Deckel und der frühere Bias-Faktor 0,92 sind damit
+größtenteils eine Fehlzuschreibung derselben fehlenden Trägheit. Das passt auch zum Muster im
+Docstring von `performance_simulation.py` (Verhältnis steigt von Gang 2 nach Gang 6).
+
+Vorschau (nur Trägheit, kein Deckel; 1266 kg, wahre km/h): 0–50 3,10 s, 0–100 7,59 s,
+**50–100 4,49 s** gegen real 4,50 s am 26.09. Die verbleibende Lücke ist allein der Launch
+(schleifende Kupplung, Simulation startet bei ~0 min⁻¹).
+
+**Status:** Befund, Modell noch NICHT umgestellt. Vorschlag: Deckel durch J_e ersetzen,
+in Gang 1 zusätzlich eine Traktionsgrenze; Nutzerentscheid offen.
+
+### Nachtrag 01.10.2026: Modell auf Drehträgheit umgebaut (Nutzerentscheid)
+
+Umsetzung:
+- `drivetrain_model_validation.py`: `ENGINE_INERTIA_KGM2 = 0.143` und `effective_mass(m, gear)`
+  = m + J_e·(i_g·i_f/r)². Verwendet in `model_accel()` und im Pfad mit Steigungs-/Windkorrektur.
+- `performance_simulation.py`: `accel()` teilt durch die effektive Masse. `f_max` begrenzt jetzt
+  die **Reifenkraft** (m·a + Widerstände, ohne Motorträgheit). `TRACTION_MAX_FORCE_N = 6650`
+  ersetzt 4450 N und den Sonderfall `TRACTION_MAX_FORCE_GEAR1_N`; der Wert greift praktisch nur
+  in Gang 1. Szenario „bias-korrigiert“ entfällt. `EMPIRICAL_BIAS_FACTOR` bleibt nur für
+  `top_speed_validation.py` stehen.
+- `partial_load_model.py`: `force_to_accel()` mit effektiver Masse.
+- `spreewaldring_racing_line_search.py` und JS in `spreewaldring_racing_line_editor.py`: gleiche
+  Formel. Neuer Parameter `ENGINE_INERTIA_KGM2`; ältere Exporte ohne den Schlüssel rechnen mit 0.
+- Neu: `scripts/test_performance_simulation.py` (Trägheit wächst mit der Übersetzung,
+  Traktionsgrenze greift nur in Gang 1). Läuft OK, `test_spreewaldring_lap_simulation.py` OK.
+- Nicht angefasst: `precise_vmax_validation_2026_09_12.py` (datiertes Einmal-Skript, Gang 6,
+  Trägheit dort ~1 %).
+
+**Validierung über alle 172 Volllast-Segmente** (`drivetrain_model_validation.py`, Handy- und
+CAN-Logs, OBD-Geschwindigkeit, also eine andere Datenbasis als der Fit), gemessen/Modell:
+
+| Gang | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|
+| vorher flach | 0,89 | 0,93 | 0,97 | 0,98 | 1,12 |
+| **nachher flach** | **0,98** | **0,97** | **0,99** | **1,00** | 1,13 |
+| vorher steigungs-/windkorrigiert | 0,89 | 0,94 | 0,96 | 0,97 | 1,09 |
+| **nachher korrigiert** | **0,98** | **0,99** | **0,99** | **0,98** | 1,10 |
+
+Der Gesamtmedian liegt bei 1,02 (vorher 1,00); das kommt allein vom 6. Gang (68 von 172
+Segmenten), dort liegt die Messung über dem Modell. Das ist ein eigener offener Punkt, die
+Trägheit macht dort nur ~1 % aus.
+
+**Teillast-Validierung** (`partial_load_model.py`, 3979 Segmente, Handy-Logs): Mit dem direkt
+gemessenen Motormoment-Kanal sinkt der RMSE von 0,214 auf 0,207 m/s² (Bias −0,010 → −0,004,
+Korrelation 0,80 → 0,82). Mit dem Kennfeld sinkt er von 0,362 auf 0,339 m/s². Das ist eine
+unabhängige Bestätigung, denn dieser Kanal misst das Moment direkt statt es aus der Volllastkurve
+anzunehmen.
+
+**Simulation** (1181 kg, VS-Skala): raw 0–100 6,82 s / 0–200 26,54 s; traktionsbegrenzt 6,91 s /
+26,63 s. Mit realer Masse in wahren km/h, 50–100: 4,49 s gerechnet gegen 4,50 s am 26.09.
+
+**Rundenzeiten** `spreewaldring_lap_simulation.py` (vorher 4450 N ohne Trägheit → jetzt):
+μ=1,0 110,52 → 107,21 s; μ=1,3 99,54 → 96,41 s; μ=1,0 Kraftkreis 114,01 → 111,21 s;
+μ=1,3 Kraftkreis 102,21 → 99,54 s; gemessener Kraftkreis 108,18 → 105,62 s.

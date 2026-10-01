@@ -101,6 +101,7 @@ CDA_M2 = P["CDA_M2"]
 CRR = P["CRR"]
 MASS_KG = P["MASS_KG"]
 TRACTION_MAX_FORCE_N = P["TRACTION_MAX_FORCE_N"]
+ENGINE_INERTIA_KGM2 = P.get("ENGINE_INERTIA_KGM2", 0.0)  # aeltere Exporte: ohne Traegheit, alter Deckel
 RPM_TABLE = P["RPM_TABLE"]
 TORQUE_TABLE = P["TORQUE_TABLE_NM"]
 ATTACK_SHIFT_S = {k: v for k, v in P["ATTACK_SHIFT_S"].items()}
@@ -138,10 +139,11 @@ def rpm_from_speed(v, gear):
 def accel(v, gear):
     rpm = rpm_from_speed(v, gear)
     torque = interp(rpm, RPM_TABLE, TORQUE_TABLE)
-    f_wheel = min(torque * GEAR_RATIOS[gear] * FINAL_DRIVE * ETA / R_DYN_M, TRACTION_MAX_FORCE_N)
+    f_wheel = torque * GEAR_RATIOS[gear] * FINAL_DRIVE * ETA / R_DYN_M
     f_drag = 0.5 * RHO * CDA_M2 * v * v
     f_roll = CRR * MASS_KG * G
-    return (f_wheel - f_drag - f_roll) / MASS_KG
+    m_eff = MASS_KG + ENGINE_INERTIA_KGM2 * (GEAR_RATIOS[gear] * FINAL_DRIVE / R_DYN_M) ** 2
+    return min((f_wheel - f_drag - f_roll) / m_eff, (TRACTION_MAX_FORCE_N - f_drag - f_roll) / MASS_KG)
 
 
 def coast_accel(v):

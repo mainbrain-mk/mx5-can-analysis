@@ -18,44 +18,22 @@ Waehrend des Schaltvorgangs (ATTACK-Zugkraftunterbrechung, gangspezifisch
 aus dem Dokument) rollt das Fahrzeug ohne Antriebskraft (nur Luft-/
 Rollwiderstand).
 
-Drei Szenarien werden gerechnet:
-  - "raw": reines Modell (Bias-Faktor 1.0)
-  - "bias-korrigiert": Antriebskraft mit EMPIRICAL_BIAS_FACTOR skaliert,
-    dem in drivetrain_model_validation.py ueber 44 echte Volllast-
-    Segmente gemessenen Median-Verhaeltnis gemessen/Modell (~0.92) -
-    siehe dortigen Docstring/docs/logs/projekt-stand.md fuer Herkunft.
-  - "traktionsbegrenzt": NEU (30.08.2026) - Antriebskraft an der Radaufstands-
-    kraft gedeckelt (F_wheel_effektiv = min(F_wheel_modell, TRACTION_MAX_FORCE_N)),
-    statt eines pauschalen Faktors. Herkunft/Begruendung siehe
-    TRACTION_MAX_FORCE_N unten - trifft die ueber 127 echte Volllast-
-    Segmente (44 aus drivetrain_model_validation.py + 83 aus
-    top_speed_validation.py, Gaenge 2-6, v=18-65 m/s) gemessenen
-    Beschleunigungen besser (RMSE 0.158 m/s²) als sowohl raw (0.195) als
-    auch der pauschale Bias-Faktor (0.169) - UND ist physikalisch
-    plausibler: pro Gang aufgeschluesselt sinkt das Verhaeltnis
-    F_erforderlich/F_modell klar mit steigendem Gang (Gang 2: 0.84, Gang 3:
-    0.93, Gang 4: 0.93, Gang 5: 0.96, Gang 6: 0.97) - genau das Muster einer
-    Kraft-OBERGRENZE (bei kleinen Gaengen/hoher Drehmoment-Multiplikation
-    wird die Grenze erreicht, bei Gang 6/hoher Geschwindigkeit liegt die
-    Modellkraft ohnehin meist darunter, daher kaum Korrektur noetig - deckt
-    sich mit dem RAW-Modell, das die Vmax-Segmente gut trifft, siehe
-    docs/logs/projekt-stand.md). EINSCHRAENKUNG: der gefittete Wert (implizites
-    mu~0.38) ist niedriger als ein reiner Reifenhaftungs-Koeffizient
-    (typisch 0.8-1.1+) - vermutlich eine Mischung aus echtem Traktionslimit,
-    ECU-Drehmomentmanagement/Anfahrschlupfregelung und ggf. weiteren nicht
-    einzeln modellierten Verlusten, KEIN sauber isolierter Reifen-mu.
-    Bezieht sich NICHT auf den separaten historischen Launch-Wert
-    (mu_eff=0.88 im externen Dokument) - eigene, unabhaengige Schaetzung.
+Zwei Szenarien werden gerechnet (Stand 01.10.2026):
+  - "raw": Modell inkl. Motor-Drehtraegheit (ENGINE_INERTIA_KGM2 in
+    drivetrain_model_validation.py), ohne Traktionsgrenze.
+  - "traktionsbegrenzt": zusaetzlich Reifenkraft <= TRACTION_MAX_FORCE_N
+    (6650 N, greift praktisch nur in Gang 1).
+Bis 01.10.2026 gab es stattdessen "bias-korrigiert" (Faktor 0,92) und einen
+4450-N-Deckel fuer Gang 2-6. Beide bildeten grossteils die damals fehlende
+Drehtraegheit nach (Defizit wuchs mit kuerzerem Gang); mit Traegheit liegen
+alle Gaenge bei gemessen/Modell 0,98-1,02. EMPIRICAL_BIAS_FACTOR bleibt nur
+fuer top_speed_validation.py stehen. Herleitung: docs/logs/projekt-stand.md,
+Abschnitte vom 01.10.2026.
 
-BEKANNTE EINSCHRAENKUNG: kein dediziertes Traktions-/Launch-Modell mit
-Lastwechsel-/Reifenmechanik (Reifenhaftung beim Start, Lastwechsel unter
-Beschleunigung etc.) - der Kraft-Deckel oben ist eine EMPIRISCHE
-Vereinfachung (konstante Kraftobergrenze, keine geschwindigkeits- oder
-lastabhaengige Reifenkennlinie). Das externe Dokument nennt einen
-historischen Launch-Wert (mu_eff=0.88, Traktionsfaktor Gang 1 = 0.90,
-mittlere Launch-Beschleunigung 5.54 m/s²) explizit als "historische
-Evidenz, nicht aus der aktuellen IMU-Methode neu bestaetigt" - beide
-Werte unabhaengig, nicht verrechnet.
+BEKANNTE EINSCHRAENKUNG: kein Launch-Modell. Die Simulation startet bei
+~0 U/min im 1. Gang; ein realer Start mit schleifender Kupplung bei ~6300
+U/min uebertraegt bis 30 km/h im Mittel ~7,6 kN und ist ~0,5 s schneller bis
+50 km/h (Pull 26.09.2026).
 
 TEILLAST-ERWEITERUNG (NEU, 30.08.2026): `accel()` akzeptiert jetzt einen
 optionalen `etc_deg`-Parameter. Ohne ihn (Default) unveraendertes Verhalten
@@ -91,7 +69,7 @@ from scipy.optimize import brentq
 
 from drivetrain_model_validation import (
     MASS_KG, R_DYN_M, FINAL_DRIVE, GEAR_RATIOS, ETA, CDA_M2, RHO_KG_M3,
-    CRR, G, RPM_TABLE, torque_nm, rpm_from_speed,
+    CRR, G, RPM_TABLE, torque_nm, rpm_from_speed, effective_mass,
 )
 from partial_load_model import build_kennfeld_predictor
 
@@ -122,10 +100,16 @@ VMAX_STEADY_STATE_ACCEL = 0.02  # m/s^2 - darunter gilt Vmax als erreicht
 # Antriebskraft angewendet, kein neu hergeleiteter Wert.
 EMPIRICAL_BIAS_FACTOR = 0.92
 
-# Traktions-/Kraftobergrenze, empirisch gefittet (30.08.2026) ueber 127 echte
-# Volllast-Segmente (Gaenge 2-6): min. RMSE bei F_max=4450N (Suche in 50N-
-# Schritten 3000-8000N). Siehe Docstring oben fuer Herleitung/Einordnung.
-TRACTION_MAX_FORCE_N = 4450.0
+# Reifen-Traktionsgrenze (01.10.2026): Obergrenze fuer die REIFENkraft
+# m*a + Luft + Roll (die Motortraegheit ENGINE_INERTIA_KGM2 sitzt vor dem
+# Reifen und zaehlt nicht dazu). Bestwert aus 8 Volllast-Segmenten im 1. Gang
+# (4 CAN-Fahrten, 5,0-6,7 kN, Median ~5950 N) - Bestwert, weil die Simulation
+# maximale Fahrleistung abbildet. Greift praktisch nur in Gang 1; Gang 2
+# erreicht mit Traegheit max. ~5,1 kN. Ersetzt den frueheren 4450-N-Deckel
+# (30.08.2026, Gang 2-6), der grossteils die damals fehlende Motortraegheit
+# nachbildete. Schleifende-Kupplung-Launch ist nicht abgebildet.
+# Herleitung: docs/logs/projekt-stand.md, Abschnitte vom 01.10.2026.
+TRACTION_MAX_FORCE_N = 6650.0
 
 
 _partial_load_predict = None
@@ -148,10 +132,9 @@ def accel(v_ms, gear, bias=1.0, mass_kg=MASS_KG, f_max=None, etc_deg=None):
     Projekt-Referenzmasse MASS_KG - fuer Fahrten mit bekannt abweichender
     Beladung, z.B. Suedtirol-Rueckfahrt 31.07.2026, expliziten mass_kg
     uebergeben, siehe docs/logs/projekt-stand.md/Memory "Fahrzeuggewicht"), und
-    optionaler Kraftobergrenze f_max (siehe TRACTION_MAX_FORCE_N) - wird
-    NACH dem Bias-Faktor angewendet (fuer den "traktionsbegrenzt"-Modus
-    bias=1.0 UND f_max=TRACTION_MAX_FORCE_N verwenden, nicht beides
-    gleichzeitig mit bias!=1.0 - waeren zwei ueberlappende Korrekturen).
+    optionaler Reifenkraft-Obergrenze f_max (siehe TRACTION_MAX_FORCE_N):
+    begrenzt m*a + Luft + Roll, die Motortraegheit zaehlt nicht dazu.
+    Die Masse wird um die Motor-Drehtraegheit erhoeht (effective_mass()).
 
     NEU: optionaler `etc_deg` (Drosselklappenwinkel) - ohne ihn (Default
     None) unveraendertes Volllast-Verhalten wie bisher. Mit `etc_deg` wird
@@ -165,11 +148,12 @@ def accel(v_ms, gear, bias=1.0, mass_kg=MASS_KG, f_max=None, etc_deg=None):
         percent = float(get_partial_load_predict()(etc_deg, rpm)[0])
         torque = percent / 100.0 * torque_nm(rpm)
     f_wheel = torque * GEAR_RATIOS[gear] * FINAL_DRIVE * ETA / R_DYN_M * bias
-    if f_max is not None:
-        f_wheel = min(f_wheel, f_max)
     f_drag = 0.5 * RHO_KG_M3 * CDA_M2 * v_ms ** 2
     f_roll = CRR * mass_kg * G
-    return (f_wheel - f_drag - f_roll) / mass_kg, rpm
+    a = (f_wheel - f_drag - f_roll) / effective_mass(mass_kg, gear)
+    if f_max is not None:
+        a = min(a, (f_max - f_drag - f_roll) / mass_kg)
+    return a, rpm
 
 
 def coast_accel(v_ms):
@@ -443,7 +427,6 @@ def main():
     print_parameters()
     results = [
         simulate(bias=1.0, label="raw"),
-        simulate(bias=EMPIRICAL_BIAS_FACTOR, label="bias-korrigiert"),
         simulate(bias=1.0, label="traktionsbegrenzt", f_max=TRACTION_MAX_FORCE_N),
     ]
     for res in results:

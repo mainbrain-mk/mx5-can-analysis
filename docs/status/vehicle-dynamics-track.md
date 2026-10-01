@@ -108,6 +108,14 @@ die streckenbezogenen Themen.
   | Zeitoptimal | 99,194 s |
   | Natürliches Gasmodell | 99,337 s |
 
+  **Hinweis 01.10.2026:** Das Antriebsmodell rechnet jetzt mit Motor-Drehträgheit
+  (J_e = 0,143 kg·m²) und einer Reifen-Traktionsgrenze von 6650 N statt des
+  4450-N-Deckels (siehe `performance-model.md`, Abschnitt 6). Die Szenarien von
+  `spreewaldring_lap_simulation.py` werden dadurch 2,4–3,3 s schneller:
+  μ=1,0: 110,52 → 107,21 s; μ=1,3: 99,54 → 96,41 s; μ=1,0 Kraftkreis:
+  114,01 → 111,21 s; μ=1,3 Kraftkreis: 102,21 → 99,54 s; gemessener Kraftkreis:
+  108,18 → 105,62 s. Die Editor-Werte oben stammen noch vom alten Modell.
+
   Beide unter der 240°/s-Lenkraten-Grenze (max. 95°/s gemessen). Siehe
   "Nachtrag (09.09.2026): 'Natuerliches Gasmodell' ueberholt 'Zeitoptimal' ..."
   und "Nachtrag (09.09.2026, Fortsetzung): Rueckschalt-Logik nachgeruestet ...".

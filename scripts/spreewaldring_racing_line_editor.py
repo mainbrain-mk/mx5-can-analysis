@@ -82,7 +82,7 @@ from spreewaldring_lap_simulation import V_MIN_MS
 from spreewaldring_racing_line_optimal import BRAKE_CAP_G
 from drivetrain_model_validation import (
     MASS_KG, R_DYN_M, FINAL_DRIVE, GEAR_RATIOS, ETA, CDA_M2, RHO_KG_M3, CRR, G,
-    RPM_TABLE, TORQUE_TABLE_NM,
+    RPM_TABLE, TORQUE_TABLE_NM, ENGINE_INERTIA_KGM2,
 )
 from performance_simulation import TRACTION_MAX_FORCE_N, ATTACK_SHIFT_S, REDLINE_RPM
 
@@ -257,6 +257,7 @@ def main():
             "RHO_KG_M3": RHO_KG_M3, "CRR": CRR, "G": G,
             "RPM_TABLE": RPM_TABLE.tolist(), "TORQUE_TABLE_NM": TORQUE_TABLE_NM.tolist(),
             "TRACTION_MAX_FORCE_N": TRACTION_MAX_FORCE_N,
+            "ENGINE_INERTIA_KGM2": ENGINE_INERTIA_KGM2,
             "MU": MU_FIXED, "BRAKE_CAP_G": BRAKE_CAP_G, "CURVATURE_WINDOW_M": CURVATURE_WINDOW_M,
             "RESAMPLE_STEP_M": RESAMPLE_STEP_M, "V_MIN_MS": V_MIN_MS,
             "REDLINE_RPM": REDLINE_RPM,
@@ -925,11 +926,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   function accel(v, gear){
     const rpm = rpmFromSpeed(v, gear);
     const torque = interp(rpm, P.RPM_TABLE, P.TORQUE_TABLE_NM);
-    let fWheel = torque * P.GEAR_RATIOS[gear] * P.FINAL_DRIVE * P.ETA / P.R_DYN_M;
-    fWheel = Math.min(fWheel, P.TRACTION_MAX_FORCE_N);
+    const fWheel = torque * P.GEAR_RATIOS[gear] * P.FINAL_DRIVE * P.ETA / P.R_DYN_M;
     const fDrag = 0.5 * P.RHO_KG_M3 * P.CDA_M2 * v * v;
     const fRoll = P.CRR * P.MASS_KG * P.G;
-    return (fWheel - fDrag - fRoll) / P.MASS_KG;
+    const ig = P.GEAR_RATIOS[gear] * P.FINAL_DRIVE / P.R_DYN_M;
+    const mEff = P.MASS_KG + (P.ENGINE_INERTIA_KGM2 ?? 0) * ig * ig;
+    return Math.min((fWheel - fDrag - fRoll) / mEff, (P.TRACTION_MAX_FORCE_N - fDrag - fRoll) / P.MASS_KG);
   }
   function sqrtNonneg(x){ return x>0 ? Math.sqrt(x) : 0; }
 
