@@ -116,6 +116,17 @@ LAMBDA_WOT_MAX = 0.9     # Nutzer-Vorgabe (29.08.2026): ETC_ACT allein ist KEIN
                          # zuverlaessig. AFR_MZ ist im Datalake bereits als
                          # Lambda-aehnlicher Wert um 1.0 skaliert (siehe
                          # Wertebereich in den Logs, nicht die absolute AFR).
+# Drehtraegheit Motor + Kupplung + Getriebe-Eingang, auf die Kurbelwelle
+# bezogen (01.10.2026). Gefittet an allen CAN-Volllast-Samples der Gaenge 2-5
+# (Vorderrad-Beschleunigung, ~660 s aus 21 Logs); trifft danach alle Gaenge
+# mit gemessen/Modell 0,98-1,02 und den nicht gefitteten Gang 1 mit 0,92.
+# Ohne diesen Term fiel das Modell mit kuerzerem Gang zunehmend zu optimistisch
+# aus (Gang 1 0,72 ... Gang 5 1,00) - das hatten frueher der 4450-N-Deckel und
+# der Bias-Faktor 0,92 nachgebildet. Herleitung: docs/logs/projekt-stand.md,
+# "Moment im 2. Gang -> fehlende Drehtraegheit". Radtraegheit ist nicht separat
+# identifizierbar (Fit ergab negative Radmasse) und steckt implizit hier drin.
+ENGINE_INERTIA_KGM2 = 0.143
+
 MIN_SEGMENT_DURATION_S = 1.5
 MIN_SPEED_MS = 3.0        # sehr geringe Geschwindigkeit ausschliessen (Anfahren/Kupplung)
 
@@ -130,13 +141,19 @@ def rpm_from_speed(v_ms, gear):
     return wheel_rps * GEAR_RATIOS[gear] * FINAL_DRIVE * 60.0
 
 
+def effective_mass(mass_kg, gear):
+    """Fahrzeugmasse + auf das Rad reduzierte Motor-Drehtraegheit (gilt nur
+    bei geschlossener Kupplung)."""
+    return mass_kg + ENGINE_INERTIA_KGM2 * (GEAR_RATIOS[gear] * FINAL_DRIVE / R_DYN_M) ** 2
+
+
 def model_accel(v_ms, gear, mass_kg=MASS_KG):
     rpm = rpm_from_speed(v_ms, gear)
     torque = torque_nm(rpm)
     f_wheel = torque * GEAR_RATIOS[gear] * FINAL_DRIVE * ETA / R_DYN_M
     f_drag = 0.5 * RHO_KG_M3 * CDA_M2 * v_ms ** 2
     f_roll = CRR * mass_kg * G
-    return (f_wheel - f_drag - f_roll) / mass_kg, rpm, torque
+    return (f_wheel - f_drag - f_roll) / effective_mass(mass_kg, gear), rpm, torque
 
 
 def load_channel(con, log_id, channel):
@@ -338,7 +355,7 @@ def _build_wot_segments(log_id, t_common, candidate, v_i, g_i, detection,
                             f_drag = 0.5 * RHO_KG_M3 * CDA_M2 * v_air ** 2
                             f_roll = CRR * mass_kg * G
                             f_grade = mass_kg * G * grade_frac
-                            a_mod_corrected = float((f_wheel - f_drag - f_roll - f_grade) / mass_kg)
+                            a_mod_corrected = float((f_wheel - f_drag - f_roll - f_grade) / effective_mass(mass_kg, gear_here))
                             grade_pct = float(grade_frac * 100)
 
                         results.append({

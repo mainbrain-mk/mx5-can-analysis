@@ -8,6 +8,7 @@
 ## 1. Kurzfazit
 
 - Das Fahrleistungsmodell verwendet einen dynamischen Radradius von **0,2985 m**, eine Achsübersetzung von **2,866**, eine Referenzmasse von **1180,705 kg**, **CdA = 0,647 m²**, einen gekoppelten Antriebswirkungsgrad von **0,93**, **Crr = 0,013** und **ρ = 1,18 kg/m³**. Leergewicht (ohne Fahrer/Tank) ist **1073 kg** und damit nicht mit der Referenzmasse identisch. Die Bereifung (**Nankang NS-R2 205/40/R17**) bestätigt den Radradius unabhängig über die Reifengeometrie (0,2979 m).
+- **Drehträgheit (NEU 01.10.2026):** Das Modell rechnet jetzt mit einer Motor-/Kupplungsträgheit **J_e = 0,143 kg·m²** (Ersatzmasse 386 kg im 1. Gang bis 12 kg im 6.) und einer Reifen-Traktionsgrenze von **6650 N**, die praktisch nur im 1. Gang greift. Beides ersetzt den 4450-N-Deckel und den Bias-Faktor 0,92, die im Wesentlichen diese fehlende Trägheit nachgebildet hatten. Ab 50 km/h trifft die 0-Vmax-Simulation den besten realen Pull (26.09.) auf 0,01 s, siehe Abschnitt 6.
 - Für maximale Fahrleistung gelten gangindividuelle ATTACK-Zugkraftunterbrechungen von **0,15 / 0,15 / 0,17 / 0,23 / 0,25 s** für 1→2 bis 5→6. Der frühere Pauschalwert **0,41 s** bleibt Diagnosewert, ist aber nicht mehr Default.
 - Fahrer-WOT wird nicht allein über eine offene Drosselklappe erkannt. **APP > 90 %** kennzeichnet den Bereich oberhalb der haptischen Pedalraste; APP, ETC, Lambda, MAF, Drehzahl, Geschwindigkeit und Kupplung sind gemeinsam zu prüfen.
 - Die Volllastkurve ist im Bereich **4250 bis 6750 min⁻¹** inter-log plausibilisiert. Niedrige Drehzahlen sowie Bereiche oberhalb 7000 min⁻¹ bleiben schwächer abgesichert. Seit 30.08.2026 gibt es zusätzlich ein eigenständiges, messwertbasiertes **Teillastkennfeld** (ETC × Drehzahl → Drehmoment-%, kreuzvalidiert RMSE 7,2 Prozentpunkte), siehe Abschnitt 5.
@@ -39,6 +40,8 @@
 | Bereifung | — | Nankang NS-R2, 205/40/R17 | — | Nutzerangabe (30.08.2026), Semi-Slick-Trackday-Reifen; geometrischer Radius 0,2979 m passt zu r_dyn/r_ref |
 | Achsantrieb | i_final | 2,866 | 1 | validiert |
 | Antriebswirkungsgrad | η | 0,93 | 1 | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
+| Drehträgheit Motor/Kupplung/Getriebe-Eingang (kurbelwellenbezogen) | J_e | 0,143 | kg·m² | NEU 01.10.2026, gefittet an CAN-Volllast Gang 2–5; Ersatzmasse J_e·(i_g·i_f/r)² = 386 / 133 / 62 / 38 / 25 / 12 kg in Gang 1–6 |
+| Reifen-Traktionsgrenze | F_trak | 6650 | N | NEU 01.10.2026, Bestwert Gang 1 (8 Segmente); begrenzt m·a + Widerstände, greift praktisch nur in Gang 1 |
 | Luftwiderstandsfläche | CdA | 0,647 | m² | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
 | Referenz-Luftdichte | ρ | 1,18 | kg/m³ | Modellannahme |
 | Rollwiderstandsbeiwert | Crr | 0,013 | 1 | Modellannahme |
@@ -134,12 +137,23 @@ Status: **datenbasiert, kreuzvalidiert**, in `scripts/partial_load_model.py` (Ke
 
 Integriert das bereits validierte Beschleunigungsmodell (Volllast-Drehmomentkurve, Getriebe-/Achsübersetzung, CdA, Crr, η, Masse) über die Zeit, inkl. Schaltlogik (nächster Gang bei stärkerer Beschleunigung, Redline-Sicherheitsnetz 7500 min⁻¹) und den gangspezifischen ATTACK-Zugkraftunterbrechungen.
 
-| Szenario | 0–100 km/h | 0–200 km/h | Vmax |
+| Szenario (Stand 01.10.2026, mit Drehträgheit) | 0–100 km/h | 0–200 km/h | Vmax |
 |---|---:|---:|---:|
-| raw (unkorrigiert) | 5,80 s | 24,95 s | 231,7 km/h |
-| bias-korrigiert (Faktor 0,92, aus 44 Volllast-Segmenten) | 6,31 s | 28,46 s | 222,8 km/h |
+| raw (Trägheit, ohne Traktionsgrenze) | 6,82 s | 26,54 s | 231,7 km/h |
+| traktionsbegrenzt (zusätzlich Reifenkraft ≤ 6650 N) | 6,91 s | 26,63 s | 231,7 km/h |
 
-Kein Traktions-/Launch-Modell (Reifenhaftung bei niedriger Geschwindigkeit in Gang 1) enthalten, bewusst nicht eingebaut (der historische Launch-Wert μ_eff = 0,88 gilt als Diagnosewert, nicht als aktuell bestätigte IMU-Evidenz) — 0–100-Zeiten dadurch ggf. leicht optimistisch. Kein Vergleich gegen eine durchgehende reale 0-Vmax-Fahrt möglich (liegt in den Logs nicht vor; Validierung bleibt indirekt über einzelne Volllast-Segmente).
+Referenzmasse 1181 kg, VS-Skala. Die früheren Szenarien „bias-korrigiert“ (Faktor 0,92) und „traktionsbegrenzt“ mit 4450 N in Gang 2–6 sind entfallen. Beide bildeten im Wesentlichen die damals fehlende Drehträgheit nach: Das Defizit gemessen/Modell wuchs mit kürzerem Gang, eine echte Kraftgrenze war es nicht (Radkraft im 2. Gang folgt der Momentkurve, 4260–5050 N). Herleitung: `logs/projekt-stand.md`, Abschnitte vom 01.10.2026.
+
+**Gegen reale Pulls (wahre km/h, mit Beifahrer):**
+
+| | 0–50 | 0–100 | 50–100 | 100–150 |
+|---|---:|---:|---:|---:|
+| Simulation, 1266 kg | 3,22 s | 7,71 s | **4,49 s** | 7,59 s |
+| real 26.09. (`candump-2026-09-26_142216`) | 2,48 s | 6,98 s | **4,50 s** | – |
+| Simulation, 1254 kg | 3,19 s | 7,64 s | 4,45 s | 7,52 s |
+| real 01.10. (`candump-2026-10-01_142300`) | 2,80 s | 7,62 s | 4,82 s | 7,98 s |
+
+Validierung über alle 172 Volllast-Segmente (steigungs-/windkorrigiert), gemessen/Modell Gang 2–5: **0,98 / 0,99 / 0,99 / 0,98**, vorher 0,89 / 0,94 / 0,96 / 0,97. Der 6. Gang bleibt bei 1,10, das ist ein eigener offener Punkt. Die Teillast-Validierung wird mit dem direkt gemessenen Moment ebenfalls besser (RMSE 0,214 → 0,207 m/s²). Ab 50 km/h trifft die Simulation den sauberen Pull vom 26.09. praktisch exakt. Am 01.10. kosteten Begrenzer (0,5 s) und langsamere Schaltungen Zeit. Bis 50 km/h fehlt weiterhin ein Launch-Modell: Die Simulation startet bei ~0 min⁻¹, real wurde mit schleifender Kupplung bei ~6300 min⁻¹ gestartet (bis 30 km/h im Mittel ~7,6 kN). Ein durchgehender realer Pull bis Vmax fehlt noch.
 
 ### Gang-6-/Vmax-Validierung mit Geländekorrektur (`scripts/top_speed_validation.py`, NEU 29./30.08.2026)
 
@@ -319,7 +333,7 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 - Keine Haftgrenze aus `a_lat_LP4`.
 - Keine Drehmoment- oder Massenanpassung aus `a_long_LP4` ohne gezielte Kalibrierfahrt.
 - Physikalisch unplausible 20-ms-Spitzen verwerfen bzw. über geeignete 2-s-Fenster aggregieren.
-- Den 0,92-Bias-Korrekturfaktor aus dem 130–200-km/h-Bereich nicht auf den Vmax-Bereich (> 215 km/h) anwenden — dort ist er nachweislich schlechter als unkorrigiert (siehe Abschnitt 6).
+- Den 0,92-Bias-Korrekturfaktor nicht mehr verwenden: Er bildete die fehlende Drehträgheit nach, die seit 01.10.2026 im Modell steckt (siehe Abschnitt 6). Nur `top_speed_validation.py` rechnet ihn noch mit.
 - Bei neuem Log vor gewichtsabhängigen Berechnungen das tatsächliche Gesamtgewicht (Fahrer + Zuladung) erfragen statt pauschal SOLO anzunehmen.
 
 ## 12. Priorisierte offene Punkte
@@ -345,8 +359,8 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 7. **Aktuellen Modellstand und IMU-Master konsolidieren**  
    Die Fahrzeugmodell-Datei und die beiden v1.1-Schwingungsfortschreibungen sollten in einem eindeutigen, versionierten Master mit Changelog zusammengeführt werden.
 
-8. **Geschwindigkeitsabhängigen Bias-Korrekturfaktor statt eines globalen Faktors entwickeln**  
-   Der pauschale 8–9 %-Korrekturfaktor aus dem 130–200-km/h-Bereich trifft den gemessenen Vmax-Bereich (> 215 km/h) nicht — dort ist das unkorrigierte Modell näher an der Realität (siehe Abschnitt 6). Benötigt eine geschwindigkeitsabhängige statt einer konstanten Korrektur.
+8. **Geschwindigkeitsabhängigen Bias-Korrekturfaktor statt eines globalen Faktors entwickeln — weitgehend erledigt (01.10.2026)**  
+   Der Faktor hing nicht von der Geschwindigkeit ab, sondern vom Gang: Die fehlende Drehträgheit (J_e = 0,143 kg·m²) macht im 2. Gang ~11 % der Masse aus, im 6. Gang ~1 %. Deshalb passte der Faktor im mittleren Tempo und das unkorrigierte Modell bei Vmax. Offen bleibt der 6. Gang, wo die Messung über dem Modell liegt (Abschnitt 6).
 
 9. **Geschwindigkeitsrahmen auf GPS umstellen (Entscheidung offen)**  
    `VehicleSpeed` liest 2,9 % zu hoch (siehe Kurzfazit). Vorschlag: eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle beim Laden von `VehicleSpeed` einführen, r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen, danach Gang-4-, Vmax-, Ausroll- und μ-Validierung neu laufen lassen. Bis dahin absolute Werte mit 0,971 (v, a) bzw. 0,943 (μ) umrechnen.

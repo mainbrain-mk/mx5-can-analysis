@@ -94,7 +94,7 @@ from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from drivetrain_model_validation import (
     DB_PATH, RESULTS_DIR, MASS_KG, R_DYN_M, FINAL_DRIVE, GEAR_RATIOS, ETA,
     CDA_M2, RHO_KG_M3, CRR, G, APP_WOT_MIN, ETC_WOT_MIN, MIN_SPEED_MS,
-    torque_nm, rpm_from_speed, model_accel, load_channel, group_runs,
+    torque_nm, rpm_from_speed, model_accel, load_channel, group_runs, effective_mass,
     gear_channel_is_reliable, infer_gear_from_rpm_speed,
 )
 
@@ -310,10 +310,10 @@ def find_teillast_segments(con, log_id):
     return results
 
 
-def force_to_accel(f_wheel, v_ms, mass_kg=MASS_KG):
+def force_to_accel(f_wheel, v_ms, gear, mass_kg=MASS_KG):
     f_drag = 0.5 * RHO_KG_M3 * CDA_M2 * v_ms ** 2
     f_roll = CRR * mass_kg * G
-    return (f_wheel - f_drag - f_roll) / mass_kg
+    return (f_wheel - f_drag - f_roll) / effective_mass(mass_kg, gear)
 
 
 def wheel_force_from_percent(percent, rpm, gear):
@@ -329,11 +329,11 @@ def evaluate_segments(segments, predict_fn):
         pct_pred = float(predict_fn(seg["etc_mean"], seg["rpm_mean"])[0])
         f_kennfeld = wheel_force_from_percent(pct_pred, seg["rpm_mean"], seg["gear"])
         seg["percent_torque_kennfeld"] = pct_pred
-        seg["a_model_kennfeld_ms2"] = float(force_to_accel(f_kennfeld, seg["v_mean_ms"]))
+        seg["a_model_kennfeld_ms2"] = float(force_to_accel(f_kennfeld, seg["v_mean_ms"], seg["gear"]))
 
         if seg["pt_mean_measured"] is not None:
             f_direct = wheel_force_from_percent(seg["pt_mean_measured"], seg["rpm_mean"], seg["gear"])
-            seg["a_model_direkt_gemessen_ms2"] = float(force_to_accel(f_direct, seg["v_mean_ms"]))
+            seg["a_model_direkt_gemessen_ms2"] = float(force_to_accel(f_direct, seg["v_mean_ms"], seg["gear"]))
         else:
             seg["a_model_direkt_gemessen_ms2"] = None
     return segments
