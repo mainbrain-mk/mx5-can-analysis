@@ -13,7 +13,8 @@ das Git auf dem Pi (siehe unten), nicht mehr dieses Dokument.
 > Zeitpunkt lief auf dem Pi eine Simulation: `canplayer -I /tmp/mx5_sim_replay.log -l i` auf
 > `vcan0` seit ~18:50, kein `can0`, kein Auto. Die Simulation wurde nicht angefasst.
 > Danach den Folge-Commit derselben Branch nachgeschoben (nur Analyse-Skripte und Doku, keine
-> Pi-Dateien, kein Neustart nötig). `deployed` = Kopf von `can-resample-obd-skalen`.
+> Pi-Dateien, kein Neustart nötig). Stand 2026-10-01: `deployed` = `3022d15`, inhaltlich identisch
+> mit `main` (`d67aa43`, Merge von PR #39, der Merge-Commit ändert keine Datei).
 >
 > **Git auf dem Pi (2026-09-28, ~19:00):** `/home/pi/canlogs/repo`, Branch `deployed` = `main`
 > `158f154` (nach Merge von PR #33-#35). Vorher alle Pi-Dateien per md5 gegen `main` geprüft:
