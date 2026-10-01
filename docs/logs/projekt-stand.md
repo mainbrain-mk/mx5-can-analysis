@@ -6255,3 +6255,38 @@ anzunehmen.
 **Rundenzeiten** `spreewaldring_lap_simulation.py` (vorher 4450 N ohne Trägheit → jetzt):
 μ=1,0 110,52 → 107,21 s; μ=1,3 99,54 → 96,41 s; μ=1,0 Kraftkreis 114,01 → 111,21 s;
 μ=1,3 Kraftkreis 102,21 → 99,54 s; gemessener Kraftkreis 108,18 → 105,62 s.
+
+## Reifenwechsel 01.10.2026: Nankang NS-R2 ausgemustert, Hankook-Winterreifen montiert
+
+**Nutzerangabe 01.10.2026:** Heute sind wir zum letzten Mal mit den **Nankang NS-R2 205/40 R17** gefahren.
+Alle vier Reifen haben **Risse an der inneren Flanke**. Montiert sind jetzt **Hankook-Winterreifen 195/50 R16**.
+**Nachtrag gleicher Tag (Nutzerangabe):** **Hankook Winter i\*cept RS3 W462, 195/50 R16 88H, DOT 1024**
+(KW 10/2024, gut 2,5 Jahre alt). Der Satz ist **an der Verschleißgrenze** und muss erneuert werden, ist also nur
+eine Übergangslösung. **Alle vier Räder haben TPMS-Sensoren.** Noch offen: Felgen (Gewicht) und Luftdruck.
+Tragfähigkeit 88 = 560 kg pro Reifen, Geschwindigkeitsindex **H = 210 km/h**. In den Logs stehen Vmax-Plateaus bis
+236 km/h (08.08.) und ein Pull bis 175 km/h (heute). Mit diesem Satz liegt das über der Freigabe. Für Winterreifen mit niedrigerem
+Index verlangt §36 StVZO einen Hinweisaufkleber im Sichtfeld. Für die Auswertung heißt das: Vmax-/Pull-Logs über 210 km/h
+sind mit diesen Reifen nicht zu erwarten, und Kurvendaten spiegeln einen abgefahrenen Winterreifen wider (wenig Profil),
+nicht einen Winterreifen allgemein.
+
+- **Letzter Log auf NS-R2:** `candump-2026-10-01_142300` (Ende ≈ 14:29:37). Davor am selben Tag `candump-2026-10-01_135820`.
+  Ab dem nächsten Log fährt das Auto auf den neuen Reifen. Analysen über mehrere Fahrten hinweg (Kurven-Bestwerte
+  `corner_peak_best`, Schalt-Bestzeiten, Coastdown, Traktionsgrenze 6650 N, Teillast-/Volllastfits) mischen sonst beide
+  Reifensätze. Neue Logs also nach Reifensatz trennen oder getrennt auswerten.
+- **Geometrie:** 195/50 R16 → Flanke 97,5 mm, Radius 0,3007 m statt 0,2979 m (**+0,94 %**). Gleiche Felge bei
+  geringerer Breite bedeutet auch leicht anderes Rad-Trägheitsmoment und andere Radmasse (Felgen unbekannt).
+- **Was gleich bleibt:** `VehicleSpeed` rechnet das Steuergerät aus der Raddrehzahl mit fest eingestelltem Umfang.
+  Drehzahl/`VehicleSpeed` pro Gang (Ganginferenz, r_dyn = 0,2985 m im ECU-Rahmen) bleibt damit unverändert.
+- **Erwartung, an den nächsten Logs zu prüfen:** Das Mehranzeigen von `VehicleSpeed` gegenüber GPS (bisher +2,9 %,
+  GPS/VS = 0,971) sollte auf etwa **+1,9 %** sinken (GPS/VS ≈ 0,980). Winterreifen wachsen bei Tempo und tragen anders
+  ab, also nur als Größenordnung zu verstehen.
+- **Grip:** Die μ-Bandbreite 1,0–1,3 (Literatur Semi-Slick, `TIRE_MU_RANGE` in `spreewaldring_lap_simulation.py`/
+  `spreewaldring_track.py`) gilt nicht für Winterreifen. Erwartbar sind deutlich niedrigere Querbeschleunigungen
+  (trocken grob 0,8–0,95 g, ohne eigene Messung) und ein höherer Rollwiderstand (Crr). Die Rundenzeit-Simulation und die
+  Kurvenmodelle sind an den NS-R2 kalibriert. Nichts davon ist angepasst, die Zahlen bleiben als NS-R2-Stand gültig.
+- **TPMS:** Die Winterräder haben eigene Sensoren (Nutzerangabe). Prüfen, ob `TirePressure_CAN_Tire1-4` weiter Werte liefert
+  und die Zuordnung FL/FR/RL/RR noch stimmt.
+- **Zweck des Satzes (Nutzerangabe):** Diese Reifen sind nur dafür da, durch den Winter zu kommen. Mit ihnen werden
+  **keine Bestzeiten** gerechnet: keine Rundenzeit-/Ideallinien-Simulation, keine Grip-/μ-Kalibrierung. Die
+  automatischen Bestwert-Tracker der Pipeline (Kurven-Peaks, Schaltzeiten) laufen unverändert weiter. Winterreifen-Logs
+  werden die NS-R2-Kurvenwerte kaum übertreffen. Schaltzeiten hängen vom Fahrer ab, nicht vom Reifen.
