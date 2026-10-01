@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 import can_log_parser
+from build_datalake import KNOWN_CAN_LOG_DUPLICATES
 import pipeline_checks
 import render_report
 
@@ -93,12 +94,13 @@ def run_script(args, errors, timeout=1800):
     return res
 
 
-def rclone_sync_new_logs(errors):
-    """Schritt 0: neue .dlg-Dateien aus dem Drive-Ordner "Loggs" nach
-    data/raw/ laden (Remote per root_folder_id fest darauf gesetzt, siehe
-    ~/.config/rclone/rclone.conf). Gibt die Liste der heruntergeladenen
-    Dateinamen (ohne .dlg) zurueck, oder [] bei Fehler/nichts Neuem."""
-    local = {os.path.basename(p)[:-4] for p in glob.glob(f"{RAW_DIR}/*.dlg")}
+def rclone_sync_new_logs(errors, ext=".dlg", dest=RAW_DIR):
+    """Schritt 0: neue <ext>-Dateien aus dem Drive-Ordner "Loggs" nach
+    dest laden (Remote per root_folder_id fest darauf gesetzt, siehe
+    ~/.config/rclone/rclone.conf): .dlg nach data/raw/, seit 01.10. auch die
+    BasicAirData-.gpx nach data/can/. Gibt die Liste der heruntergeladenen
+    Dateinamen (ohne Endung) zurueck, oder [] bei Fehler/nichts Neuem."""
+    local = {os.path.basename(p)[:-len(ext)] for p in glob.glob(f"{dest}/*{ext}")}
     try:
         res = subprocess.run(["rclone", "lsf", "gdrive:", "--files-only"],
                               capture_output=True, text=True, timeout=60)
@@ -109,14 +111,14 @@ def rclone_sync_new_logs(errors):
         errors.append(("rclone lsf", f"exit code {res.returncode}: {res.stderr[-300:]}"))
         return []
 
-    drive_dlgs = {line[:-4] for line in res.stdout.splitlines() if line.endswith(".dlg")}
-    missing = sorted(drive_dlgs - local)
+    on_drive = {line[:-len(ext)] for line in res.stdout.splitlines() if line.endswith(ext)}
+    missing = sorted(on_drive - local)
     if not missing:
         return []
 
-    cmd = ["rclone", "copy", "gdrive:", RAW_DIR]
+    cmd = ["rclone", "copy", "gdrive:", dest]
     for log_id in missing:
-        cmd += ["--include", f"{log_id}.dlg"]
+        cmd += ["--include", f"{log_id}{ext}"]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except Exception as e:
@@ -146,7 +148,7 @@ def _gpx_speed_1hz(gpx_path):
     """GPS-Geschwindigkeit aus einer BasicAirData-GPX als {UTC-Epoch-Sekunde: km/h}."""
     with open(gpx_path, encoding="utf-8") as f:
         rows = GPX_TIME_SPEED_RE.findall(f.read())
-    idx = [int(datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()) for t, _ in rows]
+    idx = [int(datetime.fromisoformat(t).timestamp()) for t, _ in rows]
     return pd.Series([float(v) * 3.6 for _, v in rows], index=idx, dtype=float).groupby(level=0).mean()
 
 
@@ -674,6 +676,28 @@ def sync_can_logs_from_pi(errors):
     return new_log_ids
 
 
+def pair_late_gpx():
+    """CAN-Logs mit leerer GPX-Zuordnung erneut zuordnen - fuer GPX, die erst nach ihrem CAN-Log
+    im Drive landen (01.10.: 20261001-135802.gpx). Nur bestehende leere Eintraege; die Uhrzeit-
+    pruefung (fix_can_log_clocks) laeuft fuer diese alten Logs nicht nochmal. Gibt die neu
+    zugeordneten Logs als {log_name: gpx} zurueck."""
+    if not os.path.exists(CAN_GPS_PAIRS_OVERRIDE_PATH):
+        return {}
+    with open(CAN_GPS_PAIRS_OVERRIDE_PATH, encoding="utf-8") as f:
+        pairs = json.load(f)
+    paired = {}
+    for log_name, gpx in pairs.items():
+        if gpx or log_name in KNOWN_CAN_LOG_DUPLICATES or not os.path.exists(os.path.join(CAN_DIR, log_name)):
+            continue
+        gpx = _find_matching_gpx(log_name.removesuffix(".log"))
+        if gpx:
+            pairs[log_name] = paired[log_name] = gpx
+    if paired:
+        with open(CAN_GPS_PAIRS_OVERRIDE_PATH, "w", encoding="utf-8") as f:
+            json.dump(pairs, f, indent=2, ensure_ascii=False, sort_keys=True)
+    return paired
+
+
 def find_new_logs():
     """Schritt 1: Logs in data/raw/, die noch keine
     data/derived/<name>_vibration_summary.json haben."""
@@ -767,11 +791,21 @@ def main():
     errors = []
 
     downloaded = rclone_sync_new_logs(errors)
+    new_gpx = rclone_sync_new_logs(errors, ".gpx", CAN_DIR)
+    late_pairs = pair_late_gpx() if new_gpx else {}  # vor dem Pi-Sync: neue CAN-Logs paart der selbst
     new_logs = find_new_logs()
     new_can_logs = sync_can_logs_from_pi(errors)
     new_can_logs, clock_fixes = fix_can_log_clocks(new_can_logs, errors)
 
+    if new_gpx:
+        print(f"{len(new_gpx)} neue GPX aus Google Drive geladen: {new_gpx}")
+    if late_pairs:
+        print(f"GPX nachtraeglich zugeordnet: {late_pairs}")
+
     if not new_logs and not new_can_logs:
+        if late_pairs and run_script([PYTHON, "scripts/build_datalake.py"], errors) is None:
+            print(f"FEHLER build_datalake: {errors[-1][1]}")
+            return 1
         print("Keine neuen Logs gefunden.")
         return 0
 
@@ -904,6 +938,8 @@ def main():
         script_errors=errors,
     )
     findings += [pipeline_checks._finding("info", "can_clock_fixed", m) for m in clock_fixes]
+    findings += [pipeline_checks._finding("info", "gpx_late_paired", f"{log} nachtraeglich mit {gpx} gepaart.")
+                 for log, gpx in late_pairs.items()]
 
     run_report = {
         "date": date.today().isoformat(),

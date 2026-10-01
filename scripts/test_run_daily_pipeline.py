@@ -290,6 +290,34 @@ def test_find_matching_gpx_by_overlap():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_pair_late_gpx_fills_only_empty_entries():
+    """01.10.: GPX lag erst nach dem CAN-Log im Drive (mit Sekundenbruchteilen in <time>) -
+    leere Zuordnung nachtragen, bestehende und bekannte Duplikate nicht anfassen."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR, rdp.CAN_GPS_PAIRS_OVERRIDE_PATH
+    rdp.CAN_DIR, rdp.CAN_GPS_PAIRS_OVERRIDE_PATH = tmp, os.path.join(tmp, "pairs.json")
+    try:
+        t0 = int(datetime(2026, 10, 1, 14, 23, tzinfo=rdp.LOCAL_TZ).timestamp())
+        for name in ("candump-2026-10-01_142300.log", "candump-2026-09-11_201950.log"):
+            with open(os.path.join(tmp, name), "w") as f:
+                f.write(f"({t0}.000000) can0 202#00\n({t0 + 396}.000000) can0 202#00\n")
+        with open(os.path.join(tmp, "20261001-135802.gpx"), "w") as f:
+            f.write("<trkpt><time>2026-10-01T11:58:02Z</time><speed>10.0</speed></trkpt>\n"
+                    "<trkpt><time>2026-10-01T12:30:00.439Z</time><speed>10.0</speed></trkpt>\n"
+                    "<trkpt><time>2026-10-01T12:35:39Z</time><speed>10.0</speed></trkpt>\n")
+        pairs = {"candump-2026-10-01_142300.log": "", "candump-2026-09-11_201950.log": "",
+                 "candump-2026-09-30_153606.log": "20260930-153606.gpx"}
+        with open(rdp.CAN_GPS_PAIRS_OVERRIDE_PATH, "w") as f:
+            json.dump(pairs, f)
+        assert rdp.pair_late_gpx() == {"candump-2026-10-01_142300.log": "20261001-135802.gpx"}
+        with open(rdp.CAN_GPS_PAIRS_OVERRIDE_PATH) as f:
+            assert json.load(f) == {**pairs, "candump-2026-10-01_142300.log": "20261001-135802.gpx"}
+        assert rdp.pair_late_gpx() == {}
+    finally:
+        rdp.CAN_DIR, rdp.CAN_GPS_PAIRS_OVERRIDE_PATH = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

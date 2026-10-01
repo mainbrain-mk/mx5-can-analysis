@@ -6038,3 +6038,21 @@ Auffaelligkeiten:
 
 Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-09-30)
+
+- `candump-2026-09-30_153606`
+- `candump-2026-09-30_155641`
+- `candump-2026-09-30_163027`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-10-01)
+
+- `candump-2026-10-01_135820`
+- `candump-2026-10-01_142300`
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 3 -> 2 (downshift): 1.34s (vorher 1.40s), candump-2026-10-01_135820 @ t=278.4s.
