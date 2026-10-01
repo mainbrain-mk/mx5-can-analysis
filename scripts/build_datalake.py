@@ -809,7 +809,7 @@ def ingest_gps(gpx_path, t0_epoch):
         ele_el = trkpt.find("g:ele", GPX_NS)
         time_el = trkpt.find("g:time", GPX_NS)
         speed_el = trkpt.find("g:speed", GPX_NS)
-        t_utc = datetime.strptime(time_el.text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        t_utc = datetime.fromisoformat(time_el.text)
         rows.append((
             t_utc.timestamp() - t0_epoch, lat, lon,
             float(ele_el.text) if ele_el is not None else None,

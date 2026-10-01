@@ -5247,3 +5247,41 @@ Paare, freie Felder mit ≥ 3 Logs, Byte-Sweep-Schwelle |r| ≥ 0,6):
 
 Alle mäßig, kein Fund für die DBC. In `can-open-fields.md` Teil B eingetragen bzw.
 aktualisiert. Die Liste vom 29.09. (`..._consolidated_2026-09-29.csv`) ist überholt.
+
+## 2026-09-30: GPX-Track für die CAN-Logs vom 30.09. nachgetragen
+
+`20260930-153606.gpx` (15:36–18:11 lokal, 8885 Punkte) aus dem Drive von Hand nach `data/can/` geholt
+und in `data/can_gps_pairs.json` allen drei Logs zugeordnet. Nach `build_datalake` hat jeder Log
+Breite/Länge/Höhe/GPS-Geschwindigkeit: 461 bzw. 1321 bzw. 159 Punkte.
+`can_corner_event_analysis` und `corner_peak_tracker` danach erneut ausgeführt. Die Bestwerte bleiben unverändert.
+
+Zeitabgleich CAN-VehicleSpeed ↔ GPX (`_offset_candidates`):
+- `153606`: bester Offset 0 s, RMSE 1,22 km/h, n=461.
+- `155641`: bester Offset 0 s, RMSE 2,19 km/h, n=1321.
+- `163027`: Minimum bei +1 s, RMSE 4,29 km/h, n=160 (bei 0 s: 5,21 km/h). Der Log ist nur 2,6 min lang,
+  der Offset ist damit nicht auflösbar. Es bleibt bei 0 s, nicht umbenannt (wie `29_164522`).
+
+## 2026-10-01: GPX-Track für die CAN-Logs vom 01.10. nachgetragen, GPX-Zeitparser repariert
+
+`20261001-135802.gpx` (13:58:02–14:35:39 lokal, 1211 Punkte) aus dem Drive von Hand nach `data/can/` geholt
+und in `data/can_gps_pairs.json` beiden Logs zugeordnet (`135820`: 535, `142300`: 396 GPS-Punkte im Datalake).
+`can_corner_event_analysis` und `corner_peak_tracker` danach erneut ausgeführt. Die Bestwerte bleiben unverändert.
+
+**Parser-Bug:** In dieser GPX haben 10 Zeitstempel Sekundenbruchteile (`12:09:12.439Z`). An ihnen ist
+`strptime("%Y-%m-%dT%H:%M:%SZ")` in `run_daily_pipeline._gpx_speed_1hz` abgestürzt, und ebenso
+der gleichlautende Parser in `build_datalake.py`. Der nächste Pipeline-Lauf wäre damit an jeder
+GPX-Zuordnung gescheitert. Beide Stellen nutzen jetzt `datetime.fromisoformat`.
+
+Zeitabgleich CAN-VehicleSpeed ↔ GPX (`_offset_candidates`):
+- `135820` (NTP): bester Offset 0 s, RMSE 2,39 km/h, n=536.
+- `142300` (nur RTC, kein NTP): Minimum bei 0 s, RMSE 5,44 km/h, n=397 (±1 s: 5,52/8,01). Liegt knapp über
+  `CLOCK_FIX_MAX_RMSE_KMH`=5. Plausibler Grund: Fahrt bis 171 km/h und VehicleSpeed liest 2,9 % zu hoch.
+  Die RTC-Zeit stimmt, kein Umbenennen nötig.
+
+**Nachtrag, gleicher Tag: GPX-Download automatisiert.** `run_daily_pipeline.py` lädt jetzt neue `.gpx` aus dem
+Drive nach `data/can/` (`rclone_sync_new_logs` mit `ext`/`dest` parametrisiert, gleicher Mechanismus wie
+für `.dlg`). Kommt eine GPX erst nach ihrem CAN-Log an (so war es heute), trägt `pair_late_gpx()` sie bei
+Einträgen in `can_gps_pairs.json` nach, die noch leer sind. Bekannte Duplikate (`KNOWN_CAN_LOG_DUPLICATES`,
+z. B. `09-11_201950`) bleiben außen vor. Danach wird der Datalake neu gebaut; das geht auch in einem Lauf ohne neue Logs.
+Den Uhrzeit-Abgleich mit dem GPS (`fix_can_log_clocks`) wiederholt die Pipeline für solche alten Logs nicht.
+Test: `test_pair_late_gpx_fills_only_empty_entries`.
