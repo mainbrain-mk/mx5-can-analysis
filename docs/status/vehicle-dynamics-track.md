@@ -72,7 +72,8 @@ die streckenbezogenen Themen.
   30.08.2026)".
 - **Ideallinie/Rundenzeit-Fortschritt** (quasi-stationäres
   Zweipass-Punktmassenmodell, Reifen-mu-Bandbreite 1,0–1,3 aus Literatur für
-  Nankang NS-R2):
+  Nankang NS-R2; **gilt nur bis 01.10.2026**, seitdem Hankook-Winterreifen 195/50 R16
+  mit deutlich weniger Grip):
 
   | Modellstufe | mu=1,0 | mu=1,3 |
   |---|---:|---:|

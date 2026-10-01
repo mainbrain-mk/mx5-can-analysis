@@ -7,7 +7,7 @@
 
 ## 1. Kurzfazit
 
-- Das Fahrleistungsmodell verwendet einen dynamischen Radradius von **0,2985 m**, eine Achsübersetzung von **2,866**, eine Referenzmasse von **1180,705 kg**, **CdA = 0,647 m²**, einen gekoppelten Antriebswirkungsgrad von **0,93**, **Crr = 0,013** und **ρ = 1,18 kg/m³**. Leergewicht (ohne Fahrer/Tank) ist **1073 kg** und damit nicht mit der Referenzmasse identisch. Die Bereifung (**Nankang NS-R2 205/40/R17**) bestätigt den Radradius unabhängig über die Reifengeometrie (0,2979 m).
+- Das Fahrleistungsmodell verwendet einen dynamischen Radradius von **0,2985 m**, eine Achsübersetzung von **2,866**, eine Referenzmasse von **1180,705 kg**, **CdA = 0,647 m²**, einen gekoppelten Antriebswirkungsgrad von **0,93**, **Crr = 0,013** und **ρ = 1,18 kg/m³**. Leergewicht (ohne Fahrer/Tank) ist **1073 kg** und damit nicht mit der Referenzmasse identisch. Die Bereifung (**Nankang NS-R2 205/40/R17**) bestätigt den Radradius unabhängig über die Reifengeometrie (0,2979 m). **Seit 01.10.2026 sind Hankook Winter i\*cept RS3 195/50 R16 88H montiert (DOT 1024, an der Verschleißgrenze, Übergangssatz).** Alle Logs ab dann haben andere Reifen: anderer Grip, anderer Rollwiderstand, anderer Abrollumfang. Die Parameter oben sind an den NS-R2 bestimmt und für neue Logs nicht mehr ungeprüft gültig.
 - **Drehträgheit (NEU 01.10.2026):** Das Modell rechnet jetzt mit einer Motor-/Kupplungsträgheit **J_e = 0,143 kg·m²** (Ersatzmasse 386 kg im 1. Gang bis 12 kg im 6.) und einer Reifen-Traktionsgrenze von **6650 N**, die praktisch nur im 1. Gang greift. Beides ersetzt den 4450-N-Deckel und den Bias-Faktor 0,92, die im Wesentlichen diese fehlende Trägheit nachgebildet hatten. Ab 50 km/h trifft die 0-Vmax-Simulation den besten realen Pull (26.09.) auf 0,01 s, siehe Abschnitt 6.
 - Für maximale Fahrleistung gelten gangindividuelle ATTACK-Zugkraftunterbrechungen von **0,15 / 0,15 / 0,17 / 0,23 / 0,25 s** für 1→2 bis 5→6. Der frühere Pauschalwert **0,41 s** bleibt Diagnosewert, ist aber nicht mehr Default.
 - Fahrer-WOT wird nicht allein über eine offene Drosselklappe erkannt. **APP > 90 %** kennzeichnet den Bereich oberhalb der haptischen Pedalraste; APP, ETC, Lambda, MAF, Drehzahl, Geschwindigkeit und Kupplung sind gemeinsam zu prüfen.
@@ -37,7 +37,8 @@
 | Dynamischer Radradius | r_dyn | 0,2985 | m | aktiv, datenbasiert plausibilisiert; unabhängig bestätigt über Reifengeometrie (0,2979 m, s. u.) |
 | Historischer Radradius | r_dyn,alt | 0,2997 | m | abgelöst, als Referenz erhalten |
 | Reifen-Referenzradius | r_ref | 0,2997 | m | verwendet |
-| Bereifung | — | Nankang NS-R2, 205/40/R17 | — | Nutzerangabe (30.08.2026), Semi-Slick-Trackday-Reifen; geometrischer Radius 0,2979 m passt zu r_dyn/r_ref |
+| Bereifung (bis 01.10.2026) | — | Nankang NS-R2, 205/40/R17 | — | Nutzerangabe (30.08.2026), Semi-Slick-Trackday-Reifen; geometrischer Radius 0,2979 m passt zu r_dyn/r_ref. **Letzte Fahrt 01.10.2026** (letzter Log `candump-2026-10-01_142300`), ausgemustert wegen Rissen an der inneren Flanke aller 4 Reifen |
+| Bereifung (ab 01.10.2026) | — | Hankook Winter i\*cept RS3 W462, 195/50 R16 88H, DOT 1024 | — | Nutzerangabe (01.10.2026), an der Verschleißgrenze (Übergangssatz, wird erneuert), TPMS an allen Rädern, H = 210 km/h, Felgen noch offen; geometrischer Radius 0,3007 m (+0,94 % ggü. NS-R2), siehe Abschnitt „Reifenwechsel 01.10.2026“ im Logbuch `logs/projekt-stand.md` |
 | Achsantrieb | i_final | 2,866 | 1 | validiert |
 | Antriebswirkungsgrad | η | 0,93 | 1 | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
 | Drehträgheit Motor/Kupplung/Getriebe-Eingang (kurbelwellenbezogen) | J_e | 0,143 | kg·m² | NEU 01.10.2026, gefittet an CAN-Volllast Gang 2–5; Ersatzmasse J_e·(i_g·i_f/r)² = 386 / 133 / 62 / 38 / 25 / 12 kg in Gang 1–6 |
