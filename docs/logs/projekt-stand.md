@@ -6418,3 +6418,54 @@ lassen: Exitcode 0, Report vollständig, die Vormerkung danach gelöscht.
 **Laufzeit 43 min** (Volllast 17, Vmax ~11, Rest Datalake/Lenkung/Ausrollen). Das ist der neue
 Normalfall für jeden Lauf mit CAN-Logs, weil Volllast- und Vmax-Prüfung immer alle 173 Logs neu
 rechnen. Möglicher nächster Schritt: Ergebnisse je Log nach Fingerabdruck cachen.
+
+## Drosselklappe/Moment aus CAN, Bremsdeckel NS-R2, Pipeline inkrementell (2026-10-02)
+
+**Drosselklappe aus CAN (Nutzerhinweis: 100 % auf 86° und 0 % auf den kleinsten Winkel skalieren).**
+Mit den Endpunkten geschlossen (TP-Minimum 9,80 % ↔ ETC-Minimum 0,18°) und offen (je p99,9:
+91,87 % ↔ 86,63°) ergibt sich **ETC [°] = 1,0534 · (TP [%] − 9,80) + 0,18**. Gegenprobe ohne gemeinsame
+Fahrt über das Gaspedal: Mediane je Bin (APP 5 %, Drehzahl 500/min), ETC aus Handy-Logs, TP aus CAN-Logs.
+Ergebnis über 125 Bins: ETC = 1,022 · TP − 10,2, r=0,97. Im Mittelbereich: Endpunktformel 12,5°/21,6°,
+gemessen 12,6°/22,8°. Die Formel steht in `datalake_channels.SOURCES["ETC_ACT"]`.
+
+**Moment aus CAN.** Der Broadcast 0x167 `ActualEnginePercentTorque` (50 Hz, am 15.09. gegen PID 0x62 mit
+R² 0,96 bestätigt) kommt jetzt als `ActualEnginePercentTorque_CAN` in den Datalake (CAN-Schema 10, einmal
+alle CAN-Logs neu eingelesen, 12 min). Paarvergleich mit dem Handy-Moment: r=0,918 bei 1-s-Medianen.
+**Teillastkennfeld** (`partial_load_model.py`) jetzt aus Handy- und CAN-Fahrten: 71 Logs, 153.485 Punkte,
+312 Bins. Je Log höchstens 2 Punkte/s, sonst dominierten 50-Hz-CAN-Fahrten allein über die Abtastrate.
+Kreuzvalidierung je Log: CAN 7,3 Prozentpunkte (31 Logs), Handy 6,7 (40 Logs), Bias +1,0/+0,9. Das bestätigt
+die TP→ETC-Umrechnung. Physikalische Validierung: 5656 statt 3979 Segmente, Korrelation 0,65 statt 0,61,
+RMSE 0,312 statt 0,339 m/s².
+
+**Bremsdeckel auf NS-R2 (Nutzerentscheid: die performanteren Semis, Winterreifen bleiben vermutlich
+dahinter zurück).** `BRAKE_CAP_G` 0,4772 → **0,762 g**. Das ist die härteste ABS-Bremsung ≥ 1,5 s der
+NS-R2-Fahrten (15.09. 171047, t=1962 s, 112→57 km/h, Tempoabfall 0,762 g, IMU 0,79 g). Das formale Maximum
+0,802 g ist ein 0,78-s-Ereignis bei 45 km/h, als Dauerwert für Bremszonen zu kurz.
+`spreewaldring_braking_model_comparison.py` liest jetzt die CAN-Bremsereignisse (NS-R2 bis
+`candump-2026-10-01_142300`). Rundenzeit bei μ=1,0: theoretisch 102,73 s, mit 0,762 g 103,00 s (+0,27 s);
+p50 0,146 g +11,08 s, p95 0,292 g +3,83 s. Mit 0,477 g waren es ~+2 s.
+
+**Pipeline inkrementell (Nutzer: neue Logs sollen die Modelle verbessern/validieren, nicht jedes Mal alle
+neu gerechnet werden).** Gemessen hatten volle Neuberechnungen in Volllast (17 min), Vmax (10), Teillast
+(8), Traktionskreis (4), Lenk-Nullpunkt (3), Lenkmodell (2,5) und Schalt-/Kupplungsskripten (1,5).
+`scripts/per_log_cache.py` speichert das Ergebnis je Log unter `data/cache/<schritt>/<log>.pkl`. Ein Log wird
+nur neu gerechnet, wenn sich eines davon ändert:
+- das Log selbst (Fingerabdruck + Schema-Version),
+- die Code-Dateien, von denen es abhängt,
+- die CAN-Abdeckung (bei Handy-Logs),
+- log-spezifische Eingaben: Masse, Kurvenliste, Lenk-Nullpunkt, die Kachel-Inventur der Höhendaten
+  (neue Kachel → neu rechnen), beim Lenkmodell k auf 3 signifikante Stellen.
+
+Die Zusammenfassung über alle Logs bleibt global und ist billig. Der Traktionskreis setzt sich exakt aus
+Teilergebnissen je Log zusammen (Maxima, Hüllen-Maximum je Winkel-Bin, Summe der 2D-Histogramme). Der Plot ist
+deshalb jetzt eine Dichtekarte statt Millionen Einzelpunkte. Höhenmodell und OSM-Geometrie werden nur noch
+geladen, wenn ein Log neu gerechnet werden muss.
+
+Zeiten (alle Modellschritte zusammen): kalt ~47 min (einmalig gefüllt), warm 72 s, mit einem wirklich neuen
+48-min-Log 82 s. Kalt- und Warmlauf liefern identische Ergebnisse; es entfallen nur Hinweis-Ausgaben, die
+während der Berechnung gedruckt werden. Ganzer Pipeline-Lauf für die drei Logs vom 02.10.: **2 min statt
+43 min**, die falsche Volllast-Warnung ist weg (Referenz 1,00). Ausrollanalyse und die CAN-Einzelauswertungen
+(Kurven/Bremsen/Schwingung) liefen schon nur für neue Logs. Der Datalake-Aufbau war bereits inkrementell.
+**Einschränkung:** Gescheiterte Windabfragen hält schon der bestehende Wind-Cache dauerhaft als „kein Wind“
+fest (`fetch_wind_day`). Der Ergebnis-Cache übernimmt das, verschlimmert es aber nicht. Komplett neu rechnen:
+`data/cache/` löschen.

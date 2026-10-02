@@ -231,19 +231,21 @@ die streckenbezogenen Themen.
   CAN-Log): 1028 Bremsungen aus 61 CAN-Fahrten. Die Verzögerung aus `LongitudinalAcc_CAN` stimmt
   mit der aus dem Tempoabfall überein (r=0,964, Verhältnis 0,99). Mittlere Verzögerung p50/p95
   0,15/0,29 g; **ABS-Bremsungen 0,69–0,79 g** (4 Fälle, 15.09./26.09./01.10., alle noch NS-R2).
-  **Offen:** `BRAKE_CAP_G=0,4772` unten stammt aus Handy/OBD-Daten und liegt deutlich unter dem
-  gemessenen CAN-Maximum. Nicht automatisch übernommen; neu kalibrieren, sobald entschieden ist,
-  welcher Reifensatz für die Simulation gilt (seit 01.10. Winterreifen).
+  **`BRAKE_CAP_G` seit 02.10. = 0,762 g** (Nutzerentscheid: Bremsmodell auf den performanteren
+  Semis NS-R2, Winterreifen bleiben vermutlich dahinter zurück): härteste ABS-Bremsung ≥ 1,5 s der
+  NS-R2-Fahrten (15.09. 171047, 112→57 km/h). Das formale Maximum 0,802 g ist ein 0,78-s-Ereignis
+  bei 45 km/h. Vorher 0,4772 g aus Handy/OBD (deutlich unterschätzt). Rundenzeit bei μ=1,0:
+  theoretisches Reifenlimit 102,73 s, mit 0,762 g 103,00 s (+0,27 s; mit 0,477 g waren es ~+2 s).
 - Reales, datenbasiertes Bremsmodell (229 echte Bremsvorgänge aus
   `BFP_PRE_MZ` + OBD-Tempoabfall, `scripts/braking_model.py`) ersetzt die
   reine Reifenkraftkreis-Theorie für die Längsverzögerung in der
   Rundenzeit-Simulation.
-- **`BRAKE_CAP_G=0,4772`** (reales Maximum, ABS-Bremsung) ist Standard-Default
+- **`BRAKE_CAP_G`** (bis 01.10. 0,4772 aus Handy/OBD, seit 02.10. 0,762 aus CAN, siehe oben) ist Standard-Default
   in `simulate_lap_combined_friction()` - gilt nur für die
   Längsverzögerung, nicht die Kurven-Querbeschleunigung
   (`brake_cap_g=None` erzwingt weiterhin das alte theoretische Verhalten für
-  Vergleiche). Effekt: theoretisch (Reifenkraftkreis) 100,67 s, real Median
-  (0,154g) +12,70 s, p95 (0,309g) +5,26 s, Maximum (0,477g) +2,07 s.
+  Vergleiche). Effekt (02.10., CAN-Bremsungen NS-R2, μ=1,0): theoretisch (Reifenkraftkreis)
+  102,73 s, real Median (0,146g) +11,08 s, p95 (0,292g) +3,83 s, Standard (0,762g) +0,27 s.
 - Zwei "Bang-Bang"-Glättungen für realistischeres, fahrbares Pedalverhalten:
   1. **Vollgas-Inseln** kürzer als `MIN_ACCEL_HOLD_M=40m` zwischen zwei
      Bremszonen werden zu konstanter Teillast geglättet

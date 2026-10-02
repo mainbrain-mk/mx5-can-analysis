@@ -59,7 +59,9 @@ from drivetrain_model_validation import (
     DB_PATH, G, MASS_KG, LOG_MASS_OVERRIDE_KG, APP_WOT_MIN, ETC_WOT_MIN,
     LAMBDA_WOT_MAX, MIN_SPEED_MS,
     load_channel, group_runs, gear_channel_is_reliable, infer_gear_from_rpm_speed,
+    MODEL_CACHE_DEPS, ELEVATION_TILE_DIRS,
 )
+from per_log_cache import cached, dir_inventory
 from performance_simulation import accel, EMPIRICAL_BIAS_FACTOR
 from elevation_model import (
     ElevationModel, get_or_build_trip_bridge_cache, is_near_bridge_latlon, get_raw_ground_points,
@@ -550,20 +552,26 @@ def main():
 
     print(f"=== Suche Gang-6-Vmax-Kandidaten (>= {TOP_SPEED_MIN_DURATION_S}s, "
           f">= {TOP_SPEED_MIN_KMH:.0f} km/h) ueber {len(log_ids)} Logs ===")
-    raw_segments = []
+    lazy = {}  # Hoehenmodell nur laden, wenn ein Log wirklich neu gerechnet werden muss
+
+    def compute(log_id):
+        raw = find_top_speed_segments(con, log_id)
+        if raw and not lazy:
+            lazy["elev"] = ElevationModel()
+        return [evaluate_segment(seg, lazy["elev"], con) for seg in raw]
+
+    # je Log gecacht (02.10.): nur neue/geaenderte Logs werden neu gesucht und bewertet
+    tiles = dir_inventory(*ELEVATION_TILE_DIRS)
+    segments = []
     for log_id in log_ids:
-        segs = find_top_speed_segments(con, log_id)
-        raw_segments.extend(segs)
-    print(f"{len(raw_segments)} Segmente gefunden in {len(set(s['log_id'] for s in raw_segments))} Logs")
-
-    if not raw_segments:
-        print("Keine geeigneten Segmente gefunden.")
-        con.close()
-        return
-
-    elev_model = ElevationModel()
-    segments = [evaluate_segment(s, elev_model, con) for s in raw_segments]
+        segments += cached(con, "top_speed", log_id, lambda: compute(log_id), MODEL_CACHE_DEPS,
+                           extra=(LOG_MASS_OVERRIDE_KG.get(log_id), tiles))
     con.close()
+    print(f"{len(segments)} Segmente gefunden in {len(set(s['log_id'] for s in segments))} Logs")
+
+    if not segments:
+        print("Keine geeigneten Segmente gefunden.")
+        return
 
     for seg in segments:
         print_segment(seg)

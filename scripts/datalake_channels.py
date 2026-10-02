@@ -13,16 +13,19 @@ Umrechnungen gegen 26 Fahrten mit Handy+Pi gleichzeitig geprueft (1-Hz-Mediane, 
   Bremse    kPa = 100 * BrakePressure_CAN (bar); Paarfit 97 (Bremsdruck-Nachkalibrierung 29.09.)
   Lenkwinkel SteeringAngle_CAN 1:1 (Paarfit 0,96 durch den 1-s-Versatz, frueher r=0,999)
   VehicleSpeed/APP/EngineRPM tragen in beiden Quellen denselben Namen und dieselbe Skala.
-Bewusst NICHT abgebildet: ETC_ACT (Drosselklappe in Grad) hat kein CAN-Gegenstueck -
-ThrottlePosition_CAN ist eine andere Groesse in %, ohne gemeinsame Fahrt nicht umrechenbar.
-AFR_MZ (gemessenes Lambda) ist nicht LambdaCommanded_CAN (Soll, r=0,74).
+  Drosselklappe ETC_ACT [Grad] = 1,0534 * (ThrottlePosition_CAN [%] - 9,80) + 0,18: Endpunkte geschlossen
+            (TP-Minimum 9,80 % <-> ETC-Minimum 0,18 Grad) und offen (91,87 % <-> 86,63 Grad, je p99,9).
+            Gegenprobe ohne gemeinsame Fahrt ueber das Gaspedal: Mediane je (APP, Drehzahl)-Bin aus
+            Handy- (ETC) und CAN-Logs (TP), 125 Bins, ETC = 1,022*TP - 10,2, r=0,97 (02.10.).
+  Motormoment ActualEnginePercentTorque <- Broadcast 0x167 (gegen PID 0x62 R2 0,96, DBC-Kommentar).
+Bewusst NICHT abgebildet: AFR_MZ (gemessenes Lambda) ist nicht LambdaCommanded_CAN (Soll, r=0,74).
 
 "Lager" (GPS-Kurs) liefert nur das Handy; fuer CAN-Fahrten wird er aus Breite/Laenge berechnet.
 
 Doppelzaehlung: Liefen Handy und Pi gleichzeitig, steht dieselbe Fahrt zweimal im Datalake
 (dlg-Log und candump-Log). load_channel() verwirft deshalb bei dlg-Logs alle Samples, deren
 Zeit von einem CAN-Log abgedeckt ist, der denselben Kanal selbst liefert - dort gilt der
-CAN-Log. Kanaele ohne CAN-Quelle (ETC_ACT, ActualEnginePercentTorque) bleiben vollstaendig.
+CAN-Log. Kanaele ohne CAN-Quelle (z.B. AFR_MZ) bleiben vollstaendig.
 """
 
 from collections import OrderedDict
@@ -30,11 +33,15 @@ from collections import OrderedDict
 import numpy as np
 import pandas as pd
 
+# angefragter Name -> [(Datalake-Kanal, Faktor, Offset)]: Wert = Faktor * roh + Offset
+_TP_TO_ETC = 1.0534
 SOURCES = {
-    "TM_GEST": [("MT_Gear_Status", 1.0), ("TM_GEST", 1.0)],
-    "CPP_PER_MZ": [("ClutchPosition_CAN_raw", 0.5), ("CPP_PER_MZ", 1.0)],
-    "BFP_PRE_MZ": [("BrakePressure_CAN", 100.0), ("BFP_PRE_MZ", 1.0)],
-    "STEER_ANGL_EPS": [("SteeringAngle_CAN", 1.0), ("STEER_ANGL_EPS", 1.0)],
+    "TM_GEST": [("MT_Gear_Status", 1.0, 0.0), ("TM_GEST", 1.0, 0.0)],
+    "CPP_PER_MZ": [("ClutchPosition_CAN_raw", 0.5, 0.0), ("CPP_PER_MZ", 1.0, 0.0)],
+    "BFP_PRE_MZ": [("BrakePressure_CAN", 100.0, 0.0), ("BFP_PRE_MZ", 1.0, 0.0)],
+    "STEER_ANGL_EPS": [("SteeringAngle_CAN", 1.0, 0.0), ("STEER_ANGL_EPS", 1.0, 0.0)],
+    "ETC_ACT": [("ThrottlePosition_CAN", _TP_TO_ETC, 0.18 - _TP_TO_ETC * 9.80), ("ETC_ACT", 1.0, 0.0)],
+    "ActualEnginePercentTorque": [("ActualEnginePercentTorque_CAN", 1.0, 0.0), ("ActualEnginePercentTorque", 1.0, 0.0)],
 }
 
 # dlg-Logs: start_time_local ist in Wahrheit UTC (bekanntes Mislabeling, siehe
@@ -84,7 +91,7 @@ def _can_has(con, can_log_id, channel):
     key = (con, can_log_id, channel)
     if key not in _has_cache:
         probe = "Breite" if channel == "Lager" else channel  # Kurs wird aus GPS berechnet
-        sources = [s for s, _ in SOURCES.get(probe, [(probe, 1.0)])]
+        sources = [src[0] for src in SOURCES.get(probe, [(probe,)])]
         _has_cache[key] = con.execute(
             f"SELECT 1 FROM measurements WHERE log_id = ? AND channel IN ({','.join('?' * len(sources))}) "
             "LIMIT 1", [can_log_id, *sources]).fetchone() is not None
@@ -137,11 +144,11 @@ def load_channel(con, log_id, channel, with_timestamp=False):
 
 def _load_uncached(con, log_id, channel, with_timestamp):
     df = None
-    for source, scale in SOURCES.get(channel, [(channel, 1.0)]):
+    for source, scale, offset in SOURCES.get(channel, [(channel, 1.0, 0.0)]):
         df = _query(con, log_id, source, with_timestamp)
         if len(df):
-            if scale != 1.0:
-                df["value"] = df["value"] * scale
+            if (scale, offset) != (1.0, 0.0):
+                df["value"] = df["value"] * scale + offset
             break
     if channel == "Lager" and not len(df):
         df = _heading_from_gps(con, log_id, with_timestamp)
@@ -150,7 +157,7 @@ def _load_uncached(con, log_id, channel, with_timestamp):
 
 def logs_with(con, channel):
     """Sortierte log_ids, die den Kanal aus irgendeiner Quelle haben."""
-    sources = [s for s, _ in SOURCES.get(channel, [(channel, 1.0)])]
+    sources = [src[0] for src in SOURCES.get(channel, [(channel,)])]
     rows = con.execute(
         f"SELECT DISTINCT log_id FROM measurements WHERE channel IN ({','.join('?' * len(sources))})",
         sources).fetchall()
@@ -176,7 +183,10 @@ if __name__ == "__main__":
     dlg = load_channel(con, "2026-09-26 120000", "CPP_PER_MZ")
     assert dlg["t"].tolist() == [100.0], dlg  # t=2000 liegt im CAN-Log -> verworfen
     etc = load_channel(con, "2026-09-26 120000", "ETC_ACT")
-    assert etc["t"].tolist() == [100.0, 2000.0], etc  # CAN-Log hat kein ETC -> bleibt
+    assert etc["t"].tolist() == [100.0, 2000.0], etc  # CAN-Log hat keine Drosselklappe -> bleibt
+    con.execute("INSERT INTO measurements VALUES ('candump-2026-09-26_123000', 'ThrottlePosition_CAN', "
+                "'ThrottlePosition_CAN', 1.0, NULL, 91.87)")
+    assert abs(load_channel(con, "candump-2026-09-26_123000", "ETC_ACT")["value"].iloc[0] - 86.63) < 0.01
     can = load_channel(con, "candump-2026-09-26_123000", "CPP_PER_MZ")
     assert can["value"].tolist() == [40.0], can  # 0,5 * roh
     heading = load_channel(con, "candump-2026-09-26_123000", "Lager")

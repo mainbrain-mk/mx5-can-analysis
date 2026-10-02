@@ -167,7 +167,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # CANONICAL_UNIT/UNIT_CONVERSIONS wirken auf dlg UND csv -> dann beide.
 # Alle starten bei "8" (= der letzten gemeinsamen Version), damit die
 # Umstellung selbst keinen Re-Ingest ausloest.
-SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "9"}  # can 9: dlg-GPS an CAN-Logs (27.09.)
+SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "10"}  # can 9: dlg-GPS an CAN-Logs (27.09.); 10: Motormoment 0x167 (02.10.)
 
 # Was die ingest_*()-Funktionen liefern. Tabelle `measurements` = log_id,
 # source_file, source_format + diese Spalten; die ersten drei sind pro Log
@@ -325,6 +325,10 @@ CAN_SIGNAL_MAP = {
     "LambdaCommanded_OBD": ("LambdaCommanded_CAN", ""),
     "TimingAdvance_OBD": ("TimingAdvance_CAN", "°"),
     "EnginePercentTorque_OBD": ("EnginePercentTorque_CAN", "%"),
+    # Broadcast 0x167 (50 Hz, jede CAN-Fahrt) - gegen PID 0x62 bestaetigt (15.09., R2 0,96, ~4 Prozent-
+    # punkte, DBC-Kommentar). Datenbasis fuer das Teillastkennfeld aus CAN-Fahrten (02.10.); eigener
+    # Kanalname, weil "ActualEnginePercentTorque" im Datalake schon der Handy-OBD-Kanal ist.
+    "ActualEnginePercentTorque": ("ActualEnginePercentTorque_CAN", "%"),
     "KnockRetard_OBD": ("KnockRetard_CAN", "°"),
     "ThrottlePosition_OBD": ("ThrottlePosition_CAN", "%"),
     "Tire1_Temp_maybe": ("TireTemp_CAN_Tire1", "°C"),

@@ -91,14 +91,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 
+from datalake_channels import logs_with
+from per_log_cache import cached
 from drivetrain_model_validation import (
     DB_PATH, RESULTS_DIR, MASS_KG, R_DYN_M, FINAL_DRIVE, GEAR_RATIOS, ETA,
     CDA_M2, RHO_KG_M3, CRR, G, APP_WOT_MIN, ETC_WOT_MIN, MIN_SPEED_MS,
     torque_nm, rpm_from_speed, model_accel, load_channel, group_runs, effective_mass,
-    gear_channel_is_reliable, infer_gear_from_rpm_speed,
+    gear_channel_is_reliable, infer_gear_from_rpm_speed, MODEL_CACHE_DEPS,
 )
 
 PT_CHANNEL = "ActualEnginePercentTorque"
+FIT_MAX_RATE_HZ = 2.0
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+PARTIAL_LOAD_CACHE_DEPS = MODEL_CACHE_DEPS + [os.path.join(_SCRIPTS, "partial_load_model.py")]
 CPP_MAX_PCT = 5.0       # Kupplungspedal-Schwelle "nicht getreten"
 BFP_MAX_KPA = 50.0      # Bremsdruck-Schwelle "keine Bremsung"
 RPM_FIT_MIN = 1000.0
@@ -122,38 +127,52 @@ def _interp_or_default(t_common, ch_df, default):
 
 def load_fit_points(con, log_ids):
     """Baut den gefilterten (ETC, RPM) -> ActualEnginePercentTorque
-    Datensatz ueber alle Logs mit diesem Kanal (siehe Docstring, Schritt 1)."""
+    Datensatz ueber alle Logs mit diesem Kanal (siehe Docstring, Schritt 1), je Log gecacht."""
     rows = []
     for log_id in log_ids:
-        pt = load_channel(con, log_id, PT_CHANNEL)
-        rp = load_channel(con, log_id, "EngineRPM")
-        etc = load_channel(con, log_id, "ETC_ACT")
-        if len(pt) < 10 or len(rp) < 10 or len(etc) < 10:
-            continue
-        sp = load_channel(con, log_id, "VehicleSpeed")
-        ge = load_channel(con, log_id, "TM_GEST")
-        cpp = load_channel(con, log_id, "CPP_PER_MZ")
-        bfp = load_channel(con, log_id, "BFP_PRE_MZ")
+        rows += cached(con, "partial_load_fit_points", log_id, lambda: _fit_points_for_log(con, log_id),
+                       PARTIAL_LOAD_CACHE_DEPS)
+    return rows
 
-        t = pt["t"].values
-        rpm_i = np.interp(t, rp["t"].values, rp["value"].values)
-        etc_i = np.interp(t, etc["t"].values, etc["value"].values)
-        v_i = _interp_or_default(t, sp, 0.0) / 3.6
-        cpp_i = _interp_or_default(t, cpp, 0.0)
-        bfp_i = _interp_or_default(t, bfp, 0.0)
 
-        if len(ge) >= 2 and gear_channel_is_reliable(ge["value"].values):
-            g_i = np.round(np.interp(t, ge["t"].values, ge["value"].values))
-        else:
-            g_i = infer_gear_from_rpm_speed(v_i, rpm_i)
+def _fit_points_for_log(con, log_id):
+    rows = []
+    pt = load_channel(con, log_id, PT_CHANNEL)
+    rp = load_channel(con, log_id, "EngineRPM")
+    etc = load_channel(con, log_id, "ETC_ACT")
+    if len(pt) < 10 or len(rp) < 10 or len(etc) < 10:
+        return rows
+    sp = load_channel(con, log_id, "VehicleSpeed")
+    ge = load_channel(con, log_id, "TM_GEST")
+    cpp = load_channel(con, log_id, "CPP_PER_MZ")
+    bfp = load_channel(con, log_id, "BFP_PRE_MZ")
 
-        ok = (
-            (cpp_i < CPP_MAX_PCT) & (bfp_i < BFP_MAX_KPA) &
-            (rpm_i > RPM_FIT_MIN) & (v_i > MIN_SPEED_MS) &
-            (g_i >= 1) & (g_i <= 6) & ~np.isnan(g_i)
-        )
-        for etc_v, rpm_v, pt_v in zip(etc_i[ok], rpm_i[ok], pt["value"].values[ok]):
-            rows.append((log_id, etc_v, rpm_v, pt_v))
+    t = pt["t"].values
+    rpm_i = np.interp(t, rp["t"].values, rp["value"].values)
+    etc_i = np.interp(t, etc["t"].values, etc["value"].values)
+    v_i = _interp_or_default(t, sp, 0.0) / 3.6
+    cpp_i = _interp_or_default(t, cpp, 0.0)
+    bfp_i = _interp_or_default(t, bfp, 0.0)
+
+    if len(ge) >= 2 and gear_channel_is_reliable(ge["value"].values):
+        g_i = np.round(np.interp(t, ge["t"].values, ge["value"].values))
+    else:
+        g_i = infer_gear_from_rpm_speed(v_i, rpm_i)
+
+    ok = (
+        (cpp_i < CPP_MAX_PCT) & (bfp_i < BFP_MAX_KPA) &
+        (rpm_i > RPM_FIT_MIN) & (v_i > MIN_SPEED_MS) &
+        (g_i >= 1) & (g_i <= 6) & ~np.isnan(g_i)
+    )
+    # hoechstens FIT_MAX_RATE_HZ Punkte je Sekunde (02.10.): CAN liefert das Moment mit 50 Hz, das
+    # Handy mit 1-5 Hz - ohne Ausduennen dominierten CAN-Fahrten das Kennfeld allein ueber ihre
+    # Abtastrate, und die Kreuzvalidierung muesste Millionen Punkte je Fold neu binnen.
+    slot = np.floor(t / (1.0 / FIT_MAX_RATE_HZ))
+    first_in_slot = np.zeros(len(t), dtype=bool)
+    first_in_slot[np.unique(np.where(ok, slot, np.nan), return_index=True)[1]] = True
+    ok &= first_in_slot
+    for etc_v, rpm_v, pt_v in zip(etc_i[ok], rpm_i[ok], pt["value"].values[ok]):
+        rows.append((log_id, etc_v, rpm_v, pt_v))
 
     return rows
 
@@ -404,9 +423,7 @@ def build_kennfeld_predictor(db_path=DB_PATH):
     Skripte (siehe performance_simulation.py), ohne die komplette
     Validierung/Plots von main() erneut auszufuehren."""
     con = duckdb.connect(db_path, read_only=True)
-    pt_log_ids = con.execute(
-        f"SELECT DISTINCT log_id FROM measurements WHERE channel = ? ORDER BY log_id", [PT_CHANNEL]
-    ).fetchdf()["log_id"].tolist()
+    pt_log_ids = logs_with(con, PT_CHANNEL)  # Handy-OBD oder CAN 0x167, siehe datalake_channels.py
     rows = load_fit_points(con, pt_log_ids)
     con.close()
     bins = robust_bins(rows)
@@ -417,9 +434,7 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     con = duckdb.connect(DB_PATH, read_only=True)
     all_log_ids = con.execute("SELECT log_id FROM logs ORDER BY log_id").fetchdf()["log_id"].tolist()
-    pt_log_ids = con.execute(
-        f"SELECT DISTINCT log_id FROM measurements WHERE channel = ? ORDER BY log_id", [PT_CHANNEL]
-    ).fetchdf()["log_id"].tolist()
+    pt_log_ids = logs_with(con, PT_CHANNEL)  # Handy-OBD oder CAN 0x167, siehe datalake_channels.py
 
     print(f"=== 1. Kennfeld-Datenbasis: {len(pt_log_ids)} Logs mit {PT_CHANNEL} ===")
     rows = load_fit_points(con, pt_log_ids)
@@ -443,9 +458,9 @@ def main():
 
     print(f"\n=== 3. Physikalische Validierung ueber Teillast-Beschleunigungssegmente ({len(all_log_ids)} Logs) ===")
     all_segments = []
-    for log_id in all_log_ids:
-        segs = find_teillast_segments(con, log_id)
-        all_segments.extend(segs)
+    for log_id in all_log_ids:  # je Log gecacht (02.10.)
+        all_segments.extend(cached(con, "partial_load_segments", log_id,
+                                   lambda: find_teillast_segments(con, log_id), PARTIAL_LOAD_CACHE_DEPS))
     con.close()
     print(f"Gefundene Teillast-Segmente (>= {MIN_SEGMENT_DURATION_S}s, ETC {ETC_TEILLAST_MIN}-{ETC_WOT_MIN} Grad, "
           f"konstanter Gang, keine Bremsung/Kupplung): {len(all_segments)}")

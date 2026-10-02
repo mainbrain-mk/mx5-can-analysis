@@ -159,6 +159,16 @@ def model_accel(v_ms, gear, mass_kg=MASS_KG):
 # Kanalzugriff zentral (CAN fuehrt, OBD als Rueckfall, keine Doppelzaehlung Handy+Pi), siehe
 # datalake_channels.py; top_speed_validation/partial_load_model importieren ihn von hier.
 from datalake_channels import load_channel  # noqa: E402
+from per_log_cache import cached, dir_inventory  # noqa: E402
+
+# Ergebnis je Log haengt von diesen Dateien ab (Modell, Kanalaufloesung, Steigung, Wind) -
+# aendert sich eine, rechnen die Modellskripte alle Logs neu, sonst nur neue/geaenderte (02.10.).
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+MODEL_CACHE_DEPS = [os.path.join(_SCRIPTS, f) for f in (
+    "drivetrain_model_validation.py", "datalake_channels.py", "top_speed_validation.py",
+    "coastdown_analysis.py", "elevation_model.py", "performance_simulation.py")]
+ELEVATION_TILE_DIRS = ("höhendaten", "data/elevation/tiles", "data/elevation/bayern_tiles",
+                       "data/elevation/thueringen_tiles")
 
 
 GEAR_INFER_MAX_RATIO_ERROR = 0.03  # 3% - deutlich enger als der ~6-9% Modell-Bias
@@ -444,7 +454,7 @@ def main():
 
     print(f"=== 1. Kinematischer Check: Drehzahl aus Geschwindigkeit+Gang vs. gemessen ({len(log_ids)} Logs) ===")
     for log_id in log_ids:
-        res = kinematic_check(con, log_id)
+        res = cached(con, "drivetrain_kinematic", log_id, lambda: kinematic_check(con, log_id), MODEL_CACHE_DEPS)
         if res is None:
             print(f"{log_id}: zu wenige Datenpunkte (RPM/Speed/Gang nicht ausreichend vorhanden)")
             continue
@@ -454,12 +464,18 @@ def main():
     print("\n=== 2. Volllast-Beschleunigung: Modell vs. Messung ===")
     from elevation_model import ElevationModel
     from coastdown_analysis import _load_wind_cache
-    elev_model = ElevationModel()
-    wind_cache = _load_wind_cache()
+    lazy = {}  # Hoehenmodell/Wind nur laden, wenn ein Log wirklich neu gerechnet werden muss
 
+    def compute(log_id):
+        if not lazy:
+            lazy["elev"], lazy["wind"] = ElevationModel(), _load_wind_cache()
+        return wot_segments(con, log_id, elev_model=lazy["elev"], wind_cache=lazy["wind"])
+
+    tiles = dir_inventory(*ELEVATION_TILE_DIRS)
     all_events = []
     for log_id in log_ids:
-        events = wot_segments(con, log_id, elev_model=elev_model, wind_cache=wind_cache)
+        events = cached(con, "drivetrain_wot", log_id, lambda: compute(log_id), MODEL_CACHE_DEPS,
+                        extra=(LOG_MASS_OVERRIDE_KG.get(log_id), tiles))
         all_events.extend(events)
         if events:
             method = events[0]["detection"]

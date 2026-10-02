@@ -839,9 +839,10 @@ def main():
     # Modellpruefungen laufen fuer CAN- UND Handy-Logs (02.10.: vorher nur bei neuer .dlg - seit 27.09.
     # kommt keine mehr, CAN-Fahrten blieben ungeprueft). Kanaele loest datalake_channels.py auf.
     analysis_logs = sorted(new_logs + new_can_logs)
-    if new_logs:  # Teillast-Kennfeld braucht ETC_ACT (Grad), das gibt es nur im Handy-Log
-        run_script([PYTHON, "scripts/partial_load_model.py"], errors)
+    # Die Skripte cachen ihr Ergebnis je Log (per_log_cache.py) - neu gerechnet werden nur neue/
+    # geaenderte Logs, die Zusammenfassung ueber alle Logs ist billig (02.10.: vorher 43 min je Lauf).
     if analysis_logs:
+        run_script([PYTHON, "scripts/partial_load_model.py"], errors)
         run_script([PYTHON, "scripts/drivetrain_model_validation.py"], errors)
         run_script([PYTHON, "scripts/top_speed_validation.py"], errors)
         run_script([PYTHON, "scripts/check_dgm_coverage_gaps.py"], errors)
