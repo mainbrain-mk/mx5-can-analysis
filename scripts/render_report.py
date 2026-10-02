@@ -43,7 +43,7 @@ def render_markdown(run_report):
         lines.append(f"**{len(r['new_can_logs'])} neue(s) CAN-Log(s) vom Raspberry Pi geladen und "
                       f"in den Datalake uebernommen:**")
         for log_id in r["new_can_logs"]:
-            lines.append(f"- `{log_id}`")
+            lines.append(f"- `{log_id}`{_fmt_mass(log_id, r.get('masses', {}))}")
         lines.append("")
 
     if r.get("new_logs"):
@@ -53,8 +53,11 @@ def render_markdown(run_report):
                           f"{_fmt_mass(log_id, r.get('masses', {}))}")
         lines.append("")
 
+    # CAN-Logs zuerst: seit 02.10. die fuehrende Quelle fuer alle Modellpruefungen
+    analysis_logs = list(r.get("new_can_logs") or []) + list(r.get("new_logs") or [])
+    if analysis_logs:
         lines.append("## Kernzahlen")
-        for log_id in r["new_logs"]:
+        for log_id in analysis_logs:
             b = r.get("brake", {}).get(log_id)
             c = r.get("corner", {}).get(log_id)
             parts = []
@@ -63,6 +66,18 @@ def render_markdown(run_report):
                               f"Achsen={b.get('horizontal_axes')}")
             if c:
                 parts.append(f"{c.get('n_events', 0)} Kurve(n) ({c.get('n_right', 0)} rechts/{c.get('n_left', 0)} links)")
+            cb = r.get("can_brake", {}).get(log_id)
+            if cb:
+                peak = f", max {cb['decel_peak_g']:.2f} g" if cb.get("decel_peak_g") is not None else ""
+                abs_ = f", {cb['n_abs']}x ABS" if cb.get("n_abs") else ""
+                parts.append(f"{cb['n_events']} Bremsung(en){peak}{abs_}")
+            cv = r.get("can_vibration", {}).get(log_id)
+            if cv:
+                lg = cv["laengs"]
+                bands = ", ".join(f"{k} km/h {b['order_rms_mg_median']:.1f} mg"
+                                  for k, b in lg["order_rms_by_speed_kmh"].items())
+                parts.append(f"Radordnung laengs {lg['frac_peak_on_wheel_order']:.0%} der {cv['n_windows']} Fenster "
+                             f"(Spitze/Rad {lg['peak_to_wheel_ratio_median']:.2f}; {bands})")
             if parts:
                 lines.append(f"- `{log_id}`: " + "; ".join(parts))
 
@@ -107,7 +122,7 @@ def render_projekt_stand_snippet(run_report):
                 f"{_fmt_mass(log_id, r.get('masses', {}))}" for log_id in r["new_logs"]]
     else:
         header = f"## Automatischer Lauf: {len(r['new_can_logs'])} neue CAN-Logs uebernommen ({r['date']})\n\n"
-        body = [f"- `{log_id}`" for log_id in r["new_can_logs"]]
+        body = [f"- `{log_id}`{_fmt_mass(log_id, r.get('masses', {}))}" for log_id in r["new_can_logs"]]
     findings = r.get("findings") or []
     if findings:
         body.append("")

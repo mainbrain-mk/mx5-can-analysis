@@ -130,7 +130,14 @@ V_MIN_MS = 5.0
 # die tatsaechliche, nicht nur theoretische Bremsgrenze. Gilt NUR fuer die
 # Laengsverzoegerung beim Bremsen, nicht fuer die Kurven-Querbeschleunigung
 # (die bleibt bei der Reifen-mu-Annahme, siehe simulate_lap_combined_friction).
-BRAKE_CAP_G = 0.4772
+# 02.10.2026 (Nutzerentscheid: Bremsmodell auf den performanteren Semis NS-R2, die Winterreifen
+# seit 01.10. bleiben vermutlich dahinter zurueck): aus den CAN-Bremsereignissen
+# (can_brake_event_analysis.py, LongitudinalAcc_CAN/Tempoabfall r=0,964) der NS-R2-Fahrten bis
+# einschliesslich candump-2026-10-01_142300 - haerteste ABS-Bremsung >= 1,5 s:
+# candump-2026-09-15_171047 t=1962 s, 112->57 km/h, 0,762 g (Tempoabfall; IMU 0,79 g). Das formale
+# Maximum 0,802 g ist ein 0,78-s-Ereignis bei 45 km/h, als Dauerwert fuer Bremszonen zu kurz.
+# Vorher 0,4772 g aus Handy/OBD-Daten (deutlich unterschaetzt).
+BRAKE_CAP_G = 0.762
 # Kurze "Vollgas-dann-wieder-Vollbremsung"-Inseln zwischen zwei Bremszonen
 # (z.B. bei eng verbundenen Kurven) sind fuer ein Punktmassen-Modell ohne
 # Umschaltkosten zeit-optimal (bang-bang, Standardergebnis der

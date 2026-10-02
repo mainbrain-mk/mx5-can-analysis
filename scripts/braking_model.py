@@ -130,7 +130,7 @@ BRAKING_SMOOTH_CUTOFF_HZ = 1.0   # zusaetzlicher Tiefpass gegen die
 def load_obd_speed(db_file, t0):
     import sqlite3
     TICKS_OFFSET = 621355968000000000
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     q = """
         SELECT pde.Time AS raw_time, pde.Value AS value
         FROM PidDataEntry pde
@@ -148,7 +148,7 @@ def load_obd_speed(db_file, t0):
 def accel_t0(db_file):
     import sqlite3
     TICKS_OFFSET = 621355968000000000
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     q = """
         SELECT pde.Time AS raw_time
         FROM PidDataEntry pde

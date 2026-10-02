@@ -28,8 +28,10 @@ import os
 import duckdb
 import numpy as np
 
+from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
+CACHE_DEPS = [os.path.abspath(__file__)]
 SHIFT_TIME_SUMMARY = os.path.join(RESULTS_DIR, "shift_time_analysis_summary.json")
 
 RIDE_ZONE_RAW = 30              # "fast oben" - deutlich unter Vollausschlag (199), nah am Reibpunkt
@@ -66,9 +68,18 @@ def main():
     print(f"{len(events)} Gangwechsel-Ereignisse (upshift+downshift) aus {SHIFT_TIME_SUMMARY}")
 
     con = duckdb.connect(DB_PATH, read_only=True)
-    results = []
+    # je Log gecacht (02.10.); Schluessel enthaelt die Gangwechsel des Logs
+    by_log = {}
     for e in events:
-        rd = compute_ride_duration(con, e["log_id"], e["t_start"], e["t_end"])
+        by_log.setdefault(e["log_id"], []).append(e)
+    pairs = []
+    for log_id, evs in by_log.items():
+        pairs += cached(con, "clutch_ride", log_id,
+                        lambda: [(e, compute_ride_duration(con, log_id, e["t_start"], e["t_end"])) for e in evs],
+                        CACHE_DEPS, extra=json.dumps(evs, sort_keys=True))
+
+    results = []
+    for e, rd in pairs:
         if rd is None:
             continue
         results.append({

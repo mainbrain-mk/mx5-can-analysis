@@ -49,8 +49,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
+CACHE_DEPS = [os.path.abspath(__file__)]
 SHIFT_TIME_SUMMARY = os.path.join(RESULTS_DIR, "shift_time_analysis_summary.json")
 
 WHEEL_CHANNELS_REAR = ["WheelSpeed_CAN_3", "WheelSpeed_CAN_4"]  # angetriebene Achse (RWD)
@@ -158,10 +160,25 @@ def main():
     print(f"{len(upshifts)} Hochschaltungen aus {SHIFT_TIME_SUMMARY}")
 
     con = duckdb.connect(DB_PATH, read_only=True)
+    def log_gaps(log_id, events):
+        out = []
+        for e in events:
+            r = compute_drive_gap(con, log_id, e["t_start"], e["t_end"])
+            out.append((e, r))
+        return out
+
+    # je Log gecacht (02.10.); Schluessel enthaelt die Hochschaltungen des Logs
+    by_log = {}
+    for e in upshifts:
+        by_log.setdefault(e["log_id"], []).append(e)
+    pairs = []
+    for log_id, events in by_log.items():
+        pairs += cached(con, "shift_traction_gap", log_id, lambda: log_gaps(log_id, events), CACHE_DEPS,
+                        extra=json.dumps(events, sort_keys=True))
+
     results = []
     skipped = 0
-    for e in upshifts:
-        r = compute_drive_gap(con, e["log_id"], e["t_start"], e["t_end"])
+    for e, r in pairs:
         if r is None:
             skipped += 1
             continue

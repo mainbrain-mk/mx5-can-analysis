@@ -156,28 +156,19 @@ def model_accel(v_ms, gear, mass_kg=MASS_KG):
     return (f_wheel - f_drag - f_roll) / effective_mass(mass_kg, gear), rpm, torque
 
 
-def load_channel(con, log_id, channel):
-    """Liefert Spalten ['t','value'] (t = t_elapsed_s) fuer einen Kanal
-    eines Logs aus dem Datalake, sortiert, ohne NaN.
+# Kanalzugriff zentral (CAN fuehrt, OBD als Rueckfall, keine Doppelzaehlung Handy+Pi), siehe
+# datalake_channels.py; top_speed_validation/partial_load_model importieren ihn von hier.
+from datalake_channels import load_channel  # noqa: E402
+from per_log_cache import cached, dir_inventory  # noqa: E402
 
-    ORDER BY nur nach t_elapsed_s reicht NICHT: manche Logs haben fuer denselben
-    normalisierten Kanal zwei Rohspalten (z.B. "Motordrehzahl (RPM)" und
-    "Engine Revolutions Per Minute (RPM)" fuer EngineRPM, siehe NAME_ALIASES in
-    build_datalake.py), die auf denselben Zeitstempel fallen - teils mit
-    identischen, teils (z.B. bei 2026-08-25 081538/EngineRPM: eine der beiden
-    Spalten ist ueber die ganze Fahrt fast durchgehend 0) unterschiedlichen
-    Werten. DuckDB garantiert bei gleichem t_elapsed_s KEINE stabile Reihenfolge
-    (haengt von Thread-Scheduling der parallelen Ausfuehrung ab) - das machte
-    downstream np.interp()/Schwellenwert-Vergleiche (Gang-Inferenz etc.)
-    nicht-deterministisch. channel_original+value als Tiebreaker ergaenzt macht
-    die Reihenfolge vollstaendig deterministisch."""
-    df = con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL "
-        "ORDER BY t_elapsed_s, channel_original, value",
-        [log_id, channel],
-    ).fetchdf()
-    return df
+# Ergebnis je Log haengt von diesen Dateien ab (Modell, Kanalaufloesung, Steigung, Wind) -
+# aendert sich eine, rechnen die Modellskripte alle Logs neu, sonst nur neue/geaenderte (02.10.).
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+MODEL_CACHE_DEPS = [os.path.join(_SCRIPTS, f) for f in (
+    "drivetrain_model_validation.py", "datalake_channels.py", "top_speed_validation.py",
+    "coastdown_analysis.py", "elevation_model.py", "performance_simulation.py")]
+ELEVATION_TILE_DIRS = ("höhendaten", "data/elevation/tiles", "data/elevation/bayern_tiles",
+                       "data/elevation/thueringen_tiles")
 
 
 GEAR_INFER_MAX_RATIO_ERROR = 0.03  # 3% - deutlich enger als der ~6-9% Modell-Bias
@@ -463,7 +454,7 @@ def main():
 
     print(f"=== 1. Kinematischer Check: Drehzahl aus Geschwindigkeit+Gang vs. gemessen ({len(log_ids)} Logs) ===")
     for log_id in log_ids:
-        res = kinematic_check(con, log_id)
+        res = cached(con, "drivetrain_kinematic", log_id, lambda: kinematic_check(con, log_id), MODEL_CACHE_DEPS)
         if res is None:
             print(f"{log_id}: zu wenige Datenpunkte (RPM/Speed/Gang nicht ausreichend vorhanden)")
             continue
@@ -473,12 +464,18 @@ def main():
     print("\n=== 2. Volllast-Beschleunigung: Modell vs. Messung ===")
     from elevation_model import ElevationModel
     from coastdown_analysis import _load_wind_cache
-    elev_model = ElevationModel()
-    wind_cache = _load_wind_cache()
+    lazy = {}  # Hoehenmodell/Wind nur laden, wenn ein Log wirklich neu gerechnet werden muss
 
+    def compute(log_id):
+        if not lazy:
+            lazy["elev"], lazy["wind"] = ElevationModel(), _load_wind_cache()
+        return wot_segments(con, log_id, elev_model=lazy["elev"], wind_cache=lazy["wind"])
+
+    tiles = dir_inventory(*ELEVATION_TILE_DIRS)
     all_events = []
     for log_id in log_ids:
-        events = wot_segments(con, log_id, elev_model=elev_model, wind_cache=wind_cache)
+        events = cached(con, "drivetrain_wot", log_id, lambda: compute(log_id), MODEL_CACHE_DEPS,
+                        extra=(LOG_MASS_OVERRIDE_KG.get(log_id), tiles))
         all_events.extend(events)
         if events:
             method = events[0]["detection"]

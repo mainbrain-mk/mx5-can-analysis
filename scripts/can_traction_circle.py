@@ -51,10 +51,14 @@ import duckdb
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.colors  # noqa: E402
 import matplotlib.pyplot as plt
+
+from per_log_cache import cached  # noqa: E402
 
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
+CACHE_DEPS = [os.path.abspath(__file__)]
 
 A_LAT_STRAIGHT_MAX_G = 0.1   # Geradeausfahrt-Schwelle fuer den Radschlupf-Check
 V_MIN_KMH = 20.0             # vermeidet Sensor-/Interpolationsrauschen bei sehr niedrigem Tempo
@@ -151,30 +155,31 @@ def wheel_slip_candidate(t, v_kmh, a_lat_g, a_lon_g, wheels, straight_and_loaded
     }
 
 
-def main():
-    con = duckdb.connect(DB_PATH, read_only=True)
-    log_ids = con.execute(
-        "SELECT DISTINCT log_id FROM measurements WHERE channel = 'LongitudinalAcc_CAN' ORDER BY log_id"
-    ).fetchdf()["log_id"].tolist()
-    print(f"{len(log_ids)} CAN-Logs mit LongitudinalAcc_CAN: {log_ids}")
+HIST_EDGES_G = np.arange(-1.5, 1.5001, 0.02)  # Dichtekarte statt Millionen Einzelpunkten (02.10.)
 
-    all_lat, all_lon, all_log = [], [], []
-    slip_candidates = {}
-    n_shift_excluded = 0
-    for log_id in log_ids:
-        d = load_log(con, log_id)
-        if d is None:
-            print(f"  {log_id}: LateralAcc_CAN/LongitudinalAcc_CAN/VehicleSpeed fehlt, uebersprungen")
-            continue
-        not_shifting = ~d["shifting"]
-        n_shift_excluded += int(d["shifting"].sum())
-        all_lat.append(d["a_lat_g"][not_shifting])
-        all_lon.append(d["a_lon_g"][not_shifting])
-        all_log.append(np.full(int(not_shifting.sum()), log_id))
 
-        if d["wheels"] is None:
-            print(f"  {log_id}: kein WheelSpeed_CAN_1-4, Radschlupf-Check uebersprungen")
-            continue
+def summarize_log(con, log_id):
+    """Teilergebnis eines Logs - daraus setzt main() das Gesamtergebnis exakt zusammen (Maxima,
+    Huelle je Winkel-Bin = Maximum der Log-Huellen, Histogramm = Summe). Je Log gecacht."""
+    d = load_log(con, log_id)
+    if d is None:
+        return None
+    not_shifting = ~d["shifting"]
+    lat, lon = d["a_lat_g"][not_shifting], d["a_lon_g"][not_shifting]
+    radius = np.sqrt(lat ** 2 + lon ** 2)
+    bin_idx = np.digitize(np.arctan2(lon, lat), np.linspace(-np.pi, np.pi, N_ANGLE_BINS + 1)) - 1
+    env = np.full(N_ANGLE_BINS, np.nan)
+    for i in np.unique(bin_idx[(bin_idx >= 0) & (bin_idx < N_ANGLE_BINS)]):
+        env[i] = radius[bin_idx == i].max()
+    out = {
+        "n": int(not_shifting.sum()), "n_shift": int(d["shifting"].sum()),
+        "max_lat": float(np.abs(lat).max()) if len(lat) else 0.0,
+        "max_accel": float(lon.max()) if len(lon) else 0.0,
+        "max_brake": float(-lon.min()) if len(lon) else 0.0,
+        "env": env, "hist": np.histogram2d(lon, lat, bins=[HIST_EDGES_G, HIST_EDGES_G])[0],
+        "slip": None, "has_wheels": d["wheels"] is not None,
+    }
+    if d["wheels"] is not None:
         straight = np.abs(d["a_lat_g"]) < A_LAT_STRAIGHT_MAX_G
         fast_enough = d["v_kmh"] > V_MIN_KMH
         accel_mask = straight & fast_enough & not_shifting & (d["a_lon_g"] > A_LON_LOAD_MIN_G)
@@ -184,19 +189,37 @@ def main():
             "brake": wheel_slip_candidate(d["t"], d["v_kmh"], d["a_lat_g"], d["a_lon_g"], d["wheels"], brake_mask),
         }
         if cand["accel"] or cand["brake"]:
-            slip_candidates[log_id] = cand
+            out["slip"] = cand
+    return out
 
-    a_lat_g = np.concatenate(all_lat)
-    a_lon_g = np.concatenate(all_lon)
-    log_arr = np.concatenate(all_log)
-    n = len(a_lat_g)
-    print(f"\nKraftkreis-Datenbasis: {n} Samples aus {len(set(log_arr))} Logs "
+
+def main():
+    con = duckdb.connect(DB_PATH, read_only=True)
+    log_ids = con.execute(
+        "SELECT DISTINCT log_id FROM measurements WHERE channel = 'LongitudinalAcc_CAN' ORDER BY log_id"
+    ).fetchdf()["log_id"].tolist()
+    print(f"{len(log_ids)} CAN-Logs mit LongitudinalAcc_CAN")
+
+    parts = {}
+    for log_id in log_ids:
+        part = cached(con, "traction_circle", log_id, lambda: summarize_log(con, log_id), CACHE_DEPS)
+        if part is None:
+            print(f"  {log_id}: LateralAcc_CAN/LongitudinalAcc_CAN/VehicleSpeed fehlt, uebersprungen")
+        elif part["n"]:
+            parts[log_id] = part
+            if not part["has_wheels"]:
+                print(f"  {log_id}: kein WheelSpeed_CAN_1-4, Radschlupf-Check uebersprungen")
+    slip_candidates = {l: p["slip"] for l, p in parts.items() if p["slip"]}
+
+    n = sum(p["n"] for p in parts.values())
+    n_shift_excluded = sum(p["n_shift"] for p in parts.values())
+    print(f"\nKraftkreis-Datenbasis: {n} Samples aus {len(parts)} Logs "
           f"({n_shift_excluded} Samples waehrend Kupplung betaetigt ausgeschlossen, "
           f"siehe Docstring Schaltvorgang-Ausschluss)")
 
-    max_lat_g = float(np.abs(a_lat_g).max())
-    max_accel_g = float(a_lon_g.max())
-    max_brake_g = float(-a_lon_g.min())
+    max_lat_g = max(p["max_lat"] for p in parts.values())
+    max_accel_g = max(p["max_accel"] for p in parts.values())
+    max_brake_g = max(p["max_brake"] for p in parts.values())
     print(f"max |a_lat|   = {max_lat_g:.2f}g")
     print(f"max a_lon (Beschleunigen) = {max_accel_g:.2f}g")
     print(f"max -a_lon (Bremsen)      = {max_brake_g:.2f}g")
@@ -205,7 +228,10 @@ def main():
     print("(alles klar unter dem Reifenlimit - Alltagsfahrten, siehe Docstring/corner_speed_model.py, "
           "das hier ist eine Formindikation, keine Grenzwertmessung)")
 
-    centers, env_r = envelope_by_angle(a_lat_g, a_lon_g)
+    edges = np.linspace(-np.pi, np.pi, N_ANGLE_BINS + 1)
+    env_all = np.nanmax(np.vstack([p["env"] for p in parts.values()]), axis=0)
+    has = ~np.isnan(env_all)
+    centers, env_r = ((edges[:-1] + edges[1:]) / 2)[has], env_all[has]
 
     if slip_candidates:
         print(f"\nRadschlupf-Kandidaten (Geradeausfahrt, v>{V_MIN_KMH:.0f}km/h, |a_lon|>{A_LON_LOAD_MIN_G:.1f}g, "
@@ -218,9 +244,11 @@ def main():
     else:
         print("\nKeine Radschlupf-Kandidaten gefunden (oder kein Log hatte alle 4 WheelSpeed-Kanaele).")
 
-    # Plot
+    # Plot: Dichtekarte (Summe der Log-Histogramme) statt Einzelpunkte
+    hist = sum(p["hist"] for p in parts.values())
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
-    sc = ax1.scatter(a_lon_g, a_lat_g, c=np.sqrt(a_lat_g ** 2 + a_lon_g ** 2), cmap="viridis", s=6, alpha=0.5)
+    im = ax1.pcolormesh(HIST_EDGES_G, HIST_EDGES_G, np.ma.masked_equal(hist.T, 0),
+                        norm=matplotlib.colors.LogNorm(), cmap="viridis")
     env_x, env_y = env_r * np.cos(centers), env_r * np.sin(centers)
     order = np.argsort(centers)
     ax1.plot(env_x[order], env_y[order], "r-", lw=1.5, label="beobachtete Huelle (Winkel-Bins)")
@@ -228,10 +256,10 @@ def main():
     ax1.axvline(0, color="gray", lw=0.5)
     ax1.set_xlabel("a_lon [g] (+ = Beschleunigen, - = Bremsen)")
     ax1.set_ylabel("a_lat [g]")
-    ax1.set_title(f"Kraftkreis, {n} Samples aus {len(set(log_arr))} CAN-Logs")
+    ax1.set_title(f"Kraftkreis, {n} Samples aus {len(parts)} CAN-Logs")
     ax1.set_aspect("equal")
     ax1.legend(fontsize=8)
-    fig.colorbar(sc, ax=ax1, label="kombiniert |a| [g]")
+    fig.colorbar(im, ax=ax1, label="Samples je 0,02-g-Feld")
 
     labels = ["Bremsen\n(max -a_lon)", "Beschleunigen\n(max a_lon)", "Quer\n(max |a_lat|)"]
     values = [max_brake_g, max_accel_g, max_lat_g]
@@ -246,7 +274,7 @@ def main():
     plt.close(fig)
 
     out = {
-        "n_logs": len(set(log_arr)), "n_samples": n, "log_ids": log_ids,
+        "n_logs": len(parts), "n_samples": n, "log_ids": log_ids,
         "max_lat_g": max_lat_g, "max_accel_g": max_accel_g, "max_brake_g": max_brake_g,
         "brake_over_accel_ratio": max_brake_g / max_accel_g,
         "envelope_angle_rad": centers.tolist(), "envelope_radius_g": env_r.tolist(),

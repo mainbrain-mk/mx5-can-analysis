@@ -199,12 +199,11 @@ def build_straight_point_cloud(ways, project):
     return np.column_stack([np.concatenate(xs), np.concatenate(ys)])
 
 
-def load_channel(con, log_id, channel):
-    return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
-    ).fetchdf()
+from datalake_channels import load_channel, logs_with  # CAN fuehrt, OBD als Rueckfall  # noqa: E402
+from per_log_cache import cached  # noqa: E402
+
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+CACHE_DEPS = [os.path.join(_SCRIPTS, f) for f in ("steering_zero_offset.py", "datalake_channels.py")]
 
 
 def group_runs(t, mask, min_duration_s):
@@ -224,9 +223,9 @@ def group_runs(t, mask, min_duration_s):
 
 
 def logs_with_steering(con):
-    return con.execute(
-        "SELECT DISTINCT log_id FROM measurements WHERE channel = 'STEER_ANGL_EPS' ORDER BY log_id"
-    ).fetchdf()["log_id"].tolist()
+    """Nur Handy-Logs (STEER_ANGL_EPS): der CAN-Lenkwinkel braucht keinen Nullpunkt - ueber 38 CAN-Fahrten
+    ergab diese Methode Median 0,00 Grad, max 0,7 Grad (Methodenrauschen; Handy bis 156 Grad), 02.10.2026."""
+    return [l for l in logs_with(con, "STEER_ANGL_EPS") if not l.startswith("candump")]
 
 
 def estimate_offset_for_log(con, log_id, straight_tree, project):
@@ -291,7 +290,7 @@ def estimate_offset_for_log(con, log_id, straight_tree, project):
     return result
 
 
-def main():
+def _straight_tree():
     print(f"Lade OSM-Strassengeometrie (Overpass, gecacht unter {ROAD_CACHE_PATH}) ...")
     ways = get_or_build_road_cache(CORRIDOR_BBOX)
     print(f"{len(ways)} OSM-Strassen-Ways geladen (Typen: {', '.join(HIGHWAY_TYPES)})")
@@ -304,17 +303,27 @@ def main():
     straight_points = build_straight_point_cloud(ways, project)
     print(f"{len(straight_points)} 'gerade' Strassenpunkte (Resample-Schritt {RESAMPLE_STEP_M:.0f}m)")
     if len(straight_points) == 0:
-        print("Keine geraden Strassenpunkte gefunden - Abbruch.")
-        return
-    straight_tree = cKDTree(straight_points)
+        raise SystemExit("Keine geraden Strassenpunkte gefunden - Abbruch.")
+    return cKDTree(straight_points), project
 
+
+def main():
     con = duckdb.connect(DB_PATH, read_only=True)
     steering_logs = logs_with_steering(con)
-    print(f"\n{len(steering_logs)} Logs mit STEER_ANGL_EPS-Kanal werden geprueft.\n")
+    print(f"\n{len(steering_logs)} Logs mit Lenkwinkel werden geprueft.\n")
+
+    # je Log gecacht (02.10.): OSM-Geometrie nur laden, wenn ein Log neu gerechnet werden muss
+    lazy = {}
+    road_cache = [str(ROAD_CACHE_PATH)] if os.path.exists(ROAD_CACHE_PATH) else []
+
+    def compute(log_id):
+        if not lazy:
+            lazy["tree"], lazy["project"] = _straight_tree()
+        return estimate_offset_for_log(con, log_id, lazy["tree"], lazy["project"])
 
     results = {}
     for log_id in steering_logs:
-        res = estimate_offset_for_log(con, log_id, straight_tree, project)
+        res = cached(con, "steering_zero_offset", log_id, lambda: compute(log_id), CACHE_DEPS + road_cache)
         results[log_id] = res
         if "error" in res:
             extra = f" ({res['n_candidate_samples']} Kandidaten-Samples vor Gruppierung)" \

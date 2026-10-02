@@ -147,12 +147,21 @@ die streckenbezogenen Themen.
   INNERHALB einer Fahrt explizit geprüft und **ausgeschlossen** (Power-Check
   bestätigt: die Methode würde ab ca. 2°/h Drift zuverlässig erkennen,
   gemessen wurden <0,2°/h) - ein Offset pro Log ist ausreichend, entsteht
-  vermutlich einmalig beim Sensor-/ECU-Start.
-- **Sättigender Gain statt fixem k** (07.09.2026, finaler Stand des
-  OBD-Modells vor der CAN-Ablösung): `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|`
-  (k2<0) - echte Reifenkraft-Sättigung, kein Fit-Artefakt (Gain fällt von
-  ~1,3–1,4 bei kleinen Lenkwinkeln <20° auf ~0,93 bei großen >150°).
-  **R²=0,950, LOO-RMSE=3,40°/s, 155 Kalibrierpunkte, k1=0,023276.**
+  vermutlich einmalig beim Sensor-/ECU-Start. **Gilt nur für den Handy-Kanal:** über 38 CAN-Fahrten
+  ergab dieselbe Methode Median 0,00°, max 0,7° (Methodenrauschen). Seit 02.10.2026 läuft
+  `steering_zero_offset.py` deshalb nur noch für Handy-Logs, CAN-Fahrten nehmen Offset 0. Die
+  Lenkmodell-Kalibrierung ist dadurch unverändert (k1 0,020554, R² 0,990, LOO 1,20°/s).
+- **Kalibrierung seit 02.10.2026 nur noch aus CAN:** 1570 Kurven aus
+  `can_corner_event_analysis.py` (≥ 11 km/h), Referenz-Gierrate direkt aus
+  `YawRate_CAN` statt Handy-GPS+Gyro. `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|`
+  mit **k1=0,020555, k2=+0,0000272, R²=0,990, LOO-RMSE=1,20°/s** (vorher
+  Handy: 315 Punkte, R²=0,941, LOO 3,40°/s). Der Gain **steigt** leicht mit
+  dem Lenkwinkel (passt zu tan(Radeinschlag)). Der frühere Befund „sättigender
+  Gain, k2<0“ (07.09.2026) war ein Artefakt der Handy-Referenz: auf denselben
+  Handy-Kurven allein ergibt sich weiter k2<0, auf CAN nicht. Handy-Kurven
+  dienen nur noch als Rückfall (< 50 CAN-Punkte). Konstanten im
+  Racing-Line-Editor nachgezogen. Siehe Logbuch „CAN als führende Quelle in
+  der Pipeline (2026-10-02)“.
 - **Kurvenradius aus dem Lenkwinkel:** nur grobe Schätzung (Median-Fehler
   19,8 %, p90 45,3 %) - **nicht** für präzise Streckengeometrie geeignet
   (dafür OSM+Orthofoto verwenden, siehe oben). Kalibrierbasis nur für
@@ -221,16 +230,25 @@ die streckenbezogenen Themen.
 
 ## Bremsmodell
 
+- **CAN-Bremsereignisse seit 02.10.2026** (`can_brake_event_analysis.py`, läuft für jedes neue
+  CAN-Log): 1028 Bremsungen aus 61 CAN-Fahrten. Die Verzögerung aus `LongitudinalAcc_CAN` stimmt
+  mit der aus dem Tempoabfall überein (r=0,964, Verhältnis 0,99). Mittlere Verzögerung p50/p95
+  0,15/0,29 g; **ABS-Bremsungen 0,69–0,79 g** (4 Fälle, 15.09./26.09./01.10., alle noch NS-R2).
+  **`BRAKE_CAP_G` seit 02.10. = 0,762 g** (Nutzerentscheid: Bremsmodell auf den performanteren
+  Semis NS-R2, Winterreifen bleiben vermutlich dahinter zurück): härteste ABS-Bremsung ≥ 1,5 s der
+  NS-R2-Fahrten (15.09. 171047, 112→57 km/h). Das formale Maximum 0,802 g ist ein 0,78-s-Ereignis
+  bei 45 km/h. Vorher 0,4772 g aus Handy/OBD (deutlich unterschätzt). Rundenzeit bei μ=1,0:
+  theoretisches Reifenlimit 102,73 s, mit 0,762 g 103,00 s (+0,27 s; mit 0,477 g waren es ~+2 s).
 - Reales, datenbasiertes Bremsmodell (229 echte Bremsvorgänge aus
   `BFP_PRE_MZ` + OBD-Tempoabfall, `scripts/braking_model.py`) ersetzt die
   reine Reifenkraftkreis-Theorie für die Längsverzögerung in der
   Rundenzeit-Simulation.
-- **`BRAKE_CAP_G=0,4772`** (reales Maximum, ABS-Bremsung) ist Standard-Default
+- **`BRAKE_CAP_G`** (bis 01.10. 0,4772 aus Handy/OBD, seit 02.10. 0,762 aus CAN, siehe oben) ist Standard-Default
   in `simulate_lap_combined_friction()` - gilt nur für die
   Längsverzögerung, nicht die Kurven-Querbeschleunigung
   (`brake_cap_g=None` erzwingt weiterhin das alte theoretische Verhalten für
-  Vergleiche). Effekt: theoretisch (Reifenkraftkreis) 100,67 s, real Median
-  (0,154g) +12,70 s, p95 (0,309g) +5,26 s, Maximum (0,477g) +2,07 s.
+  Vergleiche). Effekt (02.10., CAN-Bremsungen NS-R2, μ=1,0): theoretisch (Reifenkraftkreis)
+  102,73 s, real Median (0,146g) +11,08 s, p95 (0,292g) +3,83 s, Standard (0,762g) +0,27 s.
 - Zwei "Bang-Bang"-Glättungen für realistischeres, fahrbares Pedalverhalten:
   1. **Vollgas-Inseln** kürzer als `MIN_ACCEL_HOLD_M=40m` zwischen zwei
      Bremszonen werden zu konstanter Teillast geglättet

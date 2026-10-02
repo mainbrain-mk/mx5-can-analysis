@@ -59,8 +59,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(__file__))
 from performance_simulation import ATTACK_SHIFT_S
 
+from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
+CACHE_DEPS = [os.path.abspath(__file__)]
 
 CLUTCH_ACTIVE_RAW = 15   # siehe can_traction_circle.py, gleiche Konvention
 GAP_BRIDGE_S = 0.15      # kurze Signal-Luecken innerhalb einer Betaetigung ueberbruecken
@@ -142,17 +144,20 @@ def main():
     ).fetchdf()["log_id"].tolist()
     print(f"{len(log_ids)} CAN-Logs mit ClutchPosition_CAN_raw: {log_ids}")
 
-    all_events = []
-    for log_id in log_ids:
+    def log_events(log_id):
         clutch = load_channel(con, log_id, "ClutchPosition_CAN_raw")
         gear = load_channel(con, log_id, "Gear_CAN")
         if clutch.empty or gear.empty:
-            continue
+            return []
         events = detect_clutch_events(clutch["t"].values, clutch["value"].values,
                                        gear["t"].values, gear["value"].values)
         for ev in events:
             ev["log_id"] = log_id
-        all_events.extend(events)
+        return events
+
+    all_events = []
+    for log_id in log_ids:  # je Log gecacht (02.10.)
+        all_events.extend(cached(con, "shift_time", log_id, lambda: log_events(log_id), CACHE_DEPS))
 
     by_kind = {}
     for ev in all_events:

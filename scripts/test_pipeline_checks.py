@@ -112,7 +112,7 @@ def test_drivetrain_ratio():
     cleanup(tmp)
     assert len(findings) == 1, findings
 
-    data_ok = [{"file": "2026-01-01 000000.dlg", "a_measured_ms2": 0.94, "a_model_ms2": 1.0}]
+    data_ok = [{"file": "2026-01-01 000000.dlg", "a_measured_ms2": pc.DRIVETRAIN_RATIO_REFERENCE, "a_model_ms2": 1.0}]
     tmp2 = with_results_dir({"drivetrain_model_validation_summary.json": data_ok})
     pc.RESULTS_DIR, orig = tmp2, pc.RESULTS_DIR
     assert pc.check_drivetrain_ratio(["2026-01-01 000000"]) == []

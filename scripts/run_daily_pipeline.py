@@ -27,6 +27,7 @@ import sys
 import zoneinfo
 from datetime import date, datetime, timezone
 
+import duckdb
 import numpy as np
 import pandas as pd
 
@@ -41,6 +42,9 @@ CAN_DIR = "data/can"
 RESULTS_DIR = "results"
 MASS_OVERRIDE_PATH = "data/log_mass_overrides.json"
 CAN_GPS_PAIRS_OVERRIDE_PATH = "data/can_gps_pairs.json"
+# CAN-Logs gelten nur im Lauf ihres Downloads als neu - bis zum Lauf-Ende hier vorgemerkt,
+# damit ein Absturz sie nicht still verliert (02.10.: 3 Logs nach Crash nie ausgewertet)
+PENDING_CAN_LOGS_PATH = "data/pending_can_logs.json"
 PI_HOST = "pi@192.168.0.247"
 PI_CANLOGS_DIR = "/home/pi/canlogs"
 GPX_PAIR_TOLERANCE_S = 180
@@ -50,12 +54,13 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 DRIVER_MASS_KG = 86.0
 EMPTY_MASS_KG = 1073.0
-# Tankinhalt aus FLI (%): Kennlinie aus dem Tank 16.->26.09. (Voll-bis-Voll + CAN-Kraftstoffzaehler,
-# docs/logs/can-bus-status.md "Kraftstoff absolut"): Liter = 3,0 + 1,10 * Fuel_Tank_roh (voll = 45 l
-# laut Mazda), und FLI % = 2,486 * roh. Vorher FLI % * 45 l - gleiche Steigung, aber ohne die ~3 l
-# unter "0 %".
-FUEL_L_AT_FLI0 = 3.0
-FUEL_L_PER_FLI_PCT = 1.10 / 2.486
+# Tankinhalt aus CAN Fuel_Tank (0x09E): Kennlinie aus dem Tank 16.->26.09. (Voll-bis-Voll +
+# CAN-Kraftstoffzaehler, docs/logs/can-bus-status.md "Kraftstoff absolut"): Liter = 3,0 + 1,10 * roh
+# (voll = 45 l laut Mazda). Bis 02.10. kam der Tank aus dem FLI-Kanal der Handy-.dlg - den fragt das
+# Handy seit 26.09. nicht mehr ab, CAN-only-Fahrten bekamen gar keine Masse.
+FUEL_L_AT_RAW0 = 3.0
+FUEL_L_PER_RAW = 1.10
+DATALAKE_PATH = "data/datalake.duckdb"
 FUEL_DENSITY_KG_L = 0.745
 # Beifahrer-Zusatzmasse (2026-09-20, siehe DBC-Kommentar bei BO_832
 # PassengerSeatOccupied_maybe / docs/logs/can-bus-status.md): wird anteilig zum
@@ -187,30 +192,6 @@ def _find_matching_gpx(log_id):
     return best
 
 
-def _find_matching_can_log(dlg_log_id):
-    """Sucht data/can/candump-*.log mit gleichem Datum wie dlg_log_id (Format
-    'YYYY-MM-DD HHMMSS') und Startzeit innerhalb GPX_PAIR_TOLERANCE_S (dieselbe
-    Toleranz wie frueher bei _find_matching_gpx - der Pi startet candump typischerweise
-    einige Sekunden vor der OBD-Fusion-App, siehe z.B. candump-2026-09-18_090404
-    vs. dlg '2026-09-18 090449', 45s Abstand). None, falls kein Treffer - dann
-    bleibt compute_mass() bei der reinen SOLO-Annahme."""
-    m = re.match(r"(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(\d{2})", dlg_log_id)
-    if not m:
-        return None
-    y, mo, d, h, mi, s = m.groups()
-    date_prefix = f"{y}-{mo}-{d}"
-    dlg_s = int(h) * 3600 + int(mi) * 60 + int(s)
-    best, best_diff = None, None
-    for can_path in glob.glob(f"{CAN_DIR}/candump-{date_prefix}_*.log"):
-        cm = re.match(rf"candump-{date_prefix}_(\d{{2}})(\d{{2}})(\d{{2}})\.log$", os.path.basename(can_path))
-        if not cm:
-            continue
-        ch, cmi, cs = cm.groups()
-        diff = abs((int(ch) * 3600 + int(cmi) * 60 + int(cs)) - dlg_s)
-        if diff <= GPX_PAIR_TOLERANCE_S and (best_diff is None or diff < best_diff):
-            best, best_diff = can_path, diff
-    return best
-
 
 def gunzip_or_recover(gz_path, out_path, errors):
     """Entpackt gz_path nach out_path. `gzip -dk` bricht bei einem
@@ -299,7 +280,7 @@ def _can_speed_1hz(log_path):
 
 def _dlg_gps_speed_1hz(dlg_path):
     """GPS-Geschwindigkeit aus der dlg als {UTC-Epoch-Sekunde: km/h} (Time = .NET-Ticks UTC)."""
-    con = sqlite3.connect(dlg_path)
+    con = sqlite3.connect(f"file:{dlg_path}?mode=ro", uri=True)
     try:
         rows = con.execute("""SELECT pde.Time, pde.Value FROM PidDataEntry pde
             JOIN PidMetadataEntry pme ON pde.UniqueId = pme.UniqueId
@@ -698,68 +679,71 @@ def pair_late_gpx():
     return paired
 
 
+def _merge_pending_can_logs(new_can_logs):
+    """Vom letzten (abgestuerzten) Lauf liegengebliebene CAN-Logs dazunehmen und die Gesamtliste
+    vormerken; main() loescht die Vormerkung erst nach dem Report. Nach Uhrkorrektur
+    umbenannte/geloeschte Logs fallen raus."""
+    pending = []
+    if os.path.exists(PENDING_CAN_LOGS_PATH):
+        with open(PENDING_CAN_LOGS_PATH, encoding="utf-8") as f:
+            pending = json.load(f)
+    merged = sorted(set(new_can_logs) | {l for l in pending if os.path.exists(os.path.join(CAN_DIR, f"{l}.log"))})
+    with open(PENDING_CAN_LOGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(merged, f)
+    return merged
+
+
 def find_new_logs():
     """Schritt 1: Logs in data/raw/, die noch keine
-    data/derived/<name>_vibration_summary.json haben."""
+    data/derived/<name>_vibration_summary.json haben. Leere .dlg ueberspringen: sqlite3.connect()
+    auf einen falschen Pfad legt die Datei leer an (02.10.: candump-...dlg aus einem Handlauf)."""
     processed = {
         os.path.basename(p)[:-len("_vibration_summary.json")]
         for p in glob.glob(f"{DERIVED_DIR}/*_vibration_summary.json")
     }
-    raw = {os.path.basename(p)[:-4] for p in glob.glob(f"{RAW_DIR}/*.dlg")}
+    raw = {os.path.basename(p)[:-4] for p in glob.glob(f"{RAW_DIR}/*.dlg") if os.path.getsize(p) > 0}
     return sorted(raw - processed)
 
 
-def compute_mass(log_id):
-    """Schritt 2: Masse aus dem FLI-Kanal der .dlg-Datei berechnen
-    (Median erste/letzte 10 Werte, SOLO-Annahme - siehe
-    docs/logs/projekt-stand.md "Fahrzeuggewicht"). None, falls kein FLI-Kanal."""
-    path = os.path.join(RAW_DIR, f"{log_id}.dlg")
-    con = sqlite3.connect(path)
+def compute_mass(can_log_id):
+    """Masse einer CAN-Fahrt: Leergewicht + Fahrer + Tank (Median von FuelTank_CAN_raw im Datalake,
+    ohne die 0-Initwerte - der Geber schwappt um +-3 roh) + Beifahrer anteilig nach Belegungszeit
+    (0x340). None, falls das Log keinen Tankwert hat. Braucht den frisch gebauten Datalake."""
+    con = duckdb.connect(DATALAKE_PATH, read_only=True)
     try:
-        cur = con.cursor()
-        query = """
-            SELECT pde.Value FROM PidDataEntry pde
-            JOIN PidMetadataEntry pme ON pde.UniqueId = pme.UniqueId
-            WHERE pme.PidName = 'FLI' ORDER BY pde.Time {} LIMIT 10
-        """
-        cur.execute(query.format("ASC"))
-        first10 = [r[0] for r in cur.fetchall()]
-        cur.execute(query.format("DESC"))
-        last10 = [r[0] for r in cur.fetchall()]
+        raw = con.execute("SELECT median(value) FROM measurements WHERE log_id = ? "
+                          "AND channel = 'FuelTank_CAN_raw' AND value > 0", [can_log_id]).fetchone()[0]
     finally:
         con.close()
-    if not first10 or not last10:
+    if raw is None:
         return None
-    start_pct, end_pct = statistics.median(first10), statistics.median(last10)
-    level_pct = (start_pct + end_pct) / 2
-    fuel_kg = (FUEL_L_AT_FLI0 + FUEL_L_PER_FLI_PCT * level_pct) * FUEL_DENSITY_KG_L
-    mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_kg
-    note = f"FLI ~{start_pct:.1f}%->~{end_pct:.1f}%"
+    fuel_l = FUEL_L_AT_RAW0 + FUEL_L_PER_RAW * raw
+    mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_l * FUEL_DENSITY_KG_L
+    note = f"Tank ~{fuel_l:.1f} l (CAN Fuel_Tank Median {raw:.1f} roh)"
 
-    can_path = _find_matching_can_log(log_id)
-    if can_path is not None:
-        occupied_s, total_s = can_log_parser.passenger_occupied_seconds(can_path)
-        if total_s > 0:
-            occupied_frac = occupied_s / total_s
-            mass_kg += PASSENGER_MASS_KG * occupied_frac
-            note += (f", Beifahrer {occupied_frac:.0%} der Fahrt "
-                     f"({os.path.basename(can_path)}, PassengerSeatOccupied_maybe)")
-        else:
-            note += ", CAN-Log ohne 0x340-Belegungsdaten (SOLO-Annahme)"
+    occupied_s, total_s = can_log_parser.passenger_occupied_seconds(os.path.join(CAN_DIR, f"{can_log_id}.log"))
+    if total_s > 0:
+        occupied_frac = occupied_s / total_s
+        mass_kg += PASSENGER_MASS_KG * occupied_frac
+        note += f", Beifahrer {occupied_frac:.0%} der Fahrt (0x340)"
     else:
-        note += ", kein CAN-Log gefunden (SOLO-Annahme)"
+        note += ", ohne 0x340-Belegungsdaten (SOLO-Annahme)"
 
     return round(mass_kg, 1), note
 
 
-def update_mass_overrides(new_logs):
+def update_mass_overrides(new_logs, errors):
     overrides = {}
     if os.path.exists(MASS_OVERRIDE_PATH):
         with open(MASS_OVERRIDE_PATH, encoding="utf-8") as f:
             overrides = json.load(f)
     computed = {}
     for log_id in new_logs:
-        result = compute_mass(log_id)
+        try:
+            result = compute_mass(log_id)
+        except Exception as e:  # ein kaputtes Log darf nicht den ganzen Lauf abbrechen (02.10.)
+            errors.append((f"Masse {log_id}", f"Exception: {e}"))
+            continue
         if result is None:
             continue
         mass_kg, note = result
@@ -796,6 +780,7 @@ def main():
     new_logs = find_new_logs()
     new_can_logs = sync_can_logs_from_pi(errors)
     new_can_logs, clock_fixes = fix_can_log_clocks(new_can_logs, errors)
+    new_can_logs = _merge_pending_can_logs(new_can_logs)
 
     if new_gpx:
         print(f"{len(new_gpx)} neue GPX aus Google Drive geladen: {new_gpx}")
@@ -816,7 +801,6 @@ def main():
     if new_can_logs:
         print(f"{len(new_can_logs)} neue(s) CAN-Log(s) vom Raspberry Pi geladen: {new_can_logs}")
 
-    masses = update_mass_overrides(new_logs)
 
     for log_id in new_logs:
         run_script([PYTHON, "scripts/vibration_analysis.py", f"{log_id}.dlg"], errors)
@@ -827,6 +811,7 @@ def main():
 
     if new_logs or new_can_logs:
         run_script([PYTHON, "scripts/build_datalake.py"], errors)
+    masses = update_mass_overrides(new_can_logs, errors)
 
     previous_shift_best = load_json("shift_time_best.json") or {}
     if new_can_logs:
@@ -845,22 +830,30 @@ def main():
     if new_can_logs:
         for log_id in new_can_logs:
             run_script([PYTHON, "scripts/can_corner_event_analysis.py", log_id], errors)
+            # CAN-Gegenstuecke zu brake_event_analysis.py / vibration_analysis.py (02.10.)
+            run_script([PYTHON, "scripts/can_brake_event_analysis.py", log_id], errors)
+            run_script([PYTHON, "scripts/can_vibration_analysis.py", log_id], errors)
         run_script([PYTHON, "scripts/corner_peak_tracker.py"], errors)
     current_corner_peak_best = load_json("corner_peak_best.json") or {}
 
-    if new_logs:
+    # Modellpruefungen laufen fuer CAN- UND Handy-Logs (02.10.: vorher nur bei neuer .dlg - seit 27.09.
+    # kommt keine mehr, CAN-Fahrten blieben ungeprueft). Kanaele loest datalake_channels.py auf.
+    analysis_logs = sorted(new_logs + new_can_logs)
+    # Die Skripte cachen ihr Ergebnis je Log (per_log_cache.py) - neu gerechnet werden nur neue/
+    # geaenderte Logs, die Zusammenfassung ueber alle Logs ist billig (02.10.: vorher 43 min je Lauf).
+    if analysis_logs:
         run_script([PYTHON, "scripts/partial_load_model.py"], errors)
         run_script([PYTHON, "scripts/drivetrain_model_validation.py"], errors)
         run_script([PYTHON, "scripts/top_speed_validation.py"], errors)
         run_script([PYTHON, "scripts/check_dgm_coverage_gaps.py"], errors)
 
     previous_coastdown = load_json("coastdown_analysis_summary.json") or []
-    if new_logs:
-        run_script([PYTHON, "scripts/coastdown_analysis.py", *new_logs], errors)
+    if analysis_logs:
+        run_script([PYTHON, "scripts/coastdown_analysis.py", *analysis_logs], errors)
     current_coastdown = load_json("coastdown_analysis_summary.json") or []
 
     steering_ran = False
-    if new_logs:
+    if analysis_logs:
         res = run_script([PYTHON, "scripts/check_steering_channel.py"], errors)
         if res is not None:
             try:
@@ -868,8 +861,9 @@ def main():
             except ValueError:
                 n_steering_logs = 0
             if n_steering_logs > 0:
-                run_script([PYTHON, "scripts/steering_zero_offset.py"], errors)
-                run_script([PYTHON, "scripts/steering_lateral_model.py", *new_logs], errors)
+                if new_logs:  # Nullpunkt nur fuer Handy-Lenkwinkel noetig, CAN hat keinen Offset (02.10.)
+                    run_script([PYTHON, "scripts/steering_zero_offset.py"], errors)
+                run_script([PYTHON, "scripts/steering_lateral_model.py", *analysis_logs], errors)
                 steering_ran = True
 
     # --- Kernzahlen fuer den Report zusammenstellen ---
@@ -890,14 +884,30 @@ def main():
         if log_id in new_logs and "error" not in r:
             n_right = sum(1 for e in r["events"] if e["direction"] == "rechts")
             corner[log_id] = {"n_events": r["n_events"], "n_right": n_right, "n_left": r["n_events"] - n_right}
+    for log_id in new_can_logs:
+        r = load_json(f"can_corner_event_summary_{log_id}.json")
+        if r:
+            n_right = sum(1 for e in r["events"] if e["direction"] == "rechts")
+            corner[log_id] = {"n_events": len(r["events"]), "n_right": n_right, "n_left": len(r["events"]) - n_right}
+
+    can_brake, can_vibration = {}, {}
+    for log_id in new_can_logs:
+        r = load_json(f"can_brake_event_summary_{log_id}.json")
+        if r:
+            ev = r["events"]
+            can_brake[log_id] = {"n_events": len(ev), "n_abs": sum(e["abs_active"] for e in ev),
+                                 "decel_peak_g": max((e["decel_peak_g"] for e in ev), default=None)}
+        r = load_json(f"can_vibration_summary_{log_id}.json")
+        if r and r.get("n_windows"):
+            can_vibration[log_id] = r
 
     dt_data = load_json("drivetrain_model_validation_summary.json") or []
     dt_ratios = [e["a_measured_ms2"] / e["a_model_ms2"] for e in dt_data
-                 if e.get("file", "")[:-4] in new_logs and e.get("a_model_ms2")]
+                 if e.get("file", "").removesuffix(".dlg") in analysis_logs and e.get("a_model_ms2")]
     drivetrain = {"median_ratio": statistics.median(dt_ratios) if dt_ratios else None, "n": len(dt_ratios)}
 
     ts_data = load_json("top_speed_validation_summary.json") or []
-    top_speed = {"n_new_segments": sum(1 for e in ts_data if e.get("log_id") in new_logs)}
+    top_speed = {"n_new_segments": sum(1 for e in ts_data if e.get("log_id") in analysis_logs)}
 
     pl_data = load_json("partial_load_model_summary.json") or {}
     cv_results = pl_data.get("cross_validation") or []
@@ -924,10 +934,10 @@ def main():
         }
 
     dgm_data = load_json("dgm_coverage_gaps.json") or []
-    dgm_gap_new_logs = sorted({g["log_id"] for g in dgm_data if g.get("log_id") in new_logs})
+    dgm_gap_new_logs = sorted({g["log_id"] for g in dgm_data if g.get("log_id") in analysis_logs})
 
     findings = pipeline_checks.run_all(
-        new_logs,
+        analysis_logs,
         previous_coastdown_count=len(previous_coastdown),
         current_coastdown_summary=current_coastdown,
         steering_ran=steering_ran,
@@ -949,6 +959,8 @@ def main():
         "masses": masses,
         "vibration": vibration,
         "brake": brake,
+        "can_brake": can_brake,
+        "can_vibration": can_vibration,
         "corner": corner,
         "drivetrain": drivetrain,
         "top_speed": top_speed,
@@ -964,6 +976,9 @@ def main():
     n_warn = sum(1 for f in findings if f["severity"] == "warn")
     if n_warn:
         notify(f"{n_warn} Befund(e) im Lauf vom {run_report['date']} - siehe {report_path}")
+
+    if os.path.exists(PENDING_CAN_LOGS_PATH):
+        os.remove(PENDING_CAN_LOGS_PATH)
 
     print(f"\nReport: {report_path}")
     if report_path:
