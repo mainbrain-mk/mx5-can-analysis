@@ -6469,3 +6469,13 @@ während der Berechnung gedruckt werden. Ganzer Pipeline-Lauf für die drei Logs
 **Einschränkung:** Gescheiterte Windabfragen hält schon der bestehende Wind-Cache dauerhaft als „kein Wind“
 fest (`fetch_wind_day`). Der Ergebnis-Cache übernimmt das, verschlimmert es aber nicht. Komplett neu rechnen:
 `data/cache/` löschen.
+
+## Lenk-Nullpunkt nur noch für Handy-Logs (2026-10-02)
+
+Nutzerfrage: Brauchen CAN-Logs den Lenk-Nullpunkt noch? Nein. `steering_zero_offset.py` (Methode:
+OSM-Geradeausfahrt) ergab über 38 CAN-Fahrten einen Offset von Median 0,00°, p90 |0,50°|, max 0,70°. Das ist
+Methodenrauschen. Auf dem Handy-Kanal `STEER_ANGL_EPS` lagen die Offsets bei Median 4,1° und bis 156°.
+`logs_with_steering()` im Offset-Skript nimmt deshalb nur noch Handy-Logs, und die Pipeline ruft das Skript nur
+bei neuer `.dlg` auf. CAN-Fahrten laufen im Lenkmodell mit Offset 0. Neukalibrierung unverändert: k1 0,020554
+(vorher 0,020555), k2 2,72e−5, R² 0,990, LOO 1,20°/s, 1570 Punkte. Spart je Lauf den OSM-Abgleich, und
+CAN-Fahrten hängen nicht mehr an der OSM-Straßengeometrie.

@@ -147,7 +147,10 @@ die streckenbezogenen Themen.
   INNERHALB einer Fahrt explizit geprüft und **ausgeschlossen** (Power-Check
   bestätigt: die Methode würde ab ca. 2°/h Drift zuverlässig erkennen,
   gemessen wurden <0,2°/h) - ein Offset pro Log ist ausreichend, entsteht
-  vermutlich einmalig beim Sensor-/ECU-Start.
+  vermutlich einmalig beim Sensor-/ECU-Start. **Gilt nur für den Handy-Kanal:** über 38 CAN-Fahrten
+  ergab dieselbe Methode Median 0,00°, max 0,7° (Methodenrauschen). Seit 02.10.2026 läuft
+  `steering_zero_offset.py` deshalb nur noch für Handy-Logs, CAN-Fahrten nehmen Offset 0. Die
+  Lenkmodell-Kalibrierung ist dadurch unverändert (k1 0,020554, R² 0,990, LOO 1,20°/s).
 - **Kalibrierung seit 02.10.2026 nur noch aus CAN:** 1570 Kurven aus
   `can_corner_event_analysis.py` (≥ 11 km/h), Referenz-Gierrate direkt aus
   `YawRate_CAN` statt Handy-GPS+Gyro. `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|`

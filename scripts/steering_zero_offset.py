@@ -223,7 +223,9 @@ def group_runs(t, mask, min_duration_s):
 
 
 def logs_with_steering(con):
-    return logs_with(con, "STEER_ANGL_EPS")
+    """Nur Handy-Logs (STEER_ANGL_EPS): der CAN-Lenkwinkel braucht keinen Nullpunkt - ueber 38 CAN-Fahrten
+    ergab diese Methode Median 0,00 Grad, max 0,7 Grad (Methodenrauschen; Handy bis 156 Grad), 02.10.2026."""
+    return [l for l in logs_with(con, "STEER_ANGL_EPS") if not l.startswith("candump")]
 
 
 def estimate_offset_for_log(con, log_id, straight_tree, project):

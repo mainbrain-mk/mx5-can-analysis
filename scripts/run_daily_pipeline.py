@@ -861,7 +861,8 @@ def main():
             except ValueError:
                 n_steering_logs = 0
             if n_steering_logs > 0:
-                run_script([PYTHON, "scripts/steering_zero_offset.py"], errors)
+                if new_logs:  # Nullpunkt nur fuer Handy-Lenkwinkel noetig, CAN hat keinen Offset (02.10.)
+                    run_script([PYTHON, "scripts/steering_zero_offset.py"], errors)
                 run_script([PYTHON, "scripts/steering_lateral_model.py", *analysis_logs], errors)
                 steering_ran = True
 
