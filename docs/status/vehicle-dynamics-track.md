@@ -148,11 +148,17 @@ die streckenbezogenen Themen.
   bestätigt: die Methode würde ab ca. 2°/h Drift zuverlässig erkennen,
   gemessen wurden <0,2°/h) - ein Offset pro Log ist ausreichend, entsteht
   vermutlich einmalig beim Sensor-/ECU-Start.
-- **Sättigender Gain statt fixem k** (07.09.2026, finaler Stand des
-  OBD-Modells vor der CAN-Ablösung): `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|`
-  (k2<0) - echte Reifenkraft-Sättigung, kein Fit-Artefakt (Gain fällt von
-  ~1,3–1,4 bei kleinen Lenkwinkeln <20° auf ~0,93 bei großen >150°).
-  **R²=0,950, LOO-RMSE=3,40°/s, 155 Kalibrierpunkte, k1=0,023276.**
+- **Kalibrierung seit 02.10.2026 nur noch aus CAN:** 1570 Kurven aus
+  `can_corner_event_analysis.py` (≥ 11 km/h), Referenz-Gierrate direkt aus
+  `YawRate_CAN` statt Handy-GPS+Gyro. `k(Lenkwinkel) = k1 + k2*|Lenkwinkel|`
+  mit **k1=0,020555, k2=+0,0000272, R²=0,990, LOO-RMSE=1,20°/s** (vorher
+  Handy: 315 Punkte, R²=0,941, LOO 3,40°/s). Der Gain **steigt** leicht mit
+  dem Lenkwinkel (passt zu tan(Radeinschlag)). Der frühere Befund „sättigender
+  Gain, k2<0“ (07.09.2026) war ein Artefakt der Handy-Referenz: auf denselben
+  Handy-Kurven allein ergibt sich weiter k2<0, auf CAN nicht. Handy-Kurven
+  dienen nur noch als Rückfall (< 50 CAN-Punkte). Konstanten im
+  Racing-Line-Editor nachgezogen. Siehe Logbuch „CAN als führende Quelle in
+  der Pipeline (2026-10-02)“.
 - **Kurvenradius aus dem Lenkwinkel:** nur grobe Schätzung (Median-Fehler
   19,8 %, p90 45,3 %) - **nicht** für präzise Streckengeometrie geeignet
   (dafür OSM+Orthofoto verwenden, siehe oben). Kalibrierbasis nur für
@@ -221,6 +227,13 @@ die streckenbezogenen Themen.
 
 ## Bremsmodell
 
+- **CAN-Bremsereignisse seit 02.10.2026** (`can_brake_event_analysis.py`, läuft für jedes neue
+  CAN-Log): 1028 Bremsungen aus 61 CAN-Fahrten. Die Verzögerung aus `LongitudinalAcc_CAN` stimmt
+  mit der aus dem Tempoabfall überein (r=0,964, Verhältnis 0,99). Mittlere Verzögerung p50/p95
+  0,15/0,29 g; **ABS-Bremsungen 0,69–0,79 g** (4 Fälle, 15.09./26.09./01.10., alle noch NS-R2).
+  **Offen:** `BRAKE_CAP_G=0,4772` unten stammt aus Handy/OBD-Daten und liegt deutlich unter dem
+  gemessenen CAN-Maximum. Nicht automatisch übernommen; neu kalibrieren, sobald entschieden ist,
+  welcher Reifensatz für die Simulation gilt (seit 01.10. Winterreifen).
 - Reales, datenbasiertes Bremsmodell (229 echte Bremsvorgänge aus
   `BFP_PRE_MZ` + OBD-Tempoabfall, `scripts/braking_model.py`) ersetzt die
   reine Reifenkraftkreis-Theorie für die Längsverzögerung in der

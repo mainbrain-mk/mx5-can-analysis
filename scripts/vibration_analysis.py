@@ -354,7 +354,7 @@ def notch_filter(x, fs, f0, q=NOTCH_Q):
 # Hauptablauf
 # ----------------------------------------------------------------------
 def main():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
 
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     rpm = load_channel(conn, ["EngineRPM"])

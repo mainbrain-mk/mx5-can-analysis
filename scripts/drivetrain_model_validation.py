@@ -156,28 +156,9 @@ def model_accel(v_ms, gear, mass_kg=MASS_KG):
     return (f_wheel - f_drag - f_roll) / effective_mass(mass_kg, gear), rpm, torque
 
 
-def load_channel(con, log_id, channel):
-    """Liefert Spalten ['t','value'] (t = t_elapsed_s) fuer einen Kanal
-    eines Logs aus dem Datalake, sortiert, ohne NaN.
-
-    ORDER BY nur nach t_elapsed_s reicht NICHT: manche Logs haben fuer denselben
-    normalisierten Kanal zwei Rohspalten (z.B. "Motordrehzahl (RPM)" und
-    "Engine Revolutions Per Minute (RPM)" fuer EngineRPM, siehe NAME_ALIASES in
-    build_datalake.py), die auf denselben Zeitstempel fallen - teils mit
-    identischen, teils (z.B. bei 2026-08-25 081538/EngineRPM: eine der beiden
-    Spalten ist ueber die ganze Fahrt fast durchgehend 0) unterschiedlichen
-    Werten. DuckDB garantiert bei gleichem t_elapsed_s KEINE stabile Reihenfolge
-    (haengt von Thread-Scheduling der parallelen Ausfuehrung ab) - das machte
-    downstream np.interp()/Schwellenwert-Vergleiche (Gang-Inferenz etc.)
-    nicht-deterministisch. channel_original+value als Tiebreaker ergaenzt macht
-    die Reihenfolge vollstaendig deterministisch."""
-    df = con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL "
-        "ORDER BY t_elapsed_s, channel_original, value",
-        [log_id, channel],
-    ).fetchdf()
-    return df
+# Kanalzugriff zentral (CAN fuehrt, OBD als Rueckfall, keine Doppelzaehlung Handy+Pi), siehe
+# datalake_channels.py; top_speed_validation/partial_load_model importieren ihn von hier.
+from datalake_channels import load_channel  # noqa: E402
 
 
 GEAR_INFER_MAX_RATIO_ERROR = 0.03  # 3% - deutlich enger als der ~6-9% Modell-Bias

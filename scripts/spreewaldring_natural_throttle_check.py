@@ -33,7 +33,8 @@ from spreewaldring_racing_line_optimal import simulate_lap_combined_friction
 
 CORNERS_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_corners_summary.json")
 
-K1, K2 = 0.023382, -0.00003895   # results/steering_lateral_model_summary.json
+# 02.10.2026: CAN-Kalibrierung wie im Editor (vorher Handy: 0.023382, -0.00003895)
+K1, K2 = 0.020555, 0.0000272   # results/steering_lateral_model_summary.json
 APP_A, APP_B = 38.4, 2.4          # Kurve-1-Regression, siehe partial_throttle_calibration.py
 CALIBRATED_RATE_RANGE_DEG_S = (-13.8, 24.3)  # beobachteter Bereich in Kurve 1
 MU = 1.0

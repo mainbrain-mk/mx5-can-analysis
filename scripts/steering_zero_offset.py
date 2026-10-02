@@ -199,12 +199,7 @@ def build_straight_point_cloud(ways, project):
     return np.column_stack([np.concatenate(xs), np.concatenate(ys)])
 
 
-def load_channel(con, log_id, channel):
-    return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
-    ).fetchdf()
+from datalake_channels import load_channel, logs_with  # CAN fuehrt, OBD als Rueckfall  # noqa: E402
 
 
 def group_runs(t, mask, min_duration_s):
@@ -224,9 +219,7 @@ def group_runs(t, mask, min_duration_s):
 
 
 def logs_with_steering(con):
-    return con.execute(
-        "SELECT DISTINCT log_id FROM measurements WHERE channel = 'STEER_ANGL_EPS' ORDER BY log_id"
-    ).fetchdf()["log_id"].tolist()
+    return logs_with(con, "STEER_ANGL_EPS")
 
 
 def estimate_offset_for_log(con, log_id, straight_tree, project):

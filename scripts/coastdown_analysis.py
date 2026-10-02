@@ -91,22 +91,11 @@ MIN_DURATION_S = 3.0
 MIN_SPEED_KMH = 30.0     # sehr langsame Ausrollphasen (Ausrollen bis Stillstand) ausschliessen
 
 
-def load_channel(con, log_id, channel):
-    df = con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
-    ).fetchdf()
-    return df
+from datalake_channels import load_channel  # CAN fuehrt, OBD als Rueckfall  # noqa: E402
 
 
 def load_channel_with_timestamp(con, log_id, channel):
-    df = con.execute(
-        "SELECT t_elapsed_s AS t, timestamp_local, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
-    ).fetchdf()
-    return df
+    return load_channel(con, log_id, channel, with_timestamp=True)
 
 
 def _load_wind_cache():

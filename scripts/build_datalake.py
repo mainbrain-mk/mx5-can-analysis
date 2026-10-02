@@ -523,7 +523,7 @@ def ingest_dlg(path):
     Dict, die Datenzeilen ohne JOIN/Sortierung, Kanalnamen als Categorical per
     UniqueId, Zeitsortierung per stabilem argsort (gleiche Zeitstempel bleiben
     in Datei-Reihenfolge). Etwa halbe Lesezeit bei identischem Ergebnis."""
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         meta = conn.execute("SELECT UniqueId, PidName FROM PidMetadataEntry").fetchall()
         df = pd.read_sql_query(
@@ -845,7 +845,7 @@ DLG_GPS_CHANNELS = {"Breite": "deg", "Länge": "deg", "Höhe": "m", "GPS-Geschwi
 def _dlg_gps_span(dlg_path):
     """(erste, letzte) GPS-Zeit einer dlg als UTC-Epoch, None ohne GPS. Gecacht: wird fuer
     jedes CAN-Log gegen alle dlg geprueft."""
-    conn = sqlite3.connect(dlg_path)
+    conn = sqlite3.connect(f"file:{dlg_path}?mode=ro", uri=True)
     try:
         row = conn.execute("""SELECT min(Time), max(Time) FROM PidDataEntry WHERE UniqueId IN
             (SELECT UniqueId FROM PidMetadataEntry WHERE PidName = 'GPS-Geschwindigkeit')""").fetchone()

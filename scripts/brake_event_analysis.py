@@ -121,14 +121,14 @@ def load_channel(conn, pid_names):
 
 
 def accel_t0(db_file):
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     conn.close()
     return accel["datetime"].min()
 
 
 def brake_pressure_on_grid(db_file, t0, t_grid):
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     brake = load_channel(conn, ["BFP_PRE_MZ"])
     conn.close()
     if len(brake) == 0:

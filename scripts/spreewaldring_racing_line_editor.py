@@ -847,7 +847,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Vergleichs-/Anschauungswerkzeug gebaut (Toggle "Natuerliches Gasmodell"),
   // NICHT als Ersatz fuer das produktive, zeitoptimale Modell - siehe
   // docs/logs/projekt-stand.md.
-  const K1_STEER = 0.023382, K2_STEER = -0.00003895;  // results/steering_lateral_model_summary.json
+  // 02.10.2026 auf die CAN-Kalibrierung umgestellt (1570 Kurven, R²=0,990; Gain steigt leicht mit dem
+  // Lenkwinkel). Vorher Handy-Kalibrierung K1=0.023382, K2=-0.00003895 (faelschlich fallender Gain).
+  const K1_STEER = 0.020555, K2_STEER = 0.0000272;  // results/steering_lateral_model_summary.json
   const APP_STEER_A = 38.4, APP_STEER_B = 2.4;         // Kurve-1-Regression, partial_throttle_calibration.py
   // Domain-Gatter (Nutzerbeobachtung 08.09.2026, Punkte 1-35): die Formel
   // wurde AUSSCHLIESSLICH innerhalb einer echten Kurve kalibriert (Kurve 1s

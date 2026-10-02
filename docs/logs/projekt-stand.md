@@ -6290,3 +6290,131 @@ nicht einen Winterreifen allgemein.
   **keine Bestzeiten** gerechnet: keine Rundenzeit-/Ideallinien-Simulation, keine Grip-/μ-Kalibrierung. Die
   automatischen Bestwert-Tracker der Pipeline (Kurven-Peaks, Schaltzeiten) laufen unverändert weiter. Winterreifen-Logs
   werden die NS-R2-Kurvenwerte kaum übertreffen. Schaltzeiten hängen vom Fahrer ab, nicht vom Reifen.
+
+## Pipeline-Absturz 02.10.2026: Masse jetzt aus CAN statt aus der Handy-.dlg
+
+**Was passiert ist:** Der Tageslauf am 02.10. brach in `compute_mass()` ab (`no such table:
+PidDataEntry`). In `data/raw/` lag eine leere `candump-2026-10-01_142300.dlg` (0 Byte). Sie entstand
+am 01.10. um 20:13 bei der Pull-Analyse: Claude rief `compute_mass('candump-2026-10-01_142300')` von
+Hand auf, um die Masse einer CAN-Fahrt zu bekommen. Die Funktion las aber nur den FLI-Kanal einer
+Handy-`.dlg`, und `sqlite3.connect()` legt eine fehlende Datei stillschweigend leer an. Der nächste Lauf
+hielt die leere Datei für ein neues Handy-Log. Weil der Lauf abbrach, wären die drei frisch geladenen
+CAN-Logs vom 02.10. nie ausgewertet worden. Sie sind von Hand nachgeholt.
+
+**Der eigentliche Fehler:** Die Masse hing noch an der `.dlg`, obwohl das Handy FuelLevel% seit dem
+26.09. nicht mehr abfragt und der Tankstand aus CAN `Fuel_Tank` (0x09E) kommt. Seit dem 27.09. bekam
+keine Fahrt mehr automatisch eine Masse: Die `.dlg` vom 27.09. ohne FLI ergab `None`, und reine
+CAN-Fahrten liefen gar nicht durch den Masse-Schritt.
+
+**Änderungen:**
+- `compute_mass()` rechnet nur noch mit CAN-Daten: Tank aus dem Median von `FuelTank_CAN_raw` im
+  Datalake (ohne die 0-Initwerte, der Geber schwappt um ±3 roh), Liter = 3,0 + 1,10 · roh, dazu der
+  Beifahrer anteilig nach 0x340. Der Schritt läuft für neue CAN-Logs nach `build_datalake`. Der
+  FLI-/.dlg-Pfad und `_find_matching_can_log()` sind entfernt.
+- Masse für 22 CAN-Fahrten vom 27.09. bis 02.10. nachgetragen, z. B. `candump-2026-10-01_142300`
+  1247,1 kg (Tank ~22,1 l, Beifahrer 95 %). Die Handrechnung bei der Pull-Analyse kam mit roh 19 auf
+  ~1252 kg.
+- Alle Skripte öffnen `.dlg` nur noch lesend (`mode=ro`). Ein falscher Pfad gibt einen Fehler, statt
+  eine leere Datei anzulegen.
+- Die Pipeline wertet leere `.dlg` nicht als neues Log. Ein Fehler beim Masse-Schritt landet als
+  `script_error` im Report, statt den Lauf abzubrechen.
+- Neue CAN-Logs werden bis zum fertigen Report in `data/pending_can_logs.json` vorgemerkt. Nach einem
+  Absturz holt der nächste Lauf sie automatisch nach.
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-10-02)
+
+- `candump-2026-10-02_151343`, Masse=1212.5kg (Tank ~19.3 l (CAN Fuel_Tank Median 14.8 roh), Beifahrer 52% der Fahrt (0x340))
+- `candump-2026-10-02_161029`, Masse=1246.9kg (Tank ~17.3 l (CAN Fuel_Tank Median 13.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-02_171213`, Masse=1248.2kg (Tank ~19.1 l (CAN Fuel_Tank Median 14.6 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.02 weicht um mehr als 0.05 vom Referenzwert 0.94 ab (n=9).
+
+## CAN als führende Quelle in der Pipeline (2026-10-02)
+
+**Anlass (Nutzer):** CAN-Logs sollen die führenden Größen liefern, sie sind präziser als die
+`.dlg`. Bestandsaufnahme: Fast alle Modellprüfungen liefen nur bei neuer `.dlg` und fragten feste
+OBD-Kanalnamen ab (`TM_GEST`, `CPP_PER_MZ`, `BFP_PRE_MZ`, `STEER_ANGL_EPS`, `Lager`). Seit dem 27.09.
+kommt keine `.dlg` mehr, also blieben alle CAN-Fahrten ungeprüft. Beispiel: Der Pull 0–175 vom 01.10.
+ergab in der Volllastprüfung 0 Segmente.
+
+**Kanalauflösung `scripts/datalake_channels.py`:** Eine zentrale `load_channel()` ersetzt die Kopien in
+`drivetrain_model_validation` (von dort importieren `top_speed_validation`/`partial_load_model`),
+`coastdown_analysis` und `steering_*`. Zuerst kommt der CAN-Kanal in OBD-Einheit, dann der OBD-Kanal.
+Die Umrechnungen sind an 26 Fahrten mit Handy und Pi gleichzeitig geprüft (1-Hz-Mediane):
+
+| Angefragt | CAN-Quelle | Paarvergleich |
+|---|---|---|
+| `TM_GEST` | `MT_Gear_Status` | gleiche Codierung, 86 % exakt gleich (Rest sind Schaltmomente), r=0,947 |
+| `CPP_PER_MZ` (%) | 0,5 · `ClutchPosition_CAN_raw` | Paarfit 0,48·roh+1,0, r=0,959 (exakte Skala 0,5 laut 29.09.) |
+| `BFP_PRE_MZ` (kPa) | 100 · `BrakePressure_CAN` (bar) | Paarfit 97·bar+10, r=0,979 |
+| `STEER_ANGL_EPS` | `SteeringAngle_CAN` | Paarfit 0,96, r=0,890 (1-s-Versatz; am 13.09. r=0,999) |
+| `Lager` | aus Breite/Länge berechnet | – |
+
+`VehicleSpeed` ist identisch (r=1,000, Steigung 0,9995). `APP`/`EngineRPM` haben in beiden Quellen
+denselben Namen und dieselbe Skala. **Ohne CAN-Gegenstück:** `ETC_ACT` (Grad) – `ThrottlePosition_CAN`
+ist eine andere Größe in %, und keine Fahrt hat beide. `AFR_MZ` ist gemessenes Lambda,
+`LambdaCommanded_CAN` der Sollwert (r=0,74). Deshalb bleibt das Teillastkennfeld (ETC × Drehzahl)
+Handy-basiert, und `ActualEnginePercentTorque` aus CAN kommt bewusst noch nicht in den Datalake: Ohne
+ETC hätte er keinen Nutzer.
+
+**Doppelzählung:** Liefen Handy und Pi gleichzeitig, steht die Fahrt zweimal im Datalake. `load_channel`
+verwirft deshalb bei dlg-Logs Samples in Zeiten, die ein CAN-Log abdeckt, aber nur, wenn das CAN-Log
+denselben Kanal selbst hat. Kanäle ohne CAN-Gegenstück bleiben also erhalten. Probe: Alle 25 dlg, die
+ein CAN-Log als GPS-Quelle nutzt, werden als abgedeckt erkannt (meist 94–100 %), was die UTC-Deutung
+von dlg-`start_time_local` bestätigt. Ein kleiner Kanal-Cache je Prozess (32 Einträge) senkte die
+Laufzeit der Volllastprüfung von 26 auf 17 min: `segment_grade()` lud GPS je Segment neu, jede
+Abfrage ein Vollscan über 250 Mio. Zeilen.
+
+**Ergebnisse nach Neuberechnung:**
+- **Volllast/Antrieb:** 373 statt 172 Segmente (216 CAN, 157 Handy, 15 doppelte entfallen).
+  Gemessen/Modell CAN 0,99, Handy 1,02. Je Gang deckungsgleich: 3: 0,97/0,97, 4: 0,99/0,99,
+  5: 0,99/1,01, 6: 1,10/1,13 (Gang 6 nahe Vmax wie bekannt unsicher), 1: 0,75 (Traktion, 8 Segmente,
+  nur CAN). Der Referenzwert in `pipeline_checks` war noch 0,94 aus der Zeit des Bias-Faktors und
+  meldete jede Fahrt als Abweichung (so auch im Lauf oben). Jetzt 1,00.
+- **Gang 6/Vmax:** 130 statt 104 Segmente (28 CAN). RMSE bias-korr. CAN 0,198 vs. Handy 0,182 m/s².
+- **Ausrollen:** In allen CAN-Fahrten gibt es keine Neutral-Ausrollphase mit losgelassener Kupplung
+  (insgesamt 10 s, längster Abschnitt 0,9 s). „Neutral“ tritt dort fast nur beim Schalten mit
+  getretener Kupplung auf. Die 14 Ereignisse bleiben unverändert.
+- **Lenkmodell, neu kalibriert:** Kalibrierpunkte jetzt CAN-Kurven (`can_corner_event_analysis`,
+  ≥ 11 km/h), Referenz-Gierrate direkt `YawRate_CAN`. Rangierkurven < 11 km/h mit Volleinschlag
+  verfälschten den ersten Fit: Rückwärts kehrt sich das Vorzeichen der Gierrate um, `VehicleSpeed`
+  hat kein Vorzeichen.
+
+  | Basis | n | k1 | k2 | R² | LOO-RMSE |
+  |---|---:|---:|---:|---:|---:|
+  | Handy (bisher) | 315 | 0,02355 | −4,1e−5 | 0,941 | 3,40 °/s |
+  | Handy allein, heute | 263 | 0,02347 | −4,0e−5 | 0,941 | 3,70 °/s |
+  | **CAN allein (neu)** | **1570** | **0,020555** | **+2,72e−5** | **0,990** | **1,20 °/s** |
+
+  Der Gain **steigt** mit dem Lenkwinkel (tan des Radeinschlags). Der „sättigende Gain“ vom 07.09.
+  war ein Artefakt der Handy-Referenz (1-Hz-GPS-Kurs + verrauschtes Gyro unterschätzen enge, langsame
+  Kurven). Gemischt würden sich beide Quellen widersprechen, deshalb sind Handy-Kurven nur noch
+  Rückfall (< 50 CAN-Punkte). `data/steering_model_reference.json` ist auf den neuen Stand gesetzt,
+  die Konstanten in `spreewaldring_racing_line_editor.py` und `spreewaldring_natural_throttle_check.py`
+  sind nachgezogen.
+- **Bremsereignisse aus CAN (`can_brake_event_analysis.py`, neu):** > 3 bar, Tempoabfall ≥ 3 km/h.
+  1028 Bremsungen aus 61 Fahrten (`09-11_200735` hat keine Bremsdaten). Die Verzögerung aus
+  `LongitudinalAcc_CAN` gegen die aus dem Tempoabfall: r=0,964, Verhältnis 0,99. Mittlere Verzögerung
+  p50/p95 0,15/0,29 g, ABS-Bremsungen 0,69–0,79 g (15.09. 171047 t=1962 s, 26.09. 120235
+  t=811/821 s, 01.10. 142300 t=203 s aus 176 km/h). **Offen:** `BRAKE_CAP_G=0,4772` der
+  Rundenzeit-Simulation stammt aus Handy/OBD-Daten und liegt deutlich darunter. Nicht automatisch
+  übernommen (Reifenwechsel 01.10.).
+- **Schwingungen aus CAN (`can_vibration_analysis.py`, neu):** ordnungsbezogen nach dem Befund vom
+  28.09., Raddrehfrequenz = VehicleSpeed/(2π·0,2985 m). Das ist unabhängig vom Reifensatz, weil
+  VehicleSpeed mit festem Umfang gerechnet wird. 4-s-Fenster bei konstanter Fahrt, Spitze 4–30 Hz,
+  Amplitude der 1. Radordnung in mg je Tempoband. Neue Winterreifen 02.10. (151343): Längs-Spitze
+  liegt auf der Radordnung (Median 1,00), 6–8 mg bei 100–200 km/h. Hinweis: Die letzte NS-R2-Fahrt
+  (01.10. 142300, Flankenrisse) zeigt die Spitze bei der doppelten Raddrehfrequenz (Median 2,0 quer
+  und längs), aber nur 20 Fenster bei 40–70 km/h.
+- **Report:** Kernzahlen erscheinen jetzt auch für reine CAN-Läufe (Kurven, Bremsungen, Radordnung,
+  Volllast, Lenkmodell). Behoben: Das Volllastverhältnis im Report schnitt die Log-ID mit `[:-4]`
+  ab, obwohl das Feld keine `.dlg`-Endung hat. Neue Logs fanden dadurch nie ihre Zahlen.
+
+**Ende-zu-Ende geprüft:** Die drei CAN-Logs vom 02.10. waren nach dem Absturz ohne Report geblieben.
+Ich habe sie über `data/pending_can_logs.json` erneut eingereiht und die Pipeline regulär laufen
+lassen: Exitcode 0, Report vollständig, die Vormerkung danach gelöscht.
+**Laufzeit 43 min** (Volllast 17, Vmax ~11, Rest Datalake/Lenkung/Ausrollen). Das ist der neue
+Normalfall für jeden Lauf mit CAN-Logs, weil Volllast- und Vmax-Prüfung immer alle 173 Logs neu
+rechnen. Möglicher nächster Schritt: Ergebnisse je Log nach Fingerabdruck cachen.

@@ -151,7 +151,7 @@ def yaw_rate_and_speed_on_grid(db_file, t_grid, v_axis):
     Beschleunigungsachsen, siehe vibration_analysis.py). v_axis = die per
     imu_orientation.detect_vertical_axis() erkannte Vertikalachse dieses
     Logs (bestimmt den Gierraten-Kanal, siehe dortigen Docstring)."""
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     rot = load_channel(conn, [yaw_channel(v_axis)])
     speed = load_channel(conn, ["VehicleSpeed"])

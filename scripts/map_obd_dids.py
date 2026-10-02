@@ -78,7 +78,7 @@ def coarse_offset_from_vehicle_speed(can_df, dlg_df):
 
 
 def load_dlg_channels(path):
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     df = pd.read_sql_query("""
         SELECT pde.Time AS raw_time, pme.PidName AS channel, pde.Value AS value
         FROM PidDataEntry pde LEFT JOIN PidMetadataEntry pme ON pde.UniqueId = pme.UniqueId

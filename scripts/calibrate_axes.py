@@ -60,7 +60,7 @@ def main():
         sys.exit(1)
     db_file = os.path.basename(sys.argv[1])
 
-    conn = sqlite3.connect(os.path.join(RAW_DIR, db_file))
+    conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, db_file)}?mode=ro", uri=True)
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     speed = load_channel(conn, ["VehicleSpeed"])
     conn.close()

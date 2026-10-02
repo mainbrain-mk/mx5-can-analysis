@@ -27,7 +27,9 @@ THETA_RANGE_AXES = frozenset({"X", "Z"})
 R_MIN = 0.7
 A_LAT_RATIO_MAX = 2.0
 VIBRATION_RESONANCE_RANGE_HZ = (18.0, 23.0)
-DRIVETRAIN_RATIO_REFERENCE = 0.94
+# 1.00 seit dem Drehtraegheits-Modell (01.10.); Median ueber 373 Segmente 1.01, CAN allein 0.99 (02.10.).
+# Vorher 0.94 aus der Zeit des Bias-Faktors 0.92 - meldete danach jede normale Fahrt als Abweichung.
+DRIVETRAIN_RATIO_REFERENCE = 1.00
 DRIVETRAIN_RATIO_TOLERANCE = 0.05
 STEERING_R2_DELTA_WARN = 0.01
 STEERING_K1_REL_DELTA_WARN = 0.05
@@ -178,7 +180,7 @@ def check_unmapped_channels(new_logs):
 
 def check_drivetrain_ratio(new_logs):
     """Vollast-Verhaeltnis gemessen/Modell der neuen Logs deutlich (>5
-    Prozentpunkte) vom Referenzwert 0.94 abweichend (Schritt 9)."""
+    Prozentpunkte) vom Referenzwert DRIVETRAIN_RATIO_REFERENCE abweichend (Schritt 9)."""
     data = _load_json("drivetrain_model_validation_summary.json")
     if not data:
         return []

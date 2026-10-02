@@ -318,6 +318,85 @@ def test_pair_late_gpx_fills_only_empty_entries():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_empty_dlg_is_not_a_new_log():
+    """02.10.: ein Handlauf legte per sqlite3.connect() eine leere candump-...dlg in data/raw an."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.RAW_DIR, rdp.DERIVED_DIR
+    rdp.RAW_DIR = rdp.DERIVED_DIR = tmp
+    try:
+        open(os.path.join(tmp, "candump-2026-10-01_142300.dlg"), "w").close()
+        assert rdp.find_new_logs() == []
+    finally:
+        rdp.RAW_DIR, rdp.DERIVED_DIR = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_mass_from_can_fuel_tank():
+    """Masse kommt aus CAN Fuel_Tank (Median ohne 0-Initwerte), nicht mehr aus der .dlg. Log ohne
+    Tankwert -> kein Eintrag; Fehler eines Logs landet in errors statt den Lauf abzubrechen."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH
+    rdp.CAN_DIR, rdp.DATALAKE_PATH = tmp, os.path.join(tmp, "dl.duckdb")
+    rdp.MASS_OVERRIDE_PATH = os.path.join(tmp, "mass.json")
+    try:
+        con = rdp.duckdb.connect(rdp.DATALAKE_PATH)
+        con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, value DOUBLE)")
+        con.executemany("INSERT INTO measurements VALUES ('a', 'FuelTank_CAN_raw', ?)",
+                        [(v,) for v in (0, 0, 0, 14, 16, 16, 18)])
+        con.close()
+        open(os.path.join(tmp, "a.log"), "w").close()  # ohne 0x340 -> SOLO
+        errors = []
+        masses = rdp.update_mass_overrides(["a", "ohne_tank"], errors)
+        fuel_kg = (3.0 + 1.10 * 16) * rdp.FUEL_DENSITY_KG_L
+        assert masses["a"]["mass_kg"] == round(1073 + 86 + fuel_kg, 1), masses
+        assert "ohne_tank" not in masses and errors == []
+        rdp.DATALAKE_PATH = os.path.join(tmp, "gibtsnicht", "dl.duckdb")
+        assert rdp.update_mass_overrides(["a"], errors) == {} and len(errors) == 1
+    finally:
+        rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_pending_can_logs_survive_crash():
+    """02.10.: 3 CAN-Logs gingen nach einem Absturz verloren. Vorgemerkte Logs kommen im naechsten
+    Lauf wieder mit, nicht mehr existierende (z.B. per Uhrkorrektur umbenannt) fallen raus."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR, rdp.PENDING_CAN_LOGS_PATH
+    rdp.CAN_DIR, rdp.PENDING_CAN_LOGS_PATH = tmp, os.path.join(tmp, "pending.json")
+    try:
+        for l in ("a", "b"):
+            open(os.path.join(tmp, f"{l}.log"), "w").close()
+        assert rdp._merge_pending_can_logs(["a"]) == ["a"]  # Lauf 1 stuerzt danach ab
+        os.remove(os.path.join(tmp, "a.log"))
+        open(os.path.join(tmp, "a2.log"), "w").close()
+        with open(rdp.PENDING_CAN_LOGS_PATH, "w") as f:
+            json.dump(["a", "b"], f)
+        assert rdp._merge_pending_can_logs([]) == ["b"]
+        assert rdp._merge_pending_can_logs(["a2"]) == ["a2", "b"]
+    finally:
+        rdp.CAN_DIR, rdp.PENDING_CAN_LOGS_PATH = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_report_shows_kernzahlen_for_can_only_run():
+    """02.10.: CAN-Logs sind die fuehrende Quelle - Kernzahlen auch ohne neue .dlg."""
+    import render_report
+    log = "candump-2026-10-02_151343"
+    md = render_report.render_markdown({
+        "date": "2026-10-02", "new_logs": [], "new_can_logs": [log],
+        "masses": {log: {"mass_kg": 1212.5, "note": "Tank ~19.3 l"}},
+        "corner": {log: {"n_events": 3, "n_right": 2, "n_left": 1}},
+        "can_brake": {log: {"n_events": 5, "n_abs": 1, "decel_peak_g": 0.96}},
+        "can_vibration": {log: {"n_windows": 10, "laengs": {
+            "peak_to_wheel_ratio_median": 1.0, "frac_peak_on_wheel_order": 0.5,
+            "order_rms_by_speed_kmh": {"100-130": {"n": 4, "order_rms_mg_median": 6.2}}}}},
+        "drivetrain": {"median_ratio": 0.93, "n": 6}, "findings": [],
+    })
+    assert "## Kernzahlen" in md and "Masse=1212.5kg" in md, md
+    assert "5 Bremsung(en), max 0.96 g, 1x ABS" in md and "100-130 km/h 6.2 mg" in md, md
+    assert "Median 0.93 (n=6)" in md, md
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

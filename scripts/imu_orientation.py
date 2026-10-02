@@ -89,7 +89,7 @@ def detect_vertical_axis(db_path):
     oder bei fehlendem Kanal/keiner eindeutigen Standphase:
       {'axis': 'Y', 'defaulted': True, 'reason': '...'}
     (Fallback Y, siehe Docstring)."""
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         windows, t0 = _standstill_windows(conn)
         if not windows or t0 is None:

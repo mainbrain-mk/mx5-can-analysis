@@ -74,7 +74,7 @@ def accel_t0(db_file):
     """Gleiche Referenzzeit wie in vibration_analysis.py (t0 = fruehester
     Zeitstempel ueber alle 3 Beschleunigungsachsen), damit die 't'-Spalte
     der *_imu_filtered.csv exakt passt."""
-    conn = sqlite3.connect(db_file)
+    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     conn.close()
     return accel["datetime"].min()
@@ -82,7 +82,7 @@ def accel_t0(db_file):
 
 def obd_accel_on_grid(db_file, t0, t_grid):
     """Grobe dv/dt-Referenz aus VehicleSpeed, linear auf t_grid interpoliert."""
-    conn = sqlite3.connect(db_file)
+    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
     speed = load_channel(conn, ["VehicleSpeed"])
     conn.close()
     speed["t"] = (speed["datetime"] - t0).dt.total_seconds()

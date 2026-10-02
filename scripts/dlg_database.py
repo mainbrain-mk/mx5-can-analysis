@@ -11,7 +11,7 @@ if len(sys.argv) > 1:
     DB_FILE = sys.argv[1]
 DB_BASENAME = os.path.basename(DB_FILE)
 
-conn = sqlite3.connect(os.path.join(RAW_DIR, DB_BASENAME))
+conn = sqlite3.connect(f"file:{os.path.join(RAW_DIR, DB_BASENAME)}?mode=ro", uri=True)
 
 # 1. Daten inklusive Einheiten und Kategorien laden
 query = """

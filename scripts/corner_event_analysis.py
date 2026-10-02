@@ -213,7 +213,7 @@ def analyze_log(db_path):
     db_file = os.path.basename(db_path)
     orient = detect_vertical_axis(db_path)
     v_axis = orient["axis"]
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     accel = load_channel(conn, ["AccelerationX", "AccelerationY", "AccelerationZ"])
     rot = load_channel(conn, [yaw_channel(v_axis)])
     gps = load_channel(conn, ["Länge", "Breite"])

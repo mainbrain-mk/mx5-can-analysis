@@ -68,6 +68,7 @@ die Trace-PNG-Erzeugung (teuer, rein zur visuellen Kontrolle, wird von
 keinem Auswertungsschritt gelesen) wird bei angegebenen Log-Namen auf
 GENAU DIESE beschraenkt - ohne Argumente: wie bisher fuer alle Logs.)
 """
+import glob
 import os
 import sys
 import json
@@ -80,6 +81,11 @@ import matplotlib.pyplot as plt
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
 CORNER_SUMMARY_PATH = "results/corner_event_summary.json"
+CAN_CORNER_SUMMARY_GLOB = "results/can_corner_event_summary_candump-*.json"
+# wie die langsamsten Handy-Kurven (11 km/h): darunter Rangieren mit Volleinschlag, auch rueckwaerts -
+# dort kehrt sich das Vorzeichen der Gierrate zum Lenkwinkel um, VehicleSpeed hat kein Vorzeichen.
+CAN_CORNER_MIN_SPEED_KMH = 11.0
+MIN_CAN_CALIBRATION_POINTS = 50
 ZERO_OFFSET_PATH = "results/steering_zero_offset.json"
 
 MIN_SPEED_MS = 3.0
@@ -117,18 +123,11 @@ def load_zero_offsets(path=ZERO_OFFSET_PATH):
     }
 
 
-def load_channel(con, log_id, channel):
-    return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements "
-        "WHERE log_id = ? AND channel = ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
-    ).fetchdf()
+from datalake_channels import load_channel, logs_with  # CAN fuehrt, OBD als Rueckfall  # noqa: E402
 
 
 def logs_with_steering(con):
-    return con.execute(
-        "SELECT DISTINCT log_id FROM measurements WHERE channel = 'STEER_ANGL_EPS' ORDER BY log_id"
-    ).fetchdf()["log_id"].tolist()
+    return logs_with(con, "STEER_ANGL_EPS")
 
 
 def build_calibration_set(con, steering_logs, zero_offsets):
@@ -164,6 +163,48 @@ def build_calibration_set(con, steering_logs, zero_offsets):
                 "v_mean_ms": v_ms, "x": -steer_mean * v_ms,
                 "heading_rate_mean_deg_s": ev["heading_rate_mean_deg_s"],
                 "a_lat_mean_g_reference": ev["a_lat_mean_g"],
+            })
+    # CAN fuehrt (02.10.): reine CAN-Kalibrierung R²=0,990 mit leicht STEIGENDEM Gain (k2>0, passt zu
+    # tan(Radeinschlag)); die Handy-Referenz (1-Hz-GPS-Kurs + Gyro) liefert faelschlich fallenden Gain
+    # (k2<0, frueherer "Saettigungs"-Befund). Gemischt widersprechen sich beide -> Handy nur als Rueckfall.
+    can_points = build_can_calibration_set(con, steering_logs, zero_offsets)
+    return can_points if len(can_points) >= MIN_CAN_CALIBRATION_POINTS else points + can_points
+
+
+def build_can_calibration_set(con, steering_logs, zero_offsets):
+    """Kalibrierpunkte aus CAN-Fahrten (02.10.2026): Kurven aus can_corner_event_analysis.py,
+    Referenz-Gierrate direkt aus YawRate_CAN (Airbag-Steuergeraet, 100 Hz, + = rechts wie hier)
+    statt aus Handy-GPS+Gyro. Handy-Kurven aus Zeiten, die ein CAN-Log abdeckt, fallen schon in
+    build_calibration_set() raus (load_channel blendet den Handy-Lenkwinkel dort aus)."""
+    points = []
+    for path in sorted(glob.glob(CAN_CORNER_SUMMARY_GLOB)):
+        with open(path, encoding="utf-8") as f:
+            entry = json.load(f)
+        log_id = entry["log_id"]
+        if log_id not in steering_logs:
+            continue
+        steer = load_channel(con, log_id, "STEER_ANGL_EPS")
+        yaw = load_channel(con, log_id, "YawRate_CAN")
+        lat = load_channel(con, log_id, "LateralAcc_CAN")
+        if len(steer) < 2 or len(yaw) < 2:
+            continue
+        offset = zero_offsets.get(log_id, 0.0)
+        for ev in entry["events"]:
+            if (log_id, ev["t_start"]) in EXCLUDED_CALIBRATION_EVENTS or ev["speed_mean_kmh"] < CAN_CORNER_MIN_SPEED_KMH:
+                continue
+            ms = steer["t"].between(ev["t_start"], ev["t_end"])
+            my = yaw["t"].between(ev["t_start"], ev["t_end"])
+            ml = lat["t"].between(ev["t_start"], ev["t_end"])
+            if ms.sum() < 1 or my.sum() < 1:
+                continue
+            steer_mean = float(steer.loc[ms, "value"].mean()) - offset
+            v_ms = ev["speed_mean_kmh"] / 3.6
+            points.append({
+                "log_id": log_id, "t_start": ev["t_start"], "t_end": ev["t_end"],
+                "direction": ev["direction"], "steer_mean_deg": steer_mean,
+                "v_mean_ms": v_ms, "x": -steer_mean * v_ms,
+                "heading_rate_mean_deg_s": float(yaw.loc[my, "value"].mean()),
+                "a_lat_mean_g_reference": float(lat.loc[ml, "value"].mean()) if ml.any() else None,
             })
     return points
 
@@ -225,6 +266,8 @@ def apply_continuous(con, log_id, k, zero_offsets):
     a_lat_g = a_lat_ms2 / G
 
     moving = v_ms > MIN_SPEED_MS
+    if not moving.any():  # z.B. Handy-Log, dessen Fahrt komplett ein CAN-Log abdeckt (02.10.)
+        return None
     straight = moving & (np.abs(steer_v) < STRAIGHT_STEER_MAX_DEG)
 
     return {
