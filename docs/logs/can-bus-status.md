@@ -5656,4 +5656,8 @@ Tests: `test_sim_loop_replays_whole_log_until_stopped` (canplayer durch `cat` er
 Durchläufe, danach keine Prozessgruppe mehr) und `test_sim_log_choice_newest_first_without_stubs`. Alle
 Dash-Tests laufen auf dem Pi. Nach dem Deploy nur das Dash per PID neu gestartet. Ein Bildschirmfoto (`grim`)
 zeigt die Auswahl auf dem Status-Bildschirm.
-**Offen:** Start per Touch auf dem echten Display mit einem älteren Log, und ob es nach 10 min weiterläuft.
+**Bestätigt (11.10.2026, 00:31):** Der Nutzer hat per Touch `2026-10-04_142137` (142 MB, 5558 s) gestartet.
+- Nach 39 min lief noch der erste canplayer-Prozess, gzip hatte 42 % der Datei gelesen (= 2347/5558 s).
+- Das Dash zeigte 130,2–130,5 km/h, Öl 97,8 → 97,5 °C und Lambda 0,99. Im Datalake stehen dieselben Werte bei
+  15:00:17–15:00:47 (t = 2320–2350 s), das passt bis auf wenige Sekunden zur Wanduhr seit dem Start.
+- Das Backend dekodiert ~1410 Frames/s wie bei früheren Simulationen.
