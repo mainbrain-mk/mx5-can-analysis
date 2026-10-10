@@ -12,6 +12,9 @@ Kindprozess bei jedem Wechsel OFF <-> ACC/ON/START -> ein Log pro Fahrt.
 candump selbst macht weiterhin das eigentliche Loggen (bewaehrt, schneller
 als eine eigene Python-Schreibschleife) - dieses Skript ist nur der
 Start/Stop-Trigger.
+
+`session_logger.py --pack` packt fertige Logs (canlogs-pack.timer, alle 15 min), aber nur,
+solange kein candump laeuft - siehe pack_logs().
 """
 
 import glob
@@ -20,11 +23,8 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 import time
 from datetime import datetime
-
-import cantools
 
 DBC_PATH = os.environ.get("MX5_DBC", "/home/pi/canlogs/MX5ND_6thGenMazda_HSCAN.dbc")
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
@@ -37,8 +37,11 @@ TPMS_POLLER_PATH = os.environ.get(
 # reicht bei ~2800 Frames/s nur ~0,1 s: haengt candump beim Schreiben auf den USB-Stick
 # (ext4-Commit/Writeback alle 5 s, Stick ~25 ms je Sync-Schreibvorgang), verwirft der Kernel
 # Frames. Seit 02.10. so bis ~100 s Luecke je Fahrt, siehe docs/logs/can-bus-status.md.
-# ponytail: 16 MiB ~ 7 s Puffer (CAN-skb ~0,8 kB), reicht fuer die beobachteten <=4 s.
+# Gemessen 10.10. auf dem Pi (vcan0, 2900 Frames/s): 16 MiB ueberbruecken ~13 s angehaltenes candump,
+# der Stick haengt bis ~2,3 s (zu Hause) bzw. ~3,9 s (Fahrt) - mit Default-Puffer 4,5 % Verlust, damit 0.
 CANDUMP_RCVBUF = 16 * 1024 * 1024
+# Packen laeuft als eigener systemd-Dienst (Timer), session_logger stoppt ihn bei Fahrtbeginn
+PACK_UNIT = "canlogs-pack.service"
 TPMS_POLL_INTERVAL_S = 120  # Reifendruck aendert sich langsam, Bus/OBD moeglichst wenig belasten
 
 # Einmal-Erhebung (2026-09-15): liegt die Flag-Datei, wird bei der naechsten Fahrt einmal
@@ -159,6 +162,90 @@ def save_clock(clock_path=CLOCK_FILE_PATH):
         pass
 
 
+def candump_running(run=subprocess.run):
+    """Laeuft irgendein candump (auch ein von Hand gestartetes)? Dann wird nicht gepackt."""
+    return run(["pgrep", "-x", "candump"], capture_output=True).returncode == 0
+
+
+def pack_logs(log_dir=LOG_DIR, run=subprocess.run):
+    """Fertige candump-Logs packen, nie waehrend einer Aufzeichnung (10.10.2026).
+
+    Bis 10.10. packte main() beim Dienststart VOR der Bus-Schleife: nach einer Fahrt mit hartem
+    Stromverlust (.log ~600 MB) hielt das candump ~1-1,5 min auf ("WARTE AUF ZUENDUNG", Fahrtbeginn
+    fehlte im Log). Parallel zum Loggen packen ist aber genauso schlecht: der Stick haengt schon
+    ohne Fremdlast alle paar Sekunden, gzip schreibt dann noch ~100 MB dazu. Deshalb laeuft das
+    Packen als eigener Dienst (canlogs-pack.timer, alle 15 min) und nur, solange kein candump
+    laeuft - zu Hause oder geparkt mit Pi an. Startet waehrend des Packens eine Fahrt, beendet
+    start_logging() den Dienst (systemctl stop); die Rohdatei bleibt dabei immer heil, siehe
+    _gzip_one().
+
+    Die Dateiliste kommt VOR der candump-Pruefung: ein spaeter gestartetes candump legt eine neue
+    Datei an, die nicht in der Liste steht. Nur candump-*.log - bis 10.10. traf "*.log" auch
+    boot_timing.log von dash_gui.py."""
+    paths = sorted(glob.glob(os.path.join(log_dir, "candump-*.log")))
+    if not paths:
+        return
+    if candump_running(run):
+        print(f"[session_logger] candump laeuft, packe nicht ({len(paths)} Logs offen)", flush=True)
+        return
+    for log_path in paths:
+        _gzip_one(log_path, log_dir, run)
+
+
+def _gzip_one(log_path, log_dir, run=subprocess.run):
+    """Komprimiert ein Log zu .log.gz. Sicher gegen einen
+    Stromausfall WAEHREND dieses Laufs: vorher loeschte `gzip -f` die
+    Rohdatei schon beim eigenen Start, bevor das Ergebnis feststand -
+    ein Stromausfall mitten im Komprimieren (beobachtet 2026-09-16,
+    candump-...-090826.log: 8MB glatt abgebrochen, "ended before
+    end-of-stream marker") hinterliess dann eine kaputte .gz UND keine
+    Rohdatei mehr, aus der sich neu komprimieren liesse. Jetzt: erst in
+    eine temporaere Datei komprimieren, mit `gzip -t` verifizieren, dann
+    atomar (os.replace, gleiches Dateisystem) an den Zielnamen haengen
+    und ERST DANACH die Rohdatei loeschen - bei jedem Abbruch bleibt so
+    mindestens eine der beiden Dateien intakt (die Rohdatei, falls die
+    Kompression selbst nicht durchlief, sonst die bereits verifizierte
+    .gz).
+
+    Lueckenfall (beobachtet 2026-09-17, candump-...-125935.log.gz: exakt
+    dieselben 8MB wie beim allerersten Vorfall, obwohl diese Verify-vor-
+    Rename-Logik zu dem Zeitpunkt schon lief): `gzip -t` liest ueber den
+    Seiten-Cache und kann erfolgreich sein, obwohl die Daten noch gar
+    nicht auf dem Speichermedium stehen - der Pi haengt an einer
+    Powerbank, ein Stromverlust kurz nach os.replace() kann dann
+    genau die Bytes verlieren, die eben noch als "verifiziert" galten.
+    Deshalb jetzt explizit fsync() auf die tmp-Datei VOR dem Verify und
+    fsync() auf das Verzeichnis NACH dem Rename - beides Daten, die ein
+    Absturz sonst stillschweigend wieder haette rueckgaengig machen
+    koennen."""
+    gz_path = log_path + ".gz"
+    tmp_path = gz_path + ".tmp"
+    t0 = time.monotonic()
+    try:
+        with open(tmp_path, "wb") as f_out:   # Rest eines abgebrochenen Laufs wird ueberschrieben
+            run(["gzip", "-c", log_path], stdout=f_out, check=True)
+            f_out.flush()
+            os.fsync(f_out.fileno())
+        run(["gzip", "-t", tmp_path], check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        print(f"[session_logger] Komprimieren fehlgeschlagen, Rohdatei bleibt "
+              f"erhalten: {log_path} ({exc!r})", flush=True)
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
+        return
+    os.replace(tmp_path, gz_path)
+    dir_fd = os.open(log_dir, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+    os.remove(log_path)
+    print(f"[session_logger] gepackt: {os.path.basename(log_path)} in {time.monotonic() - t0:.0f} s", flush=True)
+
+
 class SessionLogger:
     """Kapselt den Start/Stop-Trigger, damit er ohne echten CAN-Bus/candump testbar ist."""
 
@@ -179,81 +266,6 @@ class SessionLogger:
         self._clock_offset = None
         self._last_wall = None
         self._session_stamp = None
-        self._gzip_lock = threading.Lock()
-
-    def gzip_in_background(self):
-        """Fertige Logs packen, ohne das Loggen aufzuhalten (10.10.2026): vorher lief
-        gzip_finished_logs() beim Dienststart VOR der Bus-Schleife. Endete die letzte Fahrt mit
-        hartem Stromverlust, blieb ihr .log (~600 MB) liegen, und das Packen (43 s gzip + Schreiben
-        auf den langsamen Stick + gzip -t) hielt candump ~1-1,5 min auf: Dash stand auf
-        "WARTE AUF ZUENDUNG", der Fahrtbeginn fehlte im Log. Die Dateiliste wird JETZT genommen,
-        also bevor ein neues candump startet - dessen offene Datei kann nie darin landen."""
-        paths = glob.glob(os.path.join(self.log_dir, "*.log"))
-        if paths:
-            threading.Thread(target=self.gzip_finished_logs, args=(paths,), daemon=True).start()
-
-    def gzip_finished_logs(self, paths=None):
-        """Komprimiert liegengebliebene .log-Dateien. Sicher gegen einen
-        Stromausfall WAEHREND dieses Laufs: vorher loeschte `gzip -f` die
-        Rohdatei schon beim eigenen Start, bevor das Ergebnis feststand -
-        ein Stromausfall mitten im Komprimieren (beobachtet 2026-09-16,
-        candump-...-090826.log: 8MB glatt abgebrochen, "ended before
-        end-of-stream marker") hinterliess dann eine kaputte .gz UND keine
-        Rohdatei mehr, aus der sich neu komprimieren liesse. Jetzt: erst in
-        eine temporaere Datei komprimieren, mit `gzip -t` verifizieren, dann
-        atomar (os.replace, gleiches Dateisystem) an den Zielnamen haengen
-        und ERST DANACH die Rohdatei loeschen - bei jedem Abbruch bleibt so
-        mindestens eine der beiden Dateien intakt (die Rohdatei, falls die
-        Kompression selbst nicht durchlief, sonst die bereits verifizierte
-        .gz).
-
-        Lueckenfall (beobachtet 2026-09-17, candump-...-125935.log.gz: exakt
-        dieselben 8MB wie beim allerersten Vorfall, obwohl diese Verify-vor-
-        Rename-Logik zu dem Zeitpunkt schon lief): `gzip -t` liest ueber den
-        Seiten-Cache und kann erfolgreich sein, obwohl die Daten noch gar
-        nicht auf dem Speichermedium stehen - der Pi haengt an einer
-        Powerbank, ein Stromverlust kurz nach os.replace() kann dann
-        genau die Bytes verlieren, die eben noch als "verifiziert" galten.
-        Deshalb jetzt explizit fsync() auf die tmp-Datei VOR dem Verify und
-        fsync() auf das Verzeichnis NACH dem Rename - beides Daten, die ein
-        Absturz sonst stillschweigend wieder haette rueckgaengig machen
-        koennen."""
-        if paths is None:
-            paths = glob.glob(os.path.join(self.log_dir, "*.log"))
-        with self._gzip_lock:  # Start- und Stopp-Thread koennen dieselbe Datei sehen
-            for log_path in paths:
-                if os.path.exists(log_path):
-                    self._gzip_one(log_path)
-
-    def _gzip_one(self, log_path):
-        gz_path = log_path + ".gz"
-        tmp_path = gz_path + ".tmp"
-        try:
-            with open(tmp_path, "wb") as f_out:
-                # niedrigste CPU-/IO-Prioritaet: laeuft jetzt parallel zu candump, das selbst
-                # schon unter dem langsamen Stick leidet (Luecken, siehe CANDUMP_RCVBUF).
-                # ionice -c3 greift nur mit bfq, sda laeuft mit mq-deadline (10.10.)
-                self._run(["nice", "-n", "19", "ionice", "-c3", "gzip", "-c", log_path],
-                          stdout=f_out, check=True)
-                f_out.flush()
-                os.fsync(f_out.fileno())
-            self._run(["gzip", "-t", tmp_path], check=True,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except (subprocess.CalledProcessError, OSError) as exc:
-            print(f"[session_logger] Komprimieren fehlgeschlagen, Rohdatei bleibt "
-                  f"erhalten: {log_path} ({exc!r})", flush=True)
-            try:
-                os.remove(tmp_path)
-            except FileNotFoundError:
-                pass
-            return
-        os.replace(tmp_path, gz_path)
-        dir_fd = os.open(self.log_dir, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-        os.remove(log_path)
 
     def start_logging(self):
         if self.candump_proc is not None:
@@ -261,6 +273,10 @@ class SessionLogger:
         self.candump_proc = self._popen(
             ["candump", "-l", "-r", str(CANDUMP_RCVBUF), self.can_channel], cwd=self.log_dir)
         self._session_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        try:  # laufendes Packen abbrechen (pack_logs), die Rohdatei bleibt dabei heil
+            self._run(["systemctl", "stop", "--no-block", PACK_UNIT], capture_output=True, timeout=5)
+        except Exception as exc:
+            print(f"[session_logger] {PACK_UNIT} nicht gestoppt: {exc!r}", flush=True)
         self.write_ifstats("start")
         # Zustand aus restore_clock() gilt nur fuer den Dienststart - kommt NTP erst spaeter
         # (28.09.: Start 13:53 "korrigiert", NTP 10:04, 4 Fahrten ab 10:07 trotzdem als
@@ -341,7 +357,6 @@ class SessionLogger:
         self.candump_proc.wait(timeout=5)
         self.candump_proc = None
         print("[session_logger] Fahrt beendet, candump gestoppt", flush=True)
-        self.gzip_in_background()  # Zuendung kann sofort wieder an sein (Tankstopp)
 
     def check_clock_jump(self, wall, mono):
         offset = wall - mono
@@ -388,7 +403,11 @@ class SessionLogger:
 
 
 def main():
+    if sys.argv[1:] == ["--pack"]:
+        pack_logs()
+        return
     import can
+    import cantools
 
     logging.disable(logging.WARNING)  # cantools warnt bei jeder doppelten BO_-Definition im DBC (harmlos)
     db = cantools.database.load_file(DBC_PATH, strict=False)
@@ -399,7 +418,10 @@ def main():
     print(f"[session_logger] {session.clock_note}", flush=True)
     save_clock()
 
-    bus = can.interface.Bus(channel=CAN_CHANNEL, interface="socketcan")
+    # Nur KeyState (~10 Hz) statt aller ~2900 Frames/s in Python: Uhr-Checks laufen hier mit,
+    # dafuer reicht das; candump hat seinen eigenen ungefilterten Socket.
+    bus = can.interface.Bus(channel=CAN_CHANNEL, interface="socketcan",
+                            can_filters=[{"can_id": KEYSTATE_CAN_ID, "can_mask": 0x7FF}])
 
     def handle_shutdown(signum, frame):
         session.stop_logging()
@@ -418,7 +440,7 @@ def main():
     # Frame), siehe docs/logs/can-bus-status.md.
     # Muster ohne Selbsttreffer (pgrep/pkill -f matcht sonst die eigene Kommandozeile mit).
     subprocess.run(["pkill", "-f", "[c]andump -l"], capture_output=True)
-    session.gzip_in_background()  # liegengebliebene Logs (Stromverlust am Fahrtende), blockiert candump nicht
+    # Liegengebliebene Logs (Stromverlust am Fahrtende) packt canlogs-pack.timer, nicht dieser Dienst.
 
     print(f"[session_logger] warte auf KeyState auf {CAN_CHANNEL}...", flush=True)
     try:

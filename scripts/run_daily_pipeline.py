@@ -583,7 +583,8 @@ def sync_can_logs_from_pi(errors):
     # siehe write_clock_marker) - klein, immer alle neuen mitnehmen statt
     # gezielt zu matchen.
     remote_cmd = (f"find {shlex.quote(PI_CANLOGS_DIR)} -maxdepth 1 "
-                  f"\\( -name 'candump-*.log*' -mmin +5 -o -name 'clockstate-*.txt' -o -name 'clockjump-*.txt' \\) "
+                  f"\\( \\( -name 'candump-*.log*' -o -name 'ifstats-*.txt' \\) -mmin +5 "
+                  f"-o -name 'clockstate-*.txt' -o -name 'clockjump-*.txt' \\) "
                   f"-printf '%f\\n'")
     try:
         res = subprocess.run(
@@ -600,7 +601,8 @@ def sync_can_logs_from_pi(errors):
     # wurde per Stromausfall abgebrochen, 27.09.) wuerde sonst als Log behandelt
     remote_files = [l for l in res.stdout.splitlines() if l.endswith((".log", ".log.gz", ".txt"))]
     local_logs = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/candump-*.log")}
-    local_clockstates = {os.path.basename(p) for p in glob.glob(f"{CAN_DIR}/clock*-*.txt")}
+    local_clockstates = {os.path.basename(p) for pat in ("clock*-*.txt", "ifstats-*.txt")
+                         for p in glob.glob(f"{CAN_DIR}/{pat}")}
 
     def _is_new(fname):
         if fname.endswith(".txt"):
@@ -614,9 +616,12 @@ def sync_can_logs_from_pi(errors):
     fetched = []
     for fname in new_remote:
         try:
+            # Lange Fahrten (04./10.10.: bis 1,6 h, ungepackt ~600 MB+) brauchen per WLAN mehrere
+            # Minuten - abbrechen nur bei toter Verbindung (ServerAlive), nicht nach fester Dauer.
             res = subprocess.run(
-                ["scp", "-o", "ConnectTimeout=6", f"{PI_HOST}:{PI_CANLOGS_DIR}/{fname}", f"{CAN_DIR}/"],
-                capture_output=True, text=True, timeout=180)
+                ["scp", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+                 f"{PI_HOST}:{PI_CANLOGS_DIR}/{fname}", f"{CAN_DIR}/"],
+                capture_output=True, text=True, timeout=3600)
         except Exception as e:
             errors.append((f"scp {fname}", f"Exception: {e}"))
             continue
@@ -633,7 +638,7 @@ def sync_can_logs_from_pi(errors):
     new_log_ids = []
     for fname in fetched:
         if fname.endswith(".txt"):
-            continue  # clockstate-/clockjump-Dateien - nur mitkopiert, separat ausgewertet
+            continue  # clockstate-/clockjump-/ifstats-Dateien - nur mitkopiert, separat ausgewertet
         local_path = os.path.join(CAN_DIR, fname)
         if fname.endswith(".gz"):
             log_name = fname[:-3]

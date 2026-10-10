@@ -1,0 +1,11 @@
+[Unit]
+Description=CAN-Logs alle 15 Minuten packen, wenn gerade nicht geloggt wird
+
+[Timer]
+# Nicht in der IO-lastigen Bootphase (SD-Karte ~5-7 MB/s); faehrt man los, ist candump bis dahin
+# laengst an und der Lauf endet sofort. Ein 600-MB-Log braucht ~1 min.
+OnBootSec=10min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target
