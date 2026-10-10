@@ -5621,3 +5621,39 @@ Replay-Datei sowie `vcan0` entfernt, Overlay 2 %.
   Betrieb über Pin 2/4 (+5 V) und GND ist vorgesehen (Kapitel 3.2.2).
 - Der Hersteller-Daemon fährt erst bei lim = 0 herunter. Für uns ist eine eigene Logik geplant: shd setzen;
   pfo = 0 und KeyState OFF → sofort Shutdown; lim = 0 → immer Shutdown.
+
+## Dash: Log-Auswahl und ganze Logs in der Vcan-Simulation (10.10.2026, nachts)
+
+**Wunsch des Nutzers:** In der Simulation ein Log auswählen und es komplett abspielen, nicht nur die ersten
+~10 min (`SIM_MAX_LINES`, siehe Abschnitt davor).
+
+**Umbau (`bce5930`, auf dem Pi):**
+- Neben „Vcan-Simulation starten“ sitzt eine Auswahlliste (Kivy-`Spinner`) mit allen `candump-*.log.gz`,
+  neuestes oben und vorausgewählt, mit Größe. Sortiert nach Name, nicht nach mtime: Die mtimes der Logs ohne
+  RTC liegen teils Tage daneben (z. B. `2026-09-26_*` mit mtime 20.09.). Leere 50-Byte-Stummel vom 11.09.
+  fehlen. Die Liste wird neu eingelesen, sobald der Knopf erscheint. Auf dem Pi sind es 73 Logs.
+- Replay: `while [ -e TRIGGER ]; do zcat -- LOG | canplayer -s 5 vcan0=can0; sleep 1; done` in eigener
+  Prozessgruppe. Das Entpacken nach `/tmp` (`_prepare_replay_log`) entfällt ganz.
+  - Pro Durchlauf ein neuer canplayer, weil er von stdin nicht zurückspulen kann (`-l`).
+  - Bricht eine abgeschnittene letzte Zeile canplayer ab, endet nur dieser Durchlauf.
+  - Endbedingung ist die Trigger-Datei. Das Backend (`kill_processes("canplayer")`, wenn `can0` kommt) trifft
+    auch die `sh`-Schleife, weil „canplayer“ in ihrer Kommandozeile steht, und löscht danach den Trigger.
+  - `stop()` beendet die ganze Gruppe per `killpg`.
+
+**canplayer 2020.11 auf dem Pi von Hand geprüft** (`stdout=can0`, ohne Interface):
+- liest von stdin;
+- `-s 5` synchronisiert bei einem Uhrsprung **rückwärts** sofort neu (kein Frame-Schwall) und überspringt
+  Vorwärtslücken > 5 s;
+- eine abgeschnittene gzip-Datei liefert alles bis zum Bruch.
+
+**Test mit echtem canplayer auf `vcan1`** (Backend unberührt), Log `133226` (116 MB):
+- Start nach 0,00 s statt einigen Sekunden.
+- ~2765 Frames/s, das entspricht der Fahrzeugrate.
+- `/tmp` bei 2 %; sh, zcat und canplayer je ~1,4 MB RSS.
+- Beide Wege zum Beenden lassen keine Prozesse übrig: das Backend, wenn `can0` kommt, und `stop()`.
+
+Tests: `test_sim_loop_replays_whole_log_until_stopped` (canplayer durch `cat` ersetzt: zwei volle
+Durchläufe, danach keine Prozessgruppe mehr) und `test_sim_log_choice_newest_first_without_stubs`. Alle
+Dash-Tests laufen auf dem Pi. Nach dem Deploy nur das Dash per PID neu gestartet. Ein Bildschirmfoto (`grim`)
+zeigt die Auswahl auf dem Status-Bildschirm.
+**Offen:** Start per Touch auf dem echten Display mit einem älteren Log, und ob es nach 10 min weiterläuft.
