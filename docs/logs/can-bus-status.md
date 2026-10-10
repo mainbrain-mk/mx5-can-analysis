@@ -5595,3 +5595,11 @@ außerdem in dieselbe Datei.
 83 MB, Overlay 10 % belegt, Backend ~1370 Frames/s.
 **Zwischenfall dabei:** `pgrep -f "python3 /home/pi/canlogs/dash_gui.py"` im SSH-Kommando traf die eigene
 Shell (bekannte Falle). Dash-Prozesse deshalb nur per explizit ermittelter PID beenden.
+**Nachtrag: Simulation ließ sich nicht beenden (`083c1e1`).** Während der Simulation meldet das Backend
+„logging“, und das Dash zeigt den Fahrbildschirm. Der Knopf „Simulation stoppen“ auf dem Status-Bildschirm
+war dann nie zu sehen, die Simulation lief bis zum Reboot oder bis der echte `can0` kam. Neu: In der Fußzeile
+des Fahrbildschirms erscheint ein roter Knopf „SIMULATION BEENDEN“, nur solange die Simulation läuft. Er stoppt
+gezielt, ein Doppeltipp kann also nichts neu starten (Test
+`test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs`). Der Nutzer hat den Ablauf
+Start → Fahrbildschirm → Beenden → Status-Bildschirm durchgespielt. Danach: 0 canplayer, Trigger- und
+Replay-Datei sowie `vcan0` entfernt, Overlay 2 %.

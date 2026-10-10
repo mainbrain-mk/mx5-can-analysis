@@ -7,7 +7,7 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 „Pi-Infrastruktur: Lücken zu Hause reproduziert…“ (10.10.2026).
 
 **Stand 2026-10-10, ~22:30** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter, nach dem Stick-Tausch):
-- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`): Code-Stand `2db08af`, danach nur Doku-Commits.
+- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`), zuletzt `083c1e1` (Dash: Doppel-Touch, Sim-Stopp, Replay-Begrenzung).
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
@@ -26,7 +26,7 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 | Was | gestartet von | läuft | Ausgabe |
 |---|---|---|---|
 | `can_backend.py` (Decode-Daemon, UDP-Snapshot Port 51234, sendet selbst nichts) | labwc-`autostart` → `respawn.sh` | immer | `applogs/can_backend.log` |
-| `dash_gui.py` (Kivy-Frontend) | labwc-`autostart` → `respawn.sh` | immer | `applogs/dash_gui.log` |
+| `dash_gui.py` (Kivy-Frontend; Touch nur einfach seit 10.10., `mouse,disable_on_activity`) | labwc-`autostart` → `respawn.sh` | immer | `applogs/dash_gui.log` |
 | `can-logger.service` → `session_logger.py` (KeyState-Trigger, Kernelfilter auf 0x050) | udev, `BindsTo` `can0` | solange der Adapter steckt | Journal (volatile) |
 | └ `candump -l -r 16777216 can0` | `session_logger`, KeyState ≠ OFF | Zündung an | `candump-*.log`, `clockstate-*`, `ifstats-*` (minütlich) |
 | └ `tpms_poller.py --interval 120` (TPMS, Öl, Lambda/ETC/Klopfen per OBD/UDS) | dito | Zündung an | landet im candump |
@@ -38,6 +38,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 - **`tpms_poller.py`** schickt die Schnellabfragen (PID 0x11/0x44/0x10, DID 0x03EC), deren Antworten Dash und
   Log zeigen. Ohne Handy-Dongle laufen sie ungebremst (~150 Anfragen/s auf 0x7E0). Sieht er fremde Tester-Anfragen,
   sind es 5 Runden/s (`FAST_PERIOD_SHARED_S`).
+- **Vcan-Simulation** (Knopf auf dem Status-Bildschirm, wenn kein `can0` da ist): spielt die ersten ~10 min
+  des letzten Logs in Schleife ab und zeigt den Fahrbildschirm. Beenden über „SIMULATION BEENDEN“ in dessen Fußzeile.
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
   `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
   Adapters, im Auto genügt `sudo systemctl restart can-logger`.
