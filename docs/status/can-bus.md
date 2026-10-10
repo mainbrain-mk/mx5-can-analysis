@@ -290,15 +290,13 @@ Kraftstoff-/Wegzähler, i-stop, Kamera u. a.) stehen gesammelt in
   mDNS mit einem anderen Gerät im Netz). Erreichbar unter `pi@192.168.0.247` bzw. `car.local`,
   passwortloses SSH + sudo, Debian 12 Bookworm.
   - Root-Dateisystem läuft schreibgeschützt mit RAM-Overlay (`overlayroot`, `recurse=0`) – nur
-    `/home/pi/canlogs` (USB-Stick, 14,6GB) ist persistent. Jede Config-Änderung am System
-    (außerhalb des Sticks) braucht: Overlay disable (Parameter in `/boot/firmware/cmdline.txt`
-    entfernen) → reboot → ändern → Overlay-Parameter wieder eintragen → reboot.
+    `/home/pi/canlogs` (USB-Stick, 14,6GB) ist persistent. Systemänderungen dauerhaft per
+    `overlayroot-chroot` (siehe `scripts/pi-config/SETUP.md`).
   - `can-logger.service` (systemd, root, device-bound an `can0`) startet `session_logger.py`,
-    das per `KeyState` (0x050) automatisch pro Fahrt ein `candump -l`-Log startet/stoppt/gzippt.
-  - 10"-Touchdisplay: `status_gui.py` (Tkinter) zeigt Live-Status, eine Testmodus-Checkliste und
-    Live-Gauges (Gas/Bremse/Kupplung/Lenkwinkel/Speed). **2026-09-14: >2s-Gauge-Lag gefixt** –
-    zwei Ursachen (pgrep-Fork pro Sekunde direkt in der Tk-Mainloop, ungefilterter CAN-Read)
-    behoben, deployt, aber noch NICHT bei einer echten Fahrt live verifiziert.
+    das per `KeyState` (0x050) automatisch pro Fahrt ein `candump -l -r 16 MiB`-Log startet/stoppt.
+    Gepackt wird seit 10.10. getrennt davon per `canlogs-pack.timer`, nur wenn kein candump läuft.
+  - 10"-Touchdisplay: `dash_gui.py` (Kivy) + `can_backend.py` (seit 16.09., `status_gui.py` ist nur noch
+    Fallback). Was wann läuft: [`pi-runtime-state.md`](pi-runtime-state.md).
 - **DBC:** `data/can/MX5ND_6thGenMazda_HSCAN_extended.dbc` ist die primäre, laufend gepflegte
   Datei (alle Fixes/Funde). `_HSCAN.dbc` bleibt bewusst unverändertes Upstream-Original
   (`berumiya/CAN_DBC_6thGenMazda`, CC-BY-4.0).
@@ -506,11 +504,13 @@ OBD/CAN-Referenz gesucht werden muss):
   (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
 
 ### Bekannte offene Punkte
-- **Datenlücken im candump seit 02.10.2026 (Stand 10.10.):** bis ~100 s je Fahrt in 0,1–4-s-Lücken
-  im ~5-s-Takt. Vermutete Ursache: langsamer USB-Stick plus winziger Socket-Puffer. Gegenmaßnahme in
-  `session_logger.py` vorbereitet (`candump -r` 16 MiB, `ifstats-*.txt` je Fahrt), aber noch nicht
-  deployt. Nach der nächsten Fahrt Lücken und Zähler prüfen. Ereignisse mit Lücke verwirft
-  `shift_time_analysis` jetzt. Herleitung: `logs/can-bus-status.md` „Datenlücken im candump seit 02.10.2026“.
+- **Datenlücken im candump seit 02.10.2026 (Stand 10.10. abends):** bis ~100 s je Fahrt in 0,1–4-s-Lücken
+  im ~5-s-Takt. **Ursache belegt:** Der USB-Stick hängt beim Schreiben bis ~2–4 s, und der Default-Socket-Puffer
+  von candump reicht nur ~0,1 s. Das Backend sah im selben Zeitraum keine Lücken, und zu Hause auf vcan0
+  ließ es sich reproduzieren: 4,5 % Verlust mit Default-Puffer, 0 mit `-r 16 MiB` (~13 s Puffer). Der Fix ist
+  deployt. Nach der nächsten Fahrt Lücken je Log und `ifstats` prüfen. Ereignisse mit Lücke verwirft
+  `shift_time_analysis`. Herleitung: `logs/can-bus-status.md` „Datenlücken im candump seit 02.10.2026“ und
+  „Pi-Infrastruktur: Lücken zu Hause reproduziert…“.
 - **Kein Datums-/Uhrzeitkanal fürs No-RTC-Problem gefunden (2026-09-21):** systematisch
   gesucht (bekanntes `Date`/`Mileage`-Signal, alle 41 UDS-Sub-Felder von `Central_Config_Index`,
   plus ein gezielter Cluster-B-Rückblick über alle 34 Logs auf "pro Log konstant, zwischen Logs

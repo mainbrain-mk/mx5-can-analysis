@@ -1,7 +1,7 @@
 # Pi-Setup (Reproduzierbarkeit)
 
 Momentaufnahme der Raspberry-Pi-Konfiguration (`pi@192.168.0.247` / `car.local`,
-Raspberry Pi OS Bookworm), Stand 2026-09-17. Anwendungsskripte und DBC kommen seit 2026-09-28
+Raspberry Pi OS Bookworm), Stand 2026-09-17, Packen/Aufräumen 2026-10-10. Anwendungsskripte und DBC kommen seit 2026-09-28
 per `git push` auf den Pi (siehe "Deploy per Git"). Dateien im Overlay-Unterbau (autostart,
 Units, udev, `config.txt`) weiterhin von Hand, die Kopien hier dann nachziehen.
 
@@ -72,6 +72,28 @@ sudo systemctl enable can-logger.service
 sudo udevadm control --reload-rules
 ```
 
+## Logs packen (`canlogs-pack.timer`, seit 2026-10-10)
+
+`canlogs-pack.service` + `.timer` (dieser Ordner -> `/etc/systemd/system/`) rufen
+`session_logger.py --pack` 10 min nach dem Boot und dann alle 15 min auf. Gepackt werden nur `candump-*.log`
+und nur, solange kein candump läuft. Bei Fahrtbeginn stoppt `session_logger.py` einen laufenden Packlauf.
+Vorher packte der Logger beim Dienststart bzw. am Fahrtende und hielt damit candump auf oder schrieb parallel
+auf den Stick (Logbuch 10.10.). Installation in EINEM `overlayroot-chroot`-Aufruf, danach auch live:
+
+```bash
+tar -c canlogs-pack.service canlogs-pack.timer | ssh pi@192.168.0.247 'sudo overlayroot-chroot sh -c \
+  "mkdir -p /root/pk && tar -x -C /root/pk && install -m 644 /root/pk/canlogs-pack.* /etc/systemd/system/ \
+   && systemctl enable canlogs-pack.timer && rm -rf /root/pk" && findmnt -no OPTIONS /media/root-ro'
+ssh pi@192.168.0.247 'for f in canlogs-pack.service canlogs-pack.timer; do sudo install -m 644 /media/root-ro/etc/systemd/system/$f /etc/systemd/system/; done; sudo systemctl daemon-reload && sudo systemctl start canlogs-pack.timer'
+```
+
+Von Hand packen: `sudo systemctl start canlogs-pack.service` (blockiert bis fertig). Stand: `systemctl list-timers canlogs-pack.timer`.
+
+**Stick (gemessen 10.10.):** USB 2.0, ~5 MB/s sequenziell, ~25 ms je Sync-Schreibvorgang, `write()` hängt
+regelmäßig 1–2,3 s (Fahrt bis 3,9 s). candump läuft deshalb mit `-r 16777216` (~13 s Puffer bei 2900 Frames/s).
+Prüfen lässt sich ein Stick ohne Auto: `vcan0` anlegen, `cangen vcan0 -g 0.28 -L 8 -D i -I 123` (~2900/s mit
+Zähler), daneben `candump -l` mit und ohne `-r` und Lücken bzw. Zählersprünge zählen (Logbuch 10.10.).
+
 ## Renncockpit-Autostart
 
 `autostart` in diesem Ordner -> `/home/pi/.config/labwc/autostart` (per
@@ -120,7 +142,7 @@ anzeigen). Neustart von Hand, z.B. nach einem Deploy:
 ## Bootzeit-Optimierung (2026-09-27)
 
 Alles per `overlayroot-chroot` bzw. `raspi-config`; Rollback-Liste der Unit-Zustaende vorher:
-`/home/pi/canlogs/backup-boot-2026-09-26/unit-files-before.txt`.
+`/home/pi/canlogs/archiv/backup-boot-2026-09-26/unit-files-before.txt` (alle `backup-*` seit 10.10. unter `archiv/`).
 
 - **journald:** `/etc/systemd/journald.conf.d/volatile.conf` mit `Storage=volatile`, `RuntimeMaxUse=30M`.
   Grund: 370 MB Alt-Journals im ro-Unterbau liessen `systemd-journal-flush` 30 s blockieren (sysinit 36 s -> 10 s).
@@ -130,12 +152,12 @@ Alles per `overlayroot-chroot` bzw. `raspi-config`; Rollback-Liste der Unit-Zust
   D-Bus-Reaktivierung durch NetworkManager). Bewusst AN: Avahi (`car.local`), Bluetooth, NetworkManager, ssh,
   timesyncd (fake-hwclock seit 28.09. aus, siehe RTC).
 - **`/boot/firmware/config.txt`:** `camera_auto_detect=0` (`sudo mount -o remount,rw /boot/firmware`,
-  `sudo raspi-config nonint do_camera 1`, danach wieder `remount,ro`). Vorher-Kopie `backup-boot-2026-09-26/config.txt.vorher`.
+  `sudo raspi-config nonint do_camera 1`, danach wieder `remount,ro`). Vorher-Kopie `archiv/backup-boot-2026-09-26/config.txt.vorher`.
 - **Gotcha:** mehrere `overlayroot-chroot`-Aufrufe hintereinander lassen `/media/root-ro` auf `rw` haengen
   (remount,ro = EBUSY); erst ein Reboot stellt `ro` sicher her. Aenderungen deshalb in EINEM Aufruf buendeln
   und danach `findmnt -no OPTIONS /media/root-ro` pruefen.
 - **Desktop-Autostart:** in `/etc/xdg/labwc/autostart` sind `pcmanfm --desktop` und `wf-panel-pi` auskommentiert
-  (Original: `backup-boot-2026-09-26/labwc-autostart.orig`). labwc fuehrt System- UND User-Autostart aus, der
+  (Original: `archiv/backup-boot-2026-09-26/labwc-autostart.orig`). labwc fuehrt System- UND User-Autostart aus, der
   User-Autostart (`~/.config/labwc/autostart`) kann System-Eintraege nicht abschalten. WLAN ist davon unabhaengig
   (systemweites NM-Profil, `psk-flags 0`, kein Agent noetig); ohne Panel fehlt nur das Klick-Menue zum WLAN-Wechsel
   (dann `nmcli` per ssh). Wiederherstellen: `#` entfernen (per `overlayroot-chroot`).
