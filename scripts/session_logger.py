@@ -32,6 +32,12 @@ KEYSTATE_CAN_ID = 0x050
 TPMS_POLLER_PATH = os.environ.get(
     "MX5_TPMS_POLLER", os.path.join(os.path.dirname(os.path.abspath(__file__)), "tpms_poller.py")
 )
+# candump-Empfangspuffer (Bytes, SO_RCVBUFFORCE, Dienst laeuft als root). Default 212992 B
+# reicht bei ~2800 Frames/s nur ~0,1 s: haengt candump beim Schreiben auf den USB-Stick
+# (ext4-Commit/Writeback alle 5 s, Stick ~25 ms je Sync-Schreibvorgang), verwirft der Kernel
+# Frames. Seit 02.10. so bis ~100 s Luecke je Fahrt, siehe docs/logs/can-bus-status.md.
+# ponytail: 16 MiB ~ 7 s Puffer (CAN-skb ~0,8 kB), reicht fuer die beobachteten <=4 s.
+CANDUMP_RCVBUF = 16 * 1024 * 1024
 TPMS_POLL_INTERVAL_S = 120  # Reifendruck aendert sich langsam, Bus/OBD moeglichst wenig belasten
 
 # Einmal-Erhebung (2026-09-15): liegt die Flag-Datei, wird bei der naechsten Fahrt einmal
@@ -171,6 +177,7 @@ class SessionLogger:
         self._last_clock_write = 0.0
         self._clock_offset = None
         self._last_wall = None
+        self._session_stamp = None
 
     def gzip_finished_logs(self):
         """Komprimiert liegengebliebene .log-Dateien. Sicher gegen einen
@@ -227,7 +234,10 @@ class SessionLogger:
     def start_logging(self):
         if self.candump_proc is not None:
             return
-        self.candump_proc = self._popen(["candump", "-l", self.can_channel], cwd=self.log_dir)
+        self.candump_proc = self._popen(
+            ["candump", "-l", "-r", str(CANDUMP_RCVBUF), self.can_channel], cwd=self.log_dir)
+        self._session_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.write_ifstats("start")
         # Zustand aus restore_clock() gilt nur fuer den Dienststart - kommt NTP erst spaeter
         # (28.09.: Start 13:53 "korrigiert", NTP 10:04, 4 Fahrten ab 10:07 trotzdem als
         # "korrigiert" markiert), muss der Marker jeder Fahrt den aktuellen Stand zeigen.
@@ -248,6 +258,19 @@ class SessionLogger:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         self.maybe_start_probe()
+
+    def write_ifstats(self, label):
+        """Zaehler der CAN-Schnittstelle (rx dropped/overrun, Bus-Fehler) je Fahrt mitschreiben:
+        sind sie bei Luecken im candump 0, gingen die Frames erst im Socket verloren (candump
+        hat nicht gelesen), sonst schon im Adapter/Treiber. Fehler hier stoeren das Loggen nie."""
+        try:
+            out = self._run(["ip", "-s", "-s", "-d", "link", "show", self.can_channel],
+                            capture_output=True, text=True).stdout
+            path = os.path.join(self.log_dir, f"ifstats-{self._session_stamp}.txt")
+            with open(path, "a") as fh:
+                fh.write(f"== {label} {datetime.now():%Y-%m-%d %H:%M:%S}\n{out}")
+        except Exception as exc:
+            print(f"[session_logger] ifstats nicht geschrieben: {exc!r}", flush=True)
 
     def write_clock_marker(self):
         """Uhr-Zustand neben die Logs schreiben, damit eine zweifelhafte Datierung spaeter
@@ -289,6 +312,7 @@ class SessionLogger:
             self.probe_proc.terminate()
             self.probe_proc.wait(timeout=5)
             self.probe_proc = None
+        self.write_ifstats("stop")
         self.candump_proc.terminate()
         self.candump_proc.wait(timeout=5)
         self.candump_proc = None
@@ -320,6 +344,8 @@ class SessionLogger:
         if now - self._last_clock_write >= CLOCK_WRITE_INTERVAL_S:
             self._last_clock_write = now
             save_clock()
+            if self.candump_proc is not None:  # Fahrten enden oft mit hartem Stromverlust, ohne "stop"
+                self.write_ifstats("laufend")
         if arbitration_id != KEYSTATE_CAN_ID:
             return
         decoded = self.keystate_msg.decode(data, allow_truncated=True)

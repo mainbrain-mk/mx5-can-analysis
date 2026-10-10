@@ -506,6 +506,11 @@ OBD/CAN-Referenz gesucht werden muss):
   (`FLI%`, `CPP_PER_MZ%`) leben nur außerhalb der DBC.
 
 ### Bekannte offene Punkte
+- **Datenlücken im candump seit 02.10.2026 (Stand 10.10.):** bis ~100 s je Fahrt in 0,1–4-s-Lücken
+  im ~5-s-Takt. Vermutete Ursache: langsamer USB-Stick plus winziger Socket-Puffer. Gegenmaßnahme in
+  `session_logger.py` vorbereitet (`candump -r` 16 MiB, `ifstats-*.txt` je Fahrt), aber noch nicht
+  deployt. Nach der nächsten Fahrt Lücken und Zähler prüfen. Ereignisse mit Lücke verwirft
+  `shift_time_analysis` jetzt. Herleitung: `logs/can-bus-status.md` „Datenlücken im candump seit 02.10.2026“.
 - **Kein Datums-/Uhrzeitkanal fürs No-RTC-Problem gefunden (2026-09-21):** systematisch
   gesucht (bekanntes `Date`/`Mileage`-Signal, alle 41 UDS-Sub-Felder von `Central_Config_Index`,
   plus ein gezielter Cluster-B-Rückblick über alle 34 Logs auf "pro Log konstant, zwischen Logs

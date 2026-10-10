@@ -100,7 +100,12 @@ def detect_clutch_events(t, clutch_raw, gear_t, gear_v):
         if len(before) == 0 or len(after) == 0:
             continue
         gb, ga = float(before[-1]), float(after[0])
-        if gb == 0 or ga == 0 or dur > STANDSTILL_MAX_S:
+        # Datenluecke im candump (seit 02.10. alle ~5 s, siehe docs/logs/can-bus-status.md)
+        # direkt vor/in/nach der Betaetigung: Dauer ist abgeschnitten (5->6 in "0,28 s").
+        window = t[max(s - 1, 0):e + 2]
+        if np.any(np.diff(window) > GAP_BRIDGE_S):
+            kind = "data_gap"
+        elif gb == 0 or ga == 0 or dur > STANDSTILL_MAX_S:
             kind = "standstill"
         elif ga == gb + 1:
             kind = "upshift"

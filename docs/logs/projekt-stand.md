@@ -6479,3 +6479,60 @@ Methodenrauschen. Auf dem Handy-Kanal `STEER_ANGL_EPS` lagen die Offsets bei Med
 bei neuer `.dlg` auf. CAN-Fahrten laufen im Lenkmodell mit Offset 0. Neukalibrierung unverändert: k1 0,020554
 (vorher 0,020555), k2 2,72e−5, R² 0,990, LOO 1,20°/s, 1570 Punkte. Spart je Lauf den OSM-Abgleich, und
 CAN-Fahrten hängen nicht mehr an der OSM-Straßengeometrie.
+
+## Automatischer Lauf: 10 neue CAN-Logs uebernommen (2026-10-10)
+
+- `candump-2026-10-04_092939`, Masse=1205.1kg (Tank ~13.6 l (CAN Fuel_Tank Median 9.6 roh), Beifahrer 48% der Fahrt (0x340))
+- `candump-2026-10-04_110018`, Masse=1190.9kg (Tank ~42.8 l (CAN Fuel_Tank Median 36.2 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-04_115505`, Masse=1265.9kg (Tank ~42.8 l (CAN Fuel_Tank Median 36.2 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-04_125513`, Masse=1260.8kg (Tank ~36.0 l (CAN Fuel_Tank Median 30.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-04_142137`, Masse=1253.4kg (Tank ~26.1 l (CAN Fuel_Tank Median 21.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-04_160116`, Masse=1176.1kg (Tank ~23.0 l (CAN Fuel_Tank Median 18.2 roh), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-10-10_104315`, Masse=1249.7kg (Tank ~21.0 l (CAN Fuel_Tank Median 16.4 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-10_110130`, Masse=1265.1kg (Tank ~41.7 l (CAN Fuel_Tank Median 35.2 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-10_121411`, Masse=1258.4kg (Tank ~32.7 l (CAN Fuel_Tank Median 27.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-10_133226`, Masse=1250.7kg (Tank ~22.4 l (CAN Fuel_Tank Median 17.6 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.09 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=81).
+- dgm_gap: candump-2026-10-04_142137 t=1768-1774s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_121411 t=1796-1801s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_121411 t=2345-2360s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_121411 t=2384-2396s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_121411 t=3528-3541s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=29-42s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3216-3224s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3236-3242s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3332-3340s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3641-3651s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3760-3771s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=3865-3875s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-10_133226 t=4077-4083s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- shift_record: Neue Bestzeit 2 -> 3 (upshift): 0.64s (vorher 0.96s), candump-2026-10-10_133226 @ t=4376.5s.
+- shift_record: Neue Bestzeit 4 -> 5 (upshift): 0.94s (vorher 0.96s), candump-2026-10-10_133226 @ t=617.4s.
+- shift_record: Neue Bestzeit 5 -> 6 (upshift): 0.28s (vorher 0.98s), candump-2026-10-10_133226 @ t=2791.6s.
+- shift_record: Neue Bestzeit 5 -> 4 (downshift): 0.30s (vorher 0.98s), candump-2026-10-04_092939 @ t=2536.9s.
+- shift_record: Neue Bestzeit 2 -> 1 (downshift): 2.90s (erste Messung), candump-2026-10-10_121411 @ t=2756.9s.
+
+## Erste Winterreifen-Fahrten: Prüfung der Erwartungen vom Reifenwechsel (2026-10-10)
+
+Ausgewertet sind die Fahrten vom 02., 04. und 10.10. auf Hankook W462 195/50 R16.
+
+- **VehicleSpeed gegen GPS:** GPS/VS liegt bei 0,972–0,975 (04.10., 5 Logs mit GPS). Auf NS-R2 waren es
+  0,967–0,974 (Median ~0,971). Erwartet war ~0,980 (+0,94 % geometrischer Radius). Die Überlesung sinkt also nur
+  um ~0,3 Prozentpunkte. Plausible Erklärung: Der Satz ist an der Verschleißgrenze, und ~4 mm weniger Profil
+  kosten etwa 1,3 % Radius. Damit ist der Abrollradius praktisch so groß wie beim NS-R2, der 2,9-%-Rahmen gilt
+  weiter. Die Fahrten vom 10.10. haben kein GPS (keine GPX).
+- **TPMS:** Die Sensoren der Winterräder liefern über `TirePressure_CAN_Tire1-4` (heiß 2,17–2,31 bar, 30–40 °C).
+  Auffällig: Jetzt hat Tire3 den höchsten Druck und die höchste Temperatur, auf NS-R2 war es Tire4. Ob die
+  Zuordnung FL/FR/RL/RR für die neuen Sensoren noch stimmt, ist ungeprüft (Fahrzeugtest nötig).
+- **Volllast-Warnung `drivetrain_ratio` 1,09:** Die Abweichung kommt aus dem Gangmix. 42 der 81 Segmente sind
+  Gang 6 (Winter 1,14, NS-R2 1,11, nahe Vmax ohnehin unsicher). Gang 2–5 auf Winterreifen: 0,99/1,00/1,01/1,02.
+  Das Modell ist damit nicht verschoben.
+- **Bremsung 0,81 g (`133226`, t=1308 s, aus 173 km/h):** Das ist nur die Spitze. Mittel 0,33 g, aus dem
+  Geschwindigkeitsabbau 0,34 g, ohne ABS, 47 bar. Kein Gripwert.
+- **`unmapped_channels`:** Die Meldung ist seit Wochen wortgleich (110238 Werte, alte Handy-Spalten). Sie kommt
+  nicht aus den neuen Logs.
+- Die Schaltrekorde 5→6/5→4 sind Artefakte von CAN-Datenlücken, siehe `logs/can-bus-status.md`
+  „Datenlücken im candump seit 02.10.2026“.

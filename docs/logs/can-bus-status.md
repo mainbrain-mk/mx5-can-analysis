@@ -5285,3 +5285,62 @@ Einträgen in `can_gps_pairs.json` nach, die noch leer sind. Bekannte Duplikate 
 z. B. `09-11_201950`) bleiben außen vor. Danach wird der Datalake neu gebaut; das geht auch in einem Lauf ohne neue Logs.
 Den Uhrzeit-Abgleich mit dem GPS (`fix_can_log_clocks`) wiederholt die Pipeline für solche alten Logs nicht.
 Test: `test_pair_late_gpx_fills_only_empty_entries`.
+
+## Datenlücken im candump seit 02.10.2026 (Befund 10.10.2026)
+
+Bei der Durchsicht des Tageslaufs vom 10.10. fielen zwei Schalt-„Rekorde“ auf (5→6 in 0,28 s, 5→4 in 0,30 s,
+vorher je ~0,98 s). Beide liegen auf Lücken, in denen **alle** CAN-IDs fehlen (`133226` t=2791,9–2793,1 s,
+`092939` t=2537,2–2539,2 s). Die Lücken stehen schon im Roh-candump, sie entstehen also nicht beim Dekodieren.
+
+Lücken > 0,5 s in `EngineRPM` je Log:
+
+| Zeitraum | Lücken je Log | verlorene Zeit je Log |
+|---|---|---|
+| 12.09.–01.10. | 0–6 (meist 0–1) | 0–6 s |
+| 02.10. | 3–27 | 3–28 s |
+| 04.10. (lange Fahrten) | 72–88 | 81–102 s |
+| 10.10. | 15–85 | 15–97 s |
+
+Bei `candump-2026-10-10_133226` sind es 84 Lücken mit 0,6–3,9 s Länge, im Median eine alle ~35 s. Die Framerate
+zwischen den Lücken ist normal (2807/s, 27.09. 2909/s). Seit dem Deploy vom 30.09. (`car/deployed` = 3022d15)
+hat sich auf dem Pi keine Software geändert. Den Pi am 10.10. abends geprüft: `throttled=0x0`, kein CAN-Fehler
+im dmesg. Das Auto war aber nicht dran (`can0` fehlt), und vom Fahrtzeitraum gibt es kein Journal (overlayroot).
+Vor fast jeder Lücke steht eine eigene 0x7E0-Anfrage. Bei ~150 Anfragen/s beweist das allein aber nichts.
+
+**Hypothese (ungeprüft):** Das Schreiben auf den USB-Stick (`/dev/sda1`) hängt kurzzeitig. candump blockiert,
+der Socket-Puffer (`rmem_default` 212992 B, bei ~2900 Frames/s etwa 0,5 s) läuft über, und Frames gehen verloren.
+Das würde auch erklären, warum keine Lücke unter ~0,5 s auftaucht. Alternativen sind ein USB-CAN-Adapter oder
+Kabel bzw. Stromversorgung (Kälte?). Nächste Schritte: in einer Fahrt `ip -s -d link show can0` (rx dropped/
+overrun) und candump-Drop-Zähler (`-d`) mitloggen, Schreiblatenz des Sticks prüfen, Socket-Puffer vergrößern.
+
+**Folgen für die Auswertung:** Die Schaltzeit-Bestwerte 5→6 und 5→4 vom 04./10.10. sind Artefakte.
+`shift_time_analysis` und andere ereignisbasierte Auswertungen (Bremsungen, Volllastsegmente) sollten
+Ereignisse verwerfen, die eine Datenlücke überspannen.
+
+### Nachtrag 10.10. abends: 5-s-Takt, Ursache eingegrenzt, Gegenmaßnahme
+
+- **Die Lücken folgen einem ~5,05-s-Takt.** Die Abstände zwischen Lückenanfängen sind Vielfache von ~5 s
+  (5,0/5,1/10,1/15,1/20,2/30,3 …). Die Phasenkohärenz beim besten Takt beträgt 0,49 (`133226`, 106 Lücken
+  > 0,1 s) bzw. 0,41 (`125513`, 110), zufällig wären ~0,1. Das passt zum 5-s-Rhythmus von ext4-Journal-Commit
+  bzw. Kernel-Writeback (`dirty_writeback_centisecs`=500) auf dem Stick.
+- **Kein Schwall nach der Lücke:** Die Framerate 10–200 ms vor und nach jeder Lücke ist normal (~2850/s). Die
+  Frames gehen also verloren und werden nicht verspätet nachgeliefert.
+- **Der Stick ist langsam:** `dd` mit `oflag=dsync` braucht 12,4–13,0 s für 500 × 4 kB (~25 ms je
+  Sync-Schreibvorgang), sequenziell sind es 200 MB in 40,8 s (~5 MB/s). Gerät „USB Disk 2.0“ (346d:5678), ext4
+  mit noatime.
+- **Der Socket-Puffer ist winzig:** candump lief mit dem Default `rmem_default` = 212992 B. Bei ~0,8 kB
+  skb-truesize je CAN-Frame sind das ~270 Frames ≈ 0,1 s. Genau dort liegt die Untergrenze der Lücken
+  (dt > 0,02 s: 106, dt > 0,1 s: 106, dt > 0,5 s: 84).
+- **Offen:** Warum es erst ab 02.10. so stark ist (27.09.–01.10. schon leicht erhöht, 1–6 je Fahrt). Ein
+  Software-Deploy war es nicht. Vermutlich wird der Stick langsamer (Verschleiß/Füllstand), oder mehrere Fahrten
+  enden seit 04.10. mit hartem Stromverlust (`.log` bleibt ungezippt, `gzip_finished_logs` läuft dann beim
+  nächsten Dienststart).
+- **Gegenmaßnahme in `session_logger.py`:** candump startet mit `-r 16777216` (16 MiB, ~7 s Puffer, als root per
+  SO_RCVBUFFORCE, auf dem Pi mit vcan geprüft). Neu ist `ifstats-<stamp>.txt` je Fahrt mit `ip -s -s -d link
+  show can0` bei Start, jede Minute und bei Stopp. Bleiben die Lücken trotz großem Puffer und sind die
+  rx-dropped/overrun-Zähler dort > 0, liegt das Problem am Adapter und nicht am Stick.
+- **`shift_time_analysis.py`:** Kupplungsereignisse mit einer Datenlücke > 0,15 s (`GAP_BRIDGE_S`) direkt
+  davor, darin oder danach laufen jetzt als `data_gap` und zählen nicht für Bestzeiten (Test
+  `scripts/test_shift_time_analysis.py`). Nachberechnet: Es gibt 51 `data_gap`-Ereignisse. Die Bestzeiten 2→3
+  (0,64 s), 5→6 (0,28 s) und 5→4 (0,30 s) entfallen. Jetzt gelten 2→3 0,96 s (09-11), 5→6 0,98 s (09-12) und
+  5→4 0,98 s (09-27). Der neue Bestwert 4→5 mit 0,94 s (`133226`) bleibt, weil er keine Lücke enthält.
