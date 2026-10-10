@@ -5506,3 +5506,64 @@ wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo
 
 **Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
+
+## Stick-Tausch auf SanDisk Ultra Flair (10.10.2026 spätabends)
+
+Ein Foto der Einbausituation zeigte als Stick einen USB-2.0-Werbe-Schlüsselstick. Der Nutzer hatte einen
+ungenutzten SanDisk Ultra Flair 128 GB (USB 3.2 Gen1, 0781:5591, zuvor Ubuntu-Installer) und gab ihn frei.
+
+**Messung, beide Sticks gleichzeitig am Pi** (der SanDisk dabei noch im USB-2-Port):
+
+| | 4-kB-Synchronschreiben | 200 MB am Stück | candump 10 min, Default-Puffer, vcan1 ~2900/s |
+|---|---|---|---|
+| Werbestick | 25 ms je Vorgang | 0,9 MB/s (228 s; nachmittags noch ~5 MB/s) | 6,6 % verloren, 29 Lücken bis 3,1 s, `write()` max 1,7 s |
+| SanDisk (USB 2) | 4,6 ms | 21,6 MB/s | 0,01 % (95 Frames), keine Lücke > 0,1 s, `write()` max 0,02 s |
+
+Im blauen USB-3-Port nach dem Tausch: 3,5 ms je Sync-Schreibvorgang, 60 MB/s schreiben, 144 MB/s lesen.
+candump-Gegenprobe dort, 5 min, **Default-Puffer**: 0 von 854 623 Frames verloren, `write()` max. 0,01 s
+(p99 0,2 ms).
+
+**Umzug:** Gerät per `/dev/disk/by-id` und Modell geprüft, `wipefs`, eine Partition, `mkfs.ext4 -L canlogs
+-i 65536 -E lazy_itable_init=0,lazy_journal_init=0` (45 s; ohne das schreibt ext4lazyinit tagelang im
+Hintergrund). Dann `rsync -aHAX --numeric-ids` (2,7 GB, 3:18 min). Dateizahl gleich (5293), Git-Repo sauber auf
+`14b5246`. Die fstab im Unterbau läuft jetzt über UUID `93602dc0-0a15-41d4-9b7c-3dbdfbb4a644`, die alte Zeile
+steht als Kommentar darüber, Sicherung in `/etc/fstab.vor-sandisk-2026-10-10`. `/media/root-ro` blieb danach
+wie bekannt auf `rw` hängen, der Neustart hat das behoben. Abschluss: `rsync --delete`, 0 Unterschiede,
+aushängen, `poweroff`, Tausch durch den Nutzer. Nach dem Boot ist alles ok: USB 3 mit 5 Gbit/s, `ro`,
+`throttled=0x0`, Backend/Dash laufen, Dash-Erstframe 34,9 s, Pack-Timer geplant, 106 GB frei.
+Der Werbestick bleibt als Backup mit dem Stand von 10.10. 22:20.
+
+**Nebenbefund:** Beim Umbau lief die Vcan-Simulation aus dem Dash (Start 20:51), und zwar mit zwei
+canplayer-Prozessen gleichzeitig. Ob das ein doppeltes Antippen war, ist noch offen.
+
+## USV-Recherche für den Pi im Auto (10.10.2026)
+
+**Randbedingungen (vom Nutzer):** Der Pi sitzt direkt auf der Rückseite des 10,1"-Displays
+(„10.1inch LCD Display-H“), darunter ist kein Platz. Im Mazda steckt ein 12V/5V-36-W-Adapter. Die 12-V-Buchse
+ist bei Zündung aus **und während des Anlassens** stromlos. Leistung laut Nutzer: Pi 4B 6–8 W bei Volllast,
+Display 1–2 W. Mit USB-Geräten im schlechtesten Fall ~11 W ≈ 2,2 A.
+
+**Anforderungen:** das Anlassen (1–2 s) lückenlos überbrücken, bei Zündung aus sauber herunterfahren, danach
+alles stromlos, beim nächsten Zündung-An selbst booten. Der Zündzustand kommt aus dem CAN-Bus (KeyState). Die
+Abschaltregel soll deshalb lauten: Strom weg **und** KeyState OFF. So lösen Anlassen und i-stop nie einen
+Shutdown aus.
+
+**Bewertung:**
+- **AQEX qUPS-P-SC (Superkondensator, 49,80 €): Favorit.** −40 bis +65 °C, kein Akku, laut Hersteller
+  29/44/84 s Überbrückung bei voller/halber/keiner Last, 2,5 A (reicht, ~12 % Reserve im schlechtesten Fall).
+  Signale Power Good/Limit Low/Shutdown auf GPIO 17/27/22 (DIP-Schalter, Pins 11/13/15, frei). Er startet den
+  Pi erst, wenn genug Energie für Boot und Shutdown da ist, und fängt ab, wenn der Strom während des
+  Shutdowns zurückkommt. Er ist ein aufsteckbarer HAT; geplant ist aber, ihn **neben** den Pi auf die freie
+  untere Display-Rückseite zu kleben (selbstklebende Abstandshalter ≥ 10 mm) und zu verkabeln: 5 V auf
+  Pins 2+4, GND auf 6+14, je doppelt; das Display-Kabel kommt an den qUPS. Die USB-C-Buchse des Pi bleibt
+  dann leer.
+- Waveshare UPS HAT (D) (2× 21700, Pogo-Pins von unten): passt mechanisch nicht. Außerdem bleibt nach dem
+  Shutdown vermutlich der 5-V-Ausgang an (der Akku läuft im Stand leer), und Li-Ionen im Auto sind bei Hitze
+  und beim Laden unter 0 °C problematisch.
+- PiSugar 3 Plus: max. 3 A, RTC auf 0x68 kollidiert mit der DS3231. Geekworm X728: teuer, RTC auf 0x68.
+  Billige USV-Module ohne Signal: verschieben den harten Stromausfall nur. 12-V-Superkondensator-Modul
+  (25 F, 9–24 V): ~3 min Ladezeit, kein Schutz, wenn der Strom während des Shutdowns zurückkommt, und auf
+  Marktplätzen 100–160 $.
+
+**Offen (Nutzerentscheid):** Bestellung, Halterungspunkte an der Display-Rückseite, Typenschild des
+36-W-Adapters (5 V/3 A an einem Port?). Software (Abschaltlogik, Auto-Boot, Anzeige im Dash) nach dem Einbau.

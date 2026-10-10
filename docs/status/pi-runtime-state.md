@@ -6,17 +6,20 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 (siehe unten). Ältere Stände bis 28.09. sind ins Logbuch ausgelagert, siehe `logs/can-bus-status.md`,
 „Pi-Infrastruktur: Lücken zu Hause reproduziert…“ (10.10.2026).
 
-**Stand 2026-10-10, ~20:45** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter):
+**Stand 2026-10-10, ~22:30** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter, nach dem Stick-Tausch):
 - Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`): Code-Stand `2db08af`, danach nur Doku-Commits.
-- `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 11 GB frei.
+- `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
 ## Hardware
 
 Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.109. DS3231-RTC seit 28.09.
 CANable 2.0 an `can0`, steckt nur im Auto. SD-Karte 64 GB mit overlayroot, also ro und mit RAM-Overlay.
-`/home/pi/canlogs` liegt auf einem 15-GB-USB-2.0-Stick (ext4). Der Stick hängt beim Schreiben
-regelmäßig bis ~2–4 s. Der 16-MiB-Empfangspuffer von candump überbrückt ~13 s, siehe Logbuch 10.10.
+`/home/pi/canlogs` liegt seit 10.10. auf einem SanDisk Ultra Flair 128 GB (ext4, Label `canlogs`) im blauen
+USB-3-Port, `write()` max. 0,02 s. Der alte USB-2.0-Werbestick hing beim Schreiben bis 3 s, er ist als Backup
+aufbewahrt. candump behält den 16-MiB-Empfangspuffer (~13 s) als Reserve, siehe Logbuch 10.10.
+Der Pi sitzt auf der Rückseite des 10,1"-Displays („10.1inch LCD Display-H“), Strom kommt im Auto noch von
+einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 
 ## Prozesse und Dienste
 

@@ -9,8 +9,10 @@ Units, udev, `config.txt`) weiterhin von Hand, die Kopien hier dann nachziehen.
 
 - 10"-Touchdisplay, CANable-2.0-Adapter (`can0`, 500kbit/s) am OBD-Port.
 - SD-Karte: Root-Dateisystem (`overlayroot`, siehe unten).
-- Separater USB-Stick (`/dev/sda1`, ext4) für `/home/pi/canlogs` — Logs, Skripte,
-  venv liegen hier, physisch getrennt von der SD-Karte.
+- Separater USB-Stick (`/dev/sda1`, ext4, Label `canlogs`) für `/home/pi/canlogs` — Logs, Skripte,
+  venv liegen hier, physisch getrennt von der SD-Karte. Seit 10.10.2026 SanDisk Ultra Flair 128 GB
+  (USB 3.2 Gen1) im **blauen** USB-3-Port; vorher ein USB-2.0-Werbestick, der beim Schreiben bis 3–4 s hing
+  (aufbewahrt als Backup, Stand 10.10. 22:20).
 - Passwortloses SSH + `sudo` für den User `pi` bereits eingerichtet.
 
 ## overlayroot (schützt die SD-Karte vor Stromausfall-Korruption)
@@ -43,9 +45,17 @@ immer schon sofort persistent.
 ## USB-Stick-Mount (`/etc/fstab`, via `overlayroot-chroot` gesetzt)
 
 ```
-UUID=eb921b71-07f9-441a-aec0-46cb1c0ede35  /home/pi/canlogs  ext4  defaults,noatime,nofail  0  2
+UUID=93602dc0-0a15-41d4-9b7c-3dbdfbb4a644  /home/pi/canlogs  ext4  defaults,noatime,nofail  0  2
 ```
-`nofail` ist wichtig, sonst hängt der Bootvorgang, falls der Stick mal fehlt.
+`nofail` ist wichtig, sonst hängt der Bootvorgang, falls der Stick mal fehlt. Die Zeile des alten Sticks
+(`UUID=eb921b71-…`) steht auskommentiert darüber, die fstab davor als `/etc/fstab.vor-sandisk-2026-10-10`.
+
+**Stick tauschen** (so am 10.10. gemacht): neuen Stick zusätzlich einstecken (wird nicht automatisch
+eingehängt), über `/dev/disk/by-id` sicher identifizieren, `wipefs -a`, eine Partition (`sfdisk`),
+`mkfs.ext4 -L canlogs -i 65536 -E lazy_itable_init=0,lazy_journal_init=0` (sonst initialisiert ext4 die
+Inode-Tabellen tagelang im Hintergrund, also auch während der Fahrten), nach `/mnt/…` einhängen,
+`rsync -aHAX --numeric-ids --exclude=/lost+found /home/pi/canlogs/ /mnt/…/`, UUID in der fstab des
+Unterbaus tauschen (`overlayroot-chroot`), zweites `rsync --delete`, aushängen, `poweroff`, Sticks tauschen.
 
 ## Python-Umgebung
 
@@ -89,8 +99,10 @@ ssh pi@192.168.0.247 'for f in canlogs-pack.service canlogs-pack.timer; do sudo 
 
 Von Hand packen: `sudo systemctl start canlogs-pack.service` (blockiert bis fertig). Stand: `systemctl list-timers canlogs-pack.timer`.
 
-**Stick (gemessen 10.10.):** USB 2.0, ~5 MB/s sequenziell, ~25 ms je Sync-Schreibvorgang, `write()` hängt
-regelmäßig 1–2,3 s (Fahrt bis 3,9 s). candump läuft deshalb mit `-r 16777216` (~13 s Puffer bei 2900 Frames/s).
+**Stick (gemessen 10.10.):** Der alte USB-2.0-Werbestick schrieb 0,9–5 MB/s am Stück, brauchte ~25 ms je
+Sync-Schreibvorgang, und `write()` hing regelmäßig 1–3 s. Der SanDisk im blauen Port: 60 MB/s schreiben,
+144 MB/s lesen, 3,5 ms je Sync-Schreibvorgang, `write()` max. 0,02 s. candump läuft weiter mit `-r 16777216`
+(~13 s Puffer bei 2900 Frames/s) als Reserve.
 Prüfen lässt sich ein Stick ohne Auto: `vcan0` anlegen, `cangen vcan0 -g 0.28 -L 8 -D i -I 123` (~2900/s mit
 Zähler), daneben `candump -l` mit und ohne `-r` und Lücken bzw. Zählersprünge zählen (Logbuch 10.10.).
 
