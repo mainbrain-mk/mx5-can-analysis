@@ -20,6 +20,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -178,8 +179,20 @@ class SessionLogger:
         self._clock_offset = None
         self._last_wall = None
         self._session_stamp = None
+        self._gzip_lock = threading.Lock()
 
-    def gzip_finished_logs(self):
+    def gzip_in_background(self):
+        """Fertige Logs packen, ohne das Loggen aufzuhalten (10.10.2026): vorher lief
+        gzip_finished_logs() beim Dienststart VOR der Bus-Schleife. Endete die letzte Fahrt mit
+        hartem Stromverlust, blieb ihr .log (~600 MB) liegen, und das Packen (43 s gzip + Schreiben
+        auf den langsamen Stick + gzip -t) hielt candump ~1-1,5 min auf: Dash stand auf
+        "WARTE AUF ZUENDUNG", der Fahrtbeginn fehlte im Log. Die Dateiliste wird JETZT genommen,
+        also bevor ein neues candump startet - dessen offene Datei kann nie darin landen."""
+        paths = glob.glob(os.path.join(self.log_dir, "*.log"))
+        if paths:
+            threading.Thread(target=self.gzip_finished_logs, args=(paths,), daemon=True).start()
+
+    def gzip_finished_logs(self, paths=None):
         """Komprimiert liegengebliebene .log-Dateien. Sicher gegen einen
         Stromausfall WAEHREND dieses Laufs: vorher loeschte `gzip -f` die
         Rohdatei schon beim eigenen Start, bevor das Ergebnis feststand -
@@ -205,31 +218,42 @@ class SessionLogger:
         fsync() auf das Verzeichnis NACH dem Rename - beides Daten, die ein
         Absturz sonst stillschweigend wieder haette rueckgaengig machen
         koennen."""
-        for log_path in glob.glob(os.path.join(self.log_dir, "*.log")):
-            gz_path = log_path + ".gz"
-            tmp_path = gz_path + ".tmp"
+        if paths is None:
+            paths = glob.glob(os.path.join(self.log_dir, "*.log"))
+        with self._gzip_lock:  # Start- und Stopp-Thread koennen dieselbe Datei sehen
+            for log_path in paths:
+                if os.path.exists(log_path):
+                    self._gzip_one(log_path)
+
+    def _gzip_one(self, log_path):
+        gz_path = log_path + ".gz"
+        tmp_path = gz_path + ".tmp"
+        try:
+            with open(tmp_path, "wb") as f_out:
+                # niedrigste CPU-/IO-Prioritaet: laeuft jetzt parallel zu candump, das selbst
+                # schon unter dem langsamen Stick leidet (Luecken, siehe CANDUMP_RCVBUF).
+                # ionice -c3 greift nur mit bfq, sda laeuft mit mq-deadline (10.10.)
+                self._run(["nice", "-n", "19", "ionice", "-c3", "gzip", "-c", log_path],
+                          stdout=f_out, check=True)
+                f_out.flush()
+                os.fsync(f_out.fileno())
+            self._run(["gzip", "-t", tmp_path], check=True,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            print(f"[session_logger] Komprimieren fehlgeschlagen, Rohdatei bleibt "
+                  f"erhalten: {log_path} ({exc!r})", flush=True)
             try:
-                with open(tmp_path, "wb") as f_out:
-                    self._run(["gzip", "-c", log_path], stdout=f_out, check=True)
-                    f_out.flush()
-                    os.fsync(f_out.fileno())
-                self._run(["gzip", "-t", tmp_path], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except (subprocess.CalledProcessError, OSError) as exc:
-                print(f"[session_logger] Komprimieren fehlgeschlagen, Rohdatei bleibt "
-                      f"erhalten: {log_path} ({exc!r})", flush=True)
-                try:
-                    os.remove(tmp_path)
-                except FileNotFoundError:
-                    pass
-                continue
-            os.replace(tmp_path, gz_path)
-            dir_fd = os.open(self.log_dir, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-            os.remove(log_path)
+                os.remove(tmp_path)
+            except FileNotFoundError:
+                pass
+            return
+        os.replace(tmp_path, gz_path)
+        dir_fd = os.open(self.log_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+        os.remove(log_path)
 
     def start_logging(self):
         if self.candump_proc is not None:
@@ -317,7 +341,7 @@ class SessionLogger:
         self.candump_proc.wait(timeout=5)
         self.candump_proc = None
         print("[session_logger] Fahrt beendet, candump gestoppt", flush=True)
-        self.gzip_finished_logs()
+        self.gzip_in_background()  # Zuendung kann sofort wieder an sein (Tankstopp)
 
     def check_clock_jump(self, wall, mono):
         offset = wall - mono
@@ -394,7 +418,7 @@ def main():
     # Frame), siehe docs/logs/can-bus-status.md.
     # Muster ohne Selbsttreffer (pgrep/pkill -f matcht sonst die eigene Kommandozeile mit).
     subprocess.run(["pkill", "-f", "[c]andump -l"], capture_output=True)
-    session.gzip_finished_logs()  # von vorherigen Fahrten liegengebliebene Logs nachtraeglich komprimieren
+    session.gzip_in_background()  # liegengebliebene Logs (Stromverlust am Fahrtende), blockiert candump nicht
 
     print(f"[session_logger] warte auf KeyState auf {CAN_CHANNEL}...", flush=True)
     try:

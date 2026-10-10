@@ -5344,3 +5344,19 @@ Ereignisse verwerfen, die eine Datenlücke überspannen.
   `scripts/test_shift_time_analysis.py`). Nachberechnet: Es gibt 51 `data_gap`-Ereignisse. Die Bestzeiten 2→3
   (0,64 s), 5→6 (0,28 s) und 5→4 (0,30 s) entfallen. Jetzt gelten 2→3 0,96 s (09-11), 5→6 0,98 s (09-12) und
   5→4 0,98 s (09-27). Der neue Bestwert 4→5 mit 0,94 s (`133226`) bleibt, weil er keine Lücke enthält.
+
+### Nachtrag 10.10.: Packen beim Dienststart blockierte das Logging („WARTE AUF ZÜNDUNG“)
+
+**Nutzerbeobachtung:** Das Dash bleibt lange auf dem orangen „BUS AKTIV / WARTE AUF ZÜNDUNG“, obwohl der Motor
+längst läuft. Das Orange bedeutet: `session_logger` läuft, candump aber nicht (`dash_gui.py` `refresh()`).
+**Ursache:** `main()` rief `gzip_finished_logs()` vor der Bus-Schleife auf. Endet eine Fahrt mit hartem
+Stromverlust, bleibt ihr `.log` ungepackt liegen. Das war 04./10.10. mehrfach so, die Fahrt `133226` liegt mit
+585 MB noch roh auf dem Stick. Beim nächsten Start wird erst gepackt, dann geloggt. Gemessen auf dem Pi:
+`gzip -c` der 585 MB dauert 43 s (kalter Cache, nach /dev/null). Dazu kommen ~100 MB Schreiben auf den Stick
+(~5 MB/s), fsync und `gzip -t`, zusammen grob 1–1,5 min ohne Log und mit orangem Dash. Beleg aus den
+Zeitstempeln: `candump-2026-10-10_121411.log.gz` war um 13:32:10 fertig, das Logging der nächsten Fahrt begann
+um 13:32:26.
+**Fix:** `gzip_in_background()` nimmt die Dateiliste vor dem nächsten candump-Start und packt in einem
+Daemon-Thread. Das gilt beim Dienststart und am Fahrtende (Tankstopp: Zündung gleich wieder an). Ein Lock
+verhindert, dass zwei Threads dieselbe Datei packen. gzip läuft mit `nice -n 19` (`ionice -c3` wirkt mit
+mq-deadline nicht). Das laufende Log kann nicht in die Liste geraten, Test `test_gzip_in_background_spares_new_log`.

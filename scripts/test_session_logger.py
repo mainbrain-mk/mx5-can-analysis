@@ -255,6 +255,28 @@ def test_gzip_finished_logs_keeps_raw_on_failure():
     print("gzip_finished_logs Fehlerfall OK")
 
 
+def test_gzip_in_background_spares_new_log():
+    """Packen laeuft parallel zur neuen Fahrt (10.10.): nur die beim Aufruf vorhandenen Logs
+    werden gepackt, das danach von candump angelegte Log bleibt unangetastet."""
+    import tempfile
+    import threading
+    with tempfile.TemporaryDirectory() as tmp:
+        old = os.path.join(tmp, "candump-alt.log")
+        with open(old, "w") as f:
+            f.write("(1234.5) can0 123#0011223344556677\n" * 100)
+        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **kw: MagicMock(pid=1))
+        session.gzip_in_background()
+        new = os.path.join(tmp, "candump-neu.log")  # candump der neuen Fahrt
+        with open(new, "w") as f:
+            f.write("(1235.5) can0 123#00\n")
+        for t in threading.enumerate():
+            if t is not threading.current_thread() and t.daemon:
+                t.join(timeout=30)
+        assert os.path.exists(old + ".gz") and not os.path.exists(old), "altes Log nicht gepackt"
+        assert os.path.exists(new) and not os.path.exists(new + ".gz"), "laufendes Log angefasst!"
+    print("gzip_in_background OK")
+
+
 def test_clock_jump_recorded():
     """RTC -> NTP-Sprung waehrend einer Fahrt: genau eine clockjump-Datei mit exaktem Sprung,
     Zeit davor/danach und dem laufenden Log; Slew-Drift (< 0,1 s) loest nichts aus."""
@@ -305,3 +327,4 @@ if __name__ == "__main__":
     test_probe_failure_does_not_break_logging()
     test_gzip_finished_logs_success()
     test_gzip_finished_logs_keeps_raw_on_failure()
+    test_gzip_in_background_spares_new_log()
