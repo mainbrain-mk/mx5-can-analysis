@@ -9,7 +9,7 @@
 # Ausgabe (stdout+stderr) geht nach /home/pi/canlogs/applogs/<skript>.log (SSD, ueberlebt den
 # Reboot - bis 27.09. lag sie in /tmp und war nach jeder Fahrt weg), dazu je Ende eine Zeile
 # mit Exit-Code und Laufzeit. Ab 5 MB wird vor dem naechsten Start nach <skript>.log.1 rotiert.
-# Eigener Unterordner, weil session_logger.py jede *.log direkt in canlogs/ gzippt.
+# Eigener Unterordner, damit die Logs nicht zwischen den candump-Dateien liegen.
 # ponytail: rotiert nur beim (Neu-)Start - laeuft der Pi tagelang am Netz, waechst das
 # Backend-Log um ~5 MB/Tag (python-can-Warnung alle 2 s ohne can0 + Zustandszeile alle 10 s);
 # logrotate/Groessencheck im Skript, falls das die SSD je stoert.

@@ -210,49 +210,97 @@ def test_save_clock_roundtrip():
     print("save_clock OK")
 
 
-def test_gzip_finished_logs_success():
-    """Erfolgsfall: Rohdatei wird durch eine verifizierte .gz ersetzt."""
+def _no_candump(cmd, *a, **kw):
+    """run-Stub: pgrep findet kein candump, alles andere laeuft echt (gzip)."""
+    import subprocess
+    if cmd[0] == "pgrep":
+        return subprocess.CompletedProcess(cmd, 1)
+    return subprocess.run(cmd, *a, **kw)
+
+
+def test_pack_logs_success():
+    """Erfolgsfall: Rohdatei wird durch eine verifizierte .gz ersetzt, andere *.log bleiben."""
     import subprocess
     import tempfile
+    import session_logger as sl
     with tempfile.TemporaryDirectory() as tmp:
         log_path = os.path.join(tmp, "candump-test.log")
         with open(log_path, "w") as f:
             f.write("(1234.5) can0 123#0011223344556677\n" * 100)
+        other = os.path.join(tmp, "boot_timing.log")   # bis 10.10. mitgepackt
+        open(other, "w").close()
+        open(log_path + ".gz.tmp", "w").write("Rest eines abgebrochenen Laufs")
 
-        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **kw: MagicMock(pid=1))
-        session.gzip_finished_logs()
+        sl.pack_logs(tmp, run=_no_candump)
 
         assert not os.path.exists(log_path), "Rohdatei sollte nach Erfolg weg sein"
         gz_path = log_path + ".gz"
         assert os.path.exists(gz_path), ".gz sollte existieren"
         assert not os.path.exists(gz_path + ".tmp"), "Temporaerdatei nicht aufgeraeumt"
         subprocess.run(["gzip", "-t", gz_path], check=True)  # wirft, wenn kaputt
-    print("gzip_finished_logs Erfolgsfall OK")
+        assert os.path.exists(other) and not os.path.exists(other + ".gz"), "fremdes .log gepackt"
+    print("pack_logs Erfolgsfall OK")
 
 
-def test_gzip_finished_logs_keeps_raw_on_failure():
+def test_pack_logs_keeps_raw_on_failure():
     """Bricht die Kompression ab (hier simuliert), muss die Rohdatei erhalten
     bleiben statt verloren zu gehen - genau die Luecke, die am 2026-09-16
     candump-...-090826.log unkomprimierbar zurueckliess (Stromausfall
     mitten im alten `gzip -f`, das die Rohdatei schon beim Start loeschte)."""
     import subprocess
     import tempfile
+    import session_logger as sl
     with tempfile.TemporaryDirectory() as tmp:
         log_path = os.path.join(tmp, "candump-test.log")
         with open(log_path, "w") as f:
             f.write("(1234.5) can0 123#0011223344556677\n")
 
         def failing_run(cmd, *a, **kw):
+            if cmd[0] == "pgrep":
+                return subprocess.CompletedProcess(cmd, 1)
             raise subprocess.CalledProcessError(1, cmd)
 
-        session = SessionLogger(MagicMock(), log_dir=tmp, popen=lambda *a, **kw: MagicMock(pid=1),
-                                 run=failing_run)
-        session.gzip_finished_logs()
+        sl.pack_logs(tmp, run=failing_run)
 
         assert os.path.exists(log_path), "Rohdatei muss bei fehlgeschlagener Kompression erhalten bleiben"
         assert not os.path.exists(log_path + ".gz"), "keine .gz bei fehlgeschlagener Kompression"
         assert not os.path.exists(log_path + ".gz.tmp"), "keine Tmp-Leiche zurücklassen"
-    print("gzip_finished_logs Fehlerfall OK")
+    print("pack_logs Fehlerfall OK")
+
+
+def test_pack_logs_never_while_logging():
+    """Laeuft candump (Fahrt), wird nichts angefasst - Packen nur zu Hause/geparkt (10.10.)."""
+    import subprocess
+    import tempfile
+    import session_logger as sl
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "candump-alt.log")
+        open(log_path, "w").write("(1234.5) can0 123#00\n")
+        calls = []
+
+        def candump_runs(cmd, *a, **kw):
+            calls.append(cmd[0])
+            return subprocess.CompletedProcess(cmd, 0 if cmd[0] == "pgrep" else 1)
+
+        sl.pack_logs(tmp, run=candump_runs)
+        assert calls == ["pgrep"], calls
+        assert os.path.exists(log_path) and not os.path.exists(log_path + ".gz")
+    print("pack_logs waehrend Fahrt OK")
+
+
+def test_start_logging_stops_packing():
+    """Fahrtbeginn bricht ein laufendes Packen ab, und zwar erst NACH dem candump-Start."""
+    import tempfile
+    import session_logger as sl
+    with tempfile.TemporaryDirectory() as tmp:
+        order = []
+        session = SessionLogger(MagicMock(), log_dir=tmp,
+                                popen=lambda cmd, *a, **k: order.append(cmd[0]) or MagicMock(pid=1),
+                                run=lambda cmd, *a, **k: order.append(" ".join(cmd)) or MagicMock(stdout="no"))
+        session.start_logging()
+        stop = f"systemctl stop --no-block {sl.PACK_UNIT}"
+        assert stop in order and order.index("candump") < order.index(stop), order
+    print("Packen-Abbruch bei Fahrtbeginn OK")
 
 
 def test_clock_jump_recorded():
@@ -303,5 +351,7 @@ if __name__ == "__main__":
     test_save_clock_roundtrip()
     test_probe_runs_once_and_only_with_flag()
     test_probe_failure_does_not_break_logging()
-    test_gzip_finished_logs_success()
-    test_gzip_finished_logs_keeps_raw_on_failure()
+    test_pack_logs_success()
+    test_pack_logs_keeps_raw_on_failure()
+    test_pack_logs_never_while_logging()
+    test_start_logging_stops_packing()

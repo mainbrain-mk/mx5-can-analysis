@@ -1,0 +1,16 @@
+# Packt fertige candump-Logs auf dem Stick, aber nie waehrend einer Aufzeichnung (2026-10-10).
+# Bis dahin packte session_logger.py beim Dienststart/Fahrtende und hielt damit candump auf bzw.
+# schrieb parallel auf den ohnehin haengenden Stick. pack_logs() prueft selbst, ob ein candump
+# laeuft; session_logger.py stoppt diesen Dienst bei Fahrtbeginn (Rohdatei bleibt immer heil).
+[Unit]
+Description=MX-5 CAN-Logs packen (nur wenn nicht geloggt wird)
+RequiresMountsFor=/home/pi/canlogs
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pi/canlogs
+ExecStart=/home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/session_logger.py --pack
+Nice=19
+# Abbruch durch session_logger (systemctl stop bei Fahrtbeginn) ist gewollt, kein Fehler -
+# bei Type=oneshot zaehlt SIGTERM sonst als "failed".
+SuccessExitStatus=SIGTERM

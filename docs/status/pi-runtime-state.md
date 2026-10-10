@@ -1,127 +1,75 @@
 # Pi-Laufzeitstatus: was läuft gerade auf dem Auto-Pi
 
-Momentaufnahme des tatsächlichen Zustands auf dem Raspberry Pi im Auto (nicht
-zu verwechseln mit [`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md),
-das die Ersteinrichtung/Reproduzierbarkeit beschreibt). **In-place aktualisieren
-bei jedem Neustart/Umbau auf dem Pi**. Welcher Code-Stand läuft, sagt seit 2026-09-28
-das Git auf dem Pi (siehe unten), nicht mehr dieses Dokument.
+Momentaufnahme des tatsächlichen Zustands auf dem Raspberry Pi im Auto. Die Ersteinrichtung und
+Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md).
+**Bei jedem Umbau auf dem Pi in-place aktualisieren.** Den laufenden Code-Stand zeigt das Git auf dem Pi
+(siehe unten). Ältere Stände bis 28.09. sind ins Logbuch ausgelagert, siehe `logs/can-bus-status.md`,
+„Pi-Infrastruktur: Lücken zu Hause reproduziert…“ (10.10.2026).
 
-> **Deploy 2026-09-29 ~21:57:** `deployed` = `a8d8269` (Branch `can-resample-obd-skalen`, PR #39,
-> noch nicht in `main`). Neu auf dem Pi ist vor allem die DBC mit nachkalibriertem
-> `BrakePressure`/`ActualEnginePercentTorque`/`BattSensor_Voltage_maybe`. Backend und Dash per PID
-> neu gestartet, `respawn.sh` hat sie nach 2 s wieder hochgefahren, Backend ~2800 fps. Zu dem
-> Zeitpunkt lief auf dem Pi eine Simulation: `canplayer -I /tmp/mx5_sim_replay.log -l i` auf
-> `vcan0` seit ~18:50, kein `can0`, kein Auto. Die Simulation wurde nicht angefasst.
-> Danach den Folge-Commit derselben Branch nachgeschoben (nur Analyse-Skripte und Doku, keine
-> Pi-Dateien, kein Neustart nötig). Stand 2026-10-01: `deployed` = `3022d15`, inhaltlich identisch
-> mit `main` (`d67aa43`, Merge von PR #39, der Merge-Commit ändert keine Datei).
->
-> **Git auf dem Pi (2026-09-28, ~19:00):** `/home/pi/canlogs/repo`, Branch `deployed` = `main`
-> `158f154` (nach Merge von PR #33-#35). Vorher alle Pi-Dateien per md5 gegen `main` geprüft:
-> identisch, kein Drift. Die Dateien in `canlogs/` sind jetzt Symlinks ins Repo, Originale in
-> `backup-2026-09-28-vor-git/`. Backend/Dash danach neu gestartet, beide Pi-Tests ok, Dash zeigt
-> "WARTE AUF CAN-BUS" (kein `can0` am Heimnetz). Vorgehen: `scripts/pi-config/SETUP.md`, "Deploy per Git".
->
-> **Dash-Überarbeitung deployt (2026-09-27, ~10:55-11:10 Uhr):** `dash_gui.py` (md5 45299806),
-> `can_backend.py` (446e6f1c), `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh` (a17ca9a2),
-> labwc-`autostart` (e66c54c6, per `overlayroot-chroot tee` in den Unterbau) = Repo `830bcaf`.
-> Nach Reboot laufen Backend/Dash über `respawn.sh`, beide Tests ok, Selbstneustart geprüft
-> (`kill` der Dash-PID → nach 2 s neu). Live-CAN beim Deploy NICHT geprüft (can0 fehlte; der Screenshot
-> mit "CAN 1249 Hz" um 11:04 war vermutlich die Vcan-Simulation). Vorstände (= Git
-> `a66ec59`/`8a3663a` + alter autostart) in `backup-2026-09-27-dash/`; Rollback: zurückkopieren,
-> autostart wieder per `overlayroot-chroot tee`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
-> **~20:00: Zustandslogs auf SSD** (Logbuch "Dash '–' bei laufendem OBD Fusion…"): `can_backend.py`
-> (md5 30fdb8e9), `dash_gui.py` (566903b0), Tests, `respawn.sh` (8c6fbdef), autostart-Kommentar
-> (f51ed5d4) deployt, Tests auf dem Pi ok, Reboot, beide loggen nach `canlogs/applogs/`.
-> Vorstände in `backup-2026-09-27-healthlog/`.
-> Pi im WLAN war an dem Tag 192.168.0.248 (DHCP, `car` löste darauf auf, Verbindung wackelig);
-> per LAN-Kabel 192.168.0.247.
+**Stand 2026-10-10, ~20:45** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter):
+- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`): Code-Stand `2db08af`, danach nur Doku-Commits.
+- `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 11 GB frei.
+- Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
-**Nachtrag 2026-09-26, ~17:30-18:15 Uhr:** Pi lief ab 16:12:42 (`uptime -s`) am Heimnetz **ohne
-CAN-Adapter** (`lsusb` ohne CANable, `can-logger.service` "dependency failed"); jemand hatte um
-17:30 die Vcan-Simulation im Dash gestartet (`/tmp/mx5_sim_active`). Die sechs Fahrt-Logs des
-Tages lagen dort unter falschem Datum (No-RTC, Anker 19.09.) und wurden **auf dem Pi umbenannt**
-(`candump-2026-09-26_120029` … `_154000`, samt `clockstate-*`), siehe Logbuch "Fahrtag 26.09.".
-`last_known_time` steht noch auf "2026-09-20 02:31:42" (falscher Anker aus der letzten Session) -
-beim nächsten Start ohne NTP wird die Uhr darauf gestellt, der Marker warnt aber korrekt.
-**18:55 Uhr, Pi wieder online (Boot 18:53:41, NTP ok):** in der Offline-Zeit liefen zwei weitere
-Fahrten (ohne NTP, als `candump-2026-09-20_023215/_031203` benannt) - auf dem Pi umbenannt in
-`candump-2026-09-26_180459/_184447` (geschätzt, siehe Logbuch). `last_known_time` von der falschen
-"2026-09-20 03:18:16" auf "2026-09-26 18:53:00" gesetzt, damit der nächste Start ohne NTP
-wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo, altes Skript in
-`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler. Greift ab der nächsten Session.
+## Hardware
 
-**Nachtrag 2026-09-27, ~00:05 Uhr (Bootzeit-Optimierung):** journald `Storage=volatile`, Boot-Timer/-Dienste abgeschaltet, ModemManager maskiert, `camera_auto_detect=0` (per `raspi-config nonint do_camera 1`), `dash_gui.py` (md5 4a7c1a56, Vorversion `backup-boot-2026-09-26/dash_gui.py.94b3dc87`) schreibt beim ersten Frame eine Zeile nach `/home/pi/canlogs/boot_timing.log`. Details/Messwerte: `logs/can-bus-status.md` ("Bootzeit-Optimierung 27.09."), Config-Kopien in `scripts/pi-config/SETUP.md`. Panel/pcmanfm im System-Autostart deaktiviert (`/etc/xdg/labwc/autostart`, Original `backup-boot-2026-09-26/labwc-autostart.orig`). Danach (27.09. ~00:45): Audio-Kette (pipewire/wireplumber/pulseaudio) global maskiert, polkit-Agent/pwrkey/pprompt aus dem Session-Autostart, `wlan-watchdog.timer` neu (siehe SETUP.md). Dash-Erstframe zuletzt bei 34,6 s nach Boot (ohne CANable). **Engpass ist die SD-Karte selbst (~5-7 MB/s auf belegten Bereichen)** - siehe Logbuch.
+Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.109. DS3231-RTC seit 28.09.
+CANable 2.0 an `can0`, steckt nur im Auto. SD-Karte 64 GB mit overlayroot, also ro und mit RAM-Overlay.
+`/home/pi/canlogs` liegt auf einem 15-GB-USB-2.0-Stick (ext4). Der Stick hängt beim Schreiben
+regelmäßig bis ~2–4 s. Der 16-MiB-Empfangspuffer von candump überbrückt ~13 s, siehe Logbuch 10.10.
 
-**Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
-Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
+## Prozesse und Dienste
+
+| Was | gestartet von | läuft | Ausgabe |
+|---|---|---|---|
+| `can_backend.py` (Decode-Daemon, UDP-Snapshot Port 51234, sendet selbst nichts) | labwc-`autostart` → `respawn.sh` | immer | `applogs/can_backend.log` |
+| `dash_gui.py` (Kivy-Frontend) | labwc-`autostart` → `respawn.sh` | immer | `applogs/dash_gui.log` |
+| `can-logger.service` → `session_logger.py` (KeyState-Trigger, Kernelfilter auf 0x050) | udev, `BindsTo` `can0` | solange der Adapter steckt | Journal (volatile) |
+| └ `candump -l -r 16777216 can0` | `session_logger`, KeyState ≠ OFF | Zündung an | `candump-*.log`, `clockstate-*`, `ifstats-*` (minütlich) |
+| └ `tpms_poller.py --interval 120` (TPMS, Öl, Lambda/ETC/Klopfen per OBD/UDS) | dito | Zündung an | landet im candump |
+| `canlogs-pack.timer` → `canlogs-pack.service` (`session_logger.py --pack`) | `timers.target` | 10 min nach dem Boot, dann alle 15 min | Journal |
+| `wlan-watchdog.timer` | `timers.target` | alle 15 s | – |
+
+- **Packen:** nur `candump-*.log` und nur, solange kein candump läuft. Fährt man währenddessen los, stoppt
+  `session_logger` den Packdienst, die Rohdatei bleibt heil. Ein 600-MB-Log braucht ~1 min.
+- **`tpms_poller.py`** schickt die Schnellabfragen (PID 0x11/0x44/0x10, DID 0x03EC), deren Antworten Dash und
+  Log zeigen. Ohne Handy-Dongle laufen sie ungebremst (~150 Anfragen/s auf 0x7E0). Sieht er fremde Tester-Anfragen,
+  sind es 5 Runden/s (`FAST_PERIOD_SHARED_S`).
+- Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
+  `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
+  Adapters, im Auto genügt `sudo systemctl restart can-logger`.
+
+![dash_gui.py auf dem Pi (2026-09-20)](images/pi-dashboard-2026-09-20.png)
+
+## `/home/pi/canlogs` (Stick)
+
+- **Fahrtdaten** (die Pipeline holt sie per `find -maxdepth 1`): `candump-*.log(.gz)`, `clockstate-*.txt`,
+  `clockjump-*.txt`, `ifstats-*.txt`.
+- **Symlinks ins Repo:** `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`, `tpms_poller.py`,
+  `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
+- `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
+  `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker).
+- `archiv/`: alte Backups (`backup-*`), Vorversionen und Ausgaben bis 10.10. Nichts davon wird im Betrieb gebraucht.
 
 ## Deploy-Stand = Git auf dem Pi
 
-Seit 2026-09-28 ist `/home/pi/canlogs/repo` ein Git-Checkout (Branch `deployed`), die
-Skripte/DBC in `canlogs/` sind Symlinks darauf. Deploy per `git push car HEAD:deployed`,
-Einrichtung und Regeln in [`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md),
-"Deploy per Git". Der frühere md5-Abgleich von Hand entfällt:
+`/home/pi/canlogs/repo` ist ein Git-Checkout (Branch `deployed`). Deploy per `git push car HEAD:deployed`, der
+`pre-push`-Hook verlangt, dass der Commit schon auf GitHub liegt. Einrichtung und Regeln:
+[`../../scripts/pi-config/SETUP.md`](../../scripts/pi-config/SETUP.md), „Deploy per Git“.
 
 ```bash
 ssh pi@192.168.0.247 'cd canlogs/repo && git log --oneline -1 && git status --short'
 ```
 
-Leere `git status`-Ausgabe = der Pi läuft exakt mit dem angezeigten Commit. Der
-`pre-push`-Hook stellt sicher, dass dieser Commit auch auf GitHub liegt.
+Ist die `git status`-Ausgabe leer, läuft der Pi exakt mit dem angezeigten Commit.
 
-**Nicht im Git-Checkout** (Overlay-Unterbau, weiter per `overlayroot-chroot`): labwc-`autostart`,
-`can-logger.service`, udev-Regel, `wlan-watchdog.*`, `config.txt`. Repo-Kopien in
-`scripts/pi-config/`, Abgleich dort weiterhin von Hand.
+**Nicht im Git-Checkout** (Overlay-Unterbau, per `overlayroot-chroot`): labwc-`autostart`,
+`can-logger.service`, udev-Regel, `wlan-watchdog.*`, `canlogs-pack.*`, `config.txt`. Die Repo-Kopien liegen in
+`scripts/pi-config/`, der Abgleich geht von Hand (zuletzt 10.10.: identisch).
 
-## Laufende Prozesse
+## Uhr
 
-- **`can_backend.py`** (seit Boot 27.09. ~11:08, über `respawn.sh`, Log `/home/pi/canlogs/applogs/can_backend.log`) — Decode-Daemon,
-  publiziert UDP-Snapshot auf Port 51234. Läuft immer, unabhängig von `can0`
-  (zeigt bei fehlendem Bus nur `self.error` im Snapshot).
-- **`dash_gui.py`** (über `respawn.sh`, Log `/home/pi/canlogs/applogs/dash_gui.log`) — Kivy-Frontend, liest den UDP-Snapshot.
-- Beide über `/home/pi/.config/labwc/autostart` (Repo-Kopie `scripts/pi-config/autostart`) beim
-  Desktop-Login gestartet (**nicht** über systemd), jeweils in einer `respawn.sh`-Schleife, die sie
-  nach einem Absturz neu startet. Von Hand neu starten: nur die Python-PID beenden (nicht
-  `pkill -f dash_gui.py`, das trifft auch die Schleife).
-
-**Screenshot vom laufenden Dashboard (2026-09-20, 14:44 Uhr, per `grim` über
-Wayland/labwc):**
-
-![dash_gui.py auf dem Pi](images/pi-dashboard-2026-09-20.png)
-
-## `can-logger.service` (systemd, KeyState-getriggert)
-
-- **Aktuell `inactive`** — erwartet, kein Fehler: der Service ist per
-  `BindsTo=sys-subsystem-net-devices-can0.device` an das `can0`-Interface
-  gebunden (`/etc/udev/rules.d/90-can-logger.rules`), das gerade nicht
-  existiert (Adapter nicht dran / Zündung aus). Startet automatisch, sobald
-  `can0` auftaucht.
-- Wenn aktiv, startet `session_logger.py` **zwei Subprozesse**:
-  1. `candump -l can0` (Rohlog)
-  2. `tpms_poller.py --channel can0 --interval 120` — **das ist der Prozess,
-     der die ETC_ACT/Lambda/KnockRetard-Fast-Polls (PID 0x11/0x44, DID
-     0x03EC) tatsächlich auf den Bus sendet.** `can_backend.py` selbst sendet
-     nichts, es hört die Antworten nur passiv mit (0x7E8) — ohne laufenden
-     `tpms_poller.py` gäbe es kein ETC_ACT/Lambda/KnockRetard im Dash oder im
-     Log. Läuft `--no-oil` NICHT (Flag wird von `session_logger.py` nicht
-     gesetzt) → Fast-Gruppe (`poll_obd1_fast`, `poll_knock_fast`) läuft
-     ungegatet jede Schleifenrunde.
-  3. TPMS-Abfrage selbst (langsam, alle 120s) läuft im selben Prozess mit.
-- `enabled` (startet automatisch bei jedem Boot bzw. `can0`-Auftauchen).
-
-## Sonstiges
-
-- **Uhr:** seit 2026-09-28 DS3231-RTC (Einrichtung siehe `scripts/pi-config/SETUP.md`, "RTC").
-  Kernel stellt die Zeit beim Boot aus der RTC, fake-hwclock ist aus. `session_logger.py`
-  (md5 78a47573) schreibt Uhr-Zustand `rtc` in den Marker und protokolliert NTP-Uhrspruenge
-  als `clockjump-*.txt`. Dash-Fusszeile (`dash_gui.py` md5 b58c056d): `NTP  SYNC` gruen,
-  ohne NTP `RTC  OK` gruen, ohne glaubwuerdige RTC `UHR  ?` rot. Vorstand in
-  `backup-2026-09-28-rtc/`. Haltetest der Knopfzelle
-  (kalter Stromausfall + Boot ohne Netz) noch offen. CAN-Logs VOR dem 28.09. bleiben
-  No-RTC-verdaechtig (siehe `docs/logs/can-bus-status.md`).
-- **Pi-Uptime bei dieser Prüfung:** 31 Minuten (kürzlich gebootet, nicht durch
-  den Shiftlight-Deploy verursacht — nur `dash_gui.py` wurde einzeln
-  neugestartet, nicht der ganze Pi).
-- DBC auf dem Pi (`MX5ND_6thGenMazda_HSCAN_extended.dbc`) ist byteidentisch
-  mit dem lokalen Repo-Stand (zuletzt 15.09., ABS-Indikator).
+DS3231-RTC: Der Kernel stellt die Zeit beim Boot, fake-hwclock ist aus. `session_logger.py` schreibt den
+Uhr-Zustand (`ntp`/`rtc`/…) je Fahrt in `clockstate-*.txt` und NTP-Sprünge als `clockjump-*.txt`. Dash-Fußzeile:
+`NTP SYNC` bzw. `RTC OK` in Grün, `UHR ?` in Rot. Der Haltetest der Knopfzelle (kalter Stromausfall, Boot ohne
+Netz) steht noch aus.

@@ -5344,3 +5344,165 @@ Ereignisse verwerfen, die eine Datenlücke überspannen.
   `scripts/test_shift_time_analysis.py`). Nachberechnet: Es gibt 51 `data_gap`-Ereignisse. Die Bestzeiten 2→3
   (0,64 s), 5→6 (0,28 s) und 5→4 (0,30 s) entfallen. Jetzt gelten 2→3 0,96 s (09-11), 5→6 0,98 s (09-12) und
   5→4 0,98 s (09-27). Der neue Bestwert 4→5 mit 0,94 s (`133226`) bleibt, weil er keine Lücke enthält.
+
+### Nachtrag 10.10.: Packen beim Dienststart blockierte das Logging („WARTE AUF ZÜNDUNG“)
+
+**Nutzerbeobachtung:** Das Dash bleibt lange auf dem orangen „BUS AKTIV / WARTE AUF ZÜNDUNG“, obwohl der Motor
+längst läuft. Das Orange bedeutet: `session_logger` läuft, candump aber nicht (`dash_gui.py` `refresh()`).
+**Ursache:** `main()` rief `gzip_finished_logs()` vor der Bus-Schleife auf. Endet eine Fahrt mit hartem
+Stromverlust, bleibt ihr `.log` ungepackt liegen. Das war 04./10.10. mehrfach so, die Fahrt `133226` liegt mit
+585 MB noch roh auf dem Stick. Beim nächsten Start wird erst gepackt, dann geloggt. Gemessen auf dem Pi:
+`gzip -c` der 585 MB dauert 43 s (kalter Cache, nach /dev/null). Dazu kommen ~100 MB Schreiben auf den Stick
+(~5 MB/s), fsync und `gzip -t`, zusammen grob 1–1,5 min ohne Log und mit orangem Dash. Beleg aus den
+Zeitstempeln: `candump-2026-10-10_121411.log.gz` war um 13:32:10 fertig, das Logging der nächsten Fahrt begann
+um 13:32:26.
+**Fix:** `gzip_in_background()` nimmt die Dateiliste vor dem nächsten candump-Start und packt in einem
+Daemon-Thread. Das gilt beim Dienststart und am Fahrtende (Tankstopp: Zündung gleich wieder an). Ein Lock
+verhindert, dass zwei Threads dieselbe Datei packen. gzip läuft mit `nice -n 19` (`ionice -c3` wirkt mit
+mq-deadline nicht). Das laufende Log kann nicht in die Liste geraten, Test `test_gzip_in_background_spares_new_log`.
+
+## Pi-Infrastruktur: Lücken zu Hause reproduziert, Packen per Timer, Aufräumen (10.10.2026 abends)
+
+**Auftrag (Nutzer):** Die Pi-Infrastruktur im Detail durchgehen und ordnen, die Logging-Performance
+sicherstellen, das Packen an einen geordneten Zeitpunkt legen und die langen Fahrten der letzten Woche
+berücksichtigen (04./10.10. bis 1,6 h, ungepackt bis ~600 MB je Log).
+
+### Bestandsaufnahme per SSH
+- Pi 4B Rev 1.5 mit 1,8 GB RAM, Kernel 6.12.109, `throttled=0x0`, 52 °C im Leerlauf, keine failed units,
+  `/media/root-ro` ro. Die Repo-Kopien der Overlay-Dateien (`can-logger.service`, udev-Regel, labwc-`autostart`,
+  `wlan-watchdog.*`) sind byteidentisch mit dem Unterbau.
+- Stick `/dev/sda1`: „USB Disk 2.0“ (346d:5678), USB 2.0 (480M) am internen Hub, ext4 mit `noatime` und
+  `data=ordered`, 2,7 GB belegt, 11 GB frei. Die ext4-Lifetime-Writes liegen bei nur 11 GB, Verschleiß ist als
+  Ursache also eher unwahrscheinlich (das FTL-Innenleben bleibt unbekannt). An den USB-3-Ports steckt nichts.
+- Writeback-Defaults: `dirty_ratio` 20, `dirty_background_ratio` 10, Expire 30 s, Writeback alle 5 s.
+  `rmem_max` = `rmem_default` = 212992. `candump -r` umgeht das als root per `SO_RCVBUFFORCE`.
+- Timer: `wlan-watchdog`, `logrotate`, `systemd-tmpfiles-clean`, `fstrim` (montags 01:15; der Stick kann über
+  usb-storage kein TRIM, die Root ist ro, harmlos).
+- `canlogs/` hatte 186 Einträge, darunter 11 `backup-*`-Ordner und 9 Altdateien.
+- **Glob-Bug:** `gzip_finished_logs()` packte `*.log` und erwischte damit auch `boot_timing.log` von
+  `dash_gui.py`. Daraus wurde eine root-eigene `boot_timing.log.gz`, die bei jedem Dienststart überschrieben
+  wurde. Die Bootzeiten vor dem 10.10. 13:18 sind dadurch verloren.
+- `candump-2026-10-10_133226.log` (585 MB) lag noch ungepackt auf dem Stick.
+
+### Beweis: die Frames gehen im candump-Socket verloren, nicht im Adapter
+`can_backend.py` liest dasselbe `can0` über einen eigenen Socket und schreibt alle 10 s die Framerate der letzten
+Sekunde nach `applogs/can_backend.log`. Fahrt `133226`: 452 Zustandszeilen im Log-Fenster, Median 1375 fps
+(gefilterte IDs). Hätte das Backend dieselben 106 Lücken (101,9 s) gehabt, wären ~20 Zeilen mit mehr als 30 %
+Einbruch zu erwarten gewesen. Beobachtet wurden 0, keine Zeile lag unter 1000 fps. Bei `121411` ebenfalls 0.
+Die Frames kamen also im Kernel an und gingen verloren, weil candump nicht las.
+
+### Reproduktion zu Hause auf vcan0
+`cangen vcan0 -g 0.28 -L 8 -D i -I 123` erzeugt ~2900 Frames/s mit Zähler in der Nutzlast. Zwei candumps
+schrieben 10 min parallel auf den Stick, die `write()`-Latenz kam aus
+`strace --seccomp-bpf -T -e trace=write`.
+
+| candump | Frames verloren | Lücken > 0,1 s | längste Lücke | `write()` > 0,5 s | längster `write()` |
+|---|---|---|---|---|---|
+| A: Default-Puffer (Stand bis 10.10.) | 76 589 (4,5 %) | 26 (26,9 s) | 2,2 s | 10 | 2,0 s |
+| B: `-r 16777216` (PR #44) | 0 | 0 | – | 8 | 2,3 s |
+
+Der Stick hängt also auch zu Hause, ohne Auto, Kälte oder Adapter. Der Default-Puffer reicht nur ~0,1 s.
+**Pufferkapazität:** candump mit 16 MiB per `SIGSTOP` angehalten: bis 12 s verlustfrei, bei 20/30/45 s fehlten
+7,3/17,0/30,9 s. Das ergibt ~13 s Puffer (der Kernel verdoppelt den Wert, ~0,9 kB je Frame), gut 3× Reserve zum
+längsten beobachteten Hänger (3,9 s in `133226`). Der Fix aus PR #44 ist damit auch ohne Fahrt bestätigt. Die
+`ifstats-*.txt` der nächsten Fahrt bleiben die Gegenprobe.
+
+### Packen nur außerhalb der Aufzeichnung (`canlogs-pack.timer`)
+- **Verworfen:** der Hintergrund-Thread aus `2a23d14` (PR #45, erste Fassung). Beim Dienststart, also zu
+  Fahrtbeginn, hätte er ~100 MB parallel auf den Stick geschrieben, der schon ohne Fremdlast bis 2–4 s hängt.
+  Packen direkt am Fahrtende ist auch keine gute Wahl: Viele Fahrten enden mit hartem Stromverlust ohne
+  `stop_logging()`, und kurz nach dem Fahrtende fällt oft der Strom. Das wäre die unsicherste Phase.
+- **Neu:** `session_logger.py --pack` (`pack_logs()`) läuft als `canlogs-pack.service` (oneshot, `Nice=19`,
+  `RequiresMountsFor=/home/pi/canlogs`). Der Timer startet ihn 10 min nach dem Boot und danach alle 15 min.
+  Er packt nur `candump-*.log` und nur, wenn kein candump läuft (`pgrep -x candump`), also zu Hause oder geparkt
+  mit eingeschaltetem Pi. Die Dateiliste entsteht vor der Prüfung, ein später gestartetes candump kann also nie
+  darin landen. Beginnt während des Packens eine Fahrt, ruft `start_logging()` nach dem candump-Start
+  `systemctl stop --no-block canlogs-pack.service` auf. Die Rohdatei bleibt dabei heil (tmp → `gzip -t` →
+  `os.replace` → Rohdatei löschen, wie bisher), der `.gz.tmp`-Rest wird beim nächsten Lauf überschrieben.
+  `SuccessExitStatus=SIGTERM`, weil ein Oneshot sonst als `failed` dastünde.
+- **E2E auf dem Pi** (vcan0, neues Skript per Laufzeit-Drop-in in `/run`, inzwischen entfernt): Der Packdienst
+  packte `133226`, nach 12 s lagen 32 MB tmp vor. Bei Zündung AN (KeyState 0x050 = `02…`) wurde er in derselben
+  Sekunde beendet, die Rohdatei blieb unverändert (585 269 248 B). Im E2E-Log fehlten 0 von 94 971 Frames.
+  candump lief mit `-r`, `clockstate`/`ifstats` kamen, bei Zündung AUS stoppte candump, und der Logger packte
+  nichts.
+- **Erster echter Lauf:** `133226` 585 MB → 116 MB in 55 s (48 s CPU), `gzip -t` ok. Lange Fahrten: 1,6 h ≈ 750 MB
+  roh ≈ 70 s Packen. Ein abgebrochener Lauf wird beim nächsten Mal komplett neu gemacht.
+
+### Weitere Änderungen
+- **KeyState-Kernelfilter im Logger:** `session_logger.py` las bisher alle ~2900 Frames/s in Python, nur um 0x050
+  (~10 Hz) zu sehen. Mit dem Filter sinkt die Last von 18,8 % auf 0,4 % eines Kerns (gleiche Schleife mit
+  python-can auf dem Pi gemessen). Uhr-Checks und Minuten-Schreiber laufen weiter, dafür reichen 10 Hz.
+  `cantools` wird erst in `main()` importiert, ein `--pack`-Lauf lädt also keine DBC.
+- **Pipeline (`run_daily_pipeline.py`):** holt jetzt auch `ifstats-*.txt` (erst nach 5 min Ruhe, wie die Logs).
+  `scp` hat keine feste Grenze von 180 s mehr, sondern ServerAlive 15 s × 4. Ein ungepacktes 600-MB-Log hätte
+  über WLAN die 180 s gerissen.
+- **Aufräumen `canlogs/`:** Nach `archiv/` verschoben, nichts gelöscht: alle `backup-*`-Ordner, `*.bak*`,
+  `dash_gui.out`, `status_gui.out`/`_replay.out`/`.log.gz`, `RUN_PROBE.gestartet-*`, `actions-*.log.gz`,
+  `probe-*.csv` und `boot_timing.log.gz` (ihr Inhalt steht vorher wieder in `boot_timing.log`). `actions-*` und
+  `probe-20260915-084853.csv` lagen nur auf dem Pi und sind jetzt auch in `data/can/`. **Pfade `backup-…/` in
+  älteren Einträgen dieses Logbuchs liegen seitdem unter `canlogs/archiv/backup-…/`.** Oben in `canlogs/`
+  stehen jetzt nur noch Fahrtdaten, Symlinks, `repo/`, `venv/`, `applogs/`, `archiv/`, `boot_timing.log`
+  und `last_known_time`.
+- Testreste auf dem Pi entfernt (`rt-test/`, `vcan0`). Deploy: `deployed` = `2db08af`.
+
+### Offen
+- **Nächste Fahrt:** Lücken je Log sollten bei 0 liegen, `ifstats` rx dropped/overrun ebenfalls bei 0. Die
+  `.gz`-Zeitstempel zeigen, wann gepackt wurde (das Journal ist volatile).
+- **Hardware (Nutzerentscheid, derzeit nicht nötig):** Ein USB-3-Stick oder eine kleine SSD am blauen Port würde
+  die Hänger selbst beseitigen. Mit ~13 s Puffer reicht der jetzige Stick aber.
+- Warum es ab 02.10. stärker wurde, bleibt offen. Das Kernel-Update vom 30.09. fällt zwar in die Zeit, die
+  Fahrten vom 30.09./01.10. danach hatten aber nur 1–6 Lücken.
+
+### Aus `status/pi-runtime-state.md` ausgelagert (Altstände bis 28.09., wörtlich)
+
+Das Status-Doc ist jetzt eine reine Momentaufnahme. Die folgenden Nachträge standen bis 10.10. dort:
+
+> **Deploy 2026-09-29 ~21:57:** `deployed` = `a8d8269` (Branch `can-resample-obd-skalen`, PR #39,
+> noch nicht in `main`). Neu auf dem Pi ist vor allem die DBC mit nachkalibriertem
+> `BrakePressure`/`ActualEnginePercentTorque`/`BattSensor_Voltage_maybe`. Backend und Dash per PID
+> neu gestartet, `respawn.sh` hat sie nach 2 s wieder hochgefahren, Backend ~2800 fps. Zu dem
+> Zeitpunkt lief auf dem Pi eine Simulation: `canplayer -I /tmp/mx5_sim_replay.log -l i` auf
+> `vcan0` seit ~18:50, kein `can0`, kein Auto. Die Simulation wurde nicht angefasst.
+> Danach den Folge-Commit derselben Branch nachgeschoben (nur Analyse-Skripte und Doku, keine
+> Pi-Dateien, kein Neustart nötig). Stand 2026-10-01: `deployed` = `3022d15`, inhaltlich identisch
+> mit `main` (`d67aa43`, Merge von PR #39, der Merge-Commit ändert keine Datei).
+>
+> **Git auf dem Pi (2026-09-28, ~19:00):** `/home/pi/canlogs/repo`, Branch `deployed` = `main`
+> `158f154` (nach Merge von PR #33-#35). Vorher alle Pi-Dateien per md5 gegen `main` geprüft:
+> identisch, kein Drift. Die Dateien in `canlogs/` sind jetzt Symlinks ins Repo, Originale in
+> `backup-2026-09-28-vor-git/`. Backend/Dash danach neu gestartet, beide Pi-Tests ok, Dash zeigt
+> "WARTE AUF CAN-BUS" (kein `can0` am Heimnetz). Vorgehen: `scripts/pi-config/SETUP.md`, "Deploy per Git".
+>
+> **Dash-Überarbeitung deployt (2026-09-27, ~10:55-11:10 Uhr):** `dash_gui.py` (md5 45299806),
+> `can_backend.py` (446e6f1c), `test_dash_gui.py`, `test_can_backend.py`, neu `respawn.sh` (a17ca9a2),
+> labwc-`autostart` (e66c54c6, per `overlayroot-chroot tee` in den Unterbau) = Repo `830bcaf`.
+> Nach Reboot laufen Backend/Dash über `respawn.sh`, beide Tests ok, Selbstneustart geprüft
+> (`kill` der Dash-PID → nach 2 s neu). Live-CAN beim Deploy NICHT geprüft (can0 fehlte; der Screenshot
+> mit "CAN 1249 Hz" um 11:04 war vermutlich die Vcan-Simulation). Vorstände (= Git
+> `a66ec59`/`8a3663a` + alter autostart) in `backup-2026-09-27-dash/`; Rollback: zurückkopieren,
+> autostart wieder per `overlayroot-chroot tee`. Inhalt: Logbuch "Dash-Überarbeitung… (27.09.2026)".
+> **~20:00: Zustandslogs auf SSD** (Logbuch "Dash '–' bei laufendem OBD Fusion…"): `can_backend.py`
+> (md5 30fdb8e9), `dash_gui.py` (566903b0), Tests, `respawn.sh` (8c6fbdef), autostart-Kommentar
+> (f51ed5d4) deployt, Tests auf dem Pi ok, Reboot, beide loggen nach `canlogs/applogs/`.
+> Vorstände in `backup-2026-09-27-healthlog/`.
+> Pi im WLAN war an dem Tag 192.168.0.248 (DHCP, `car` löste darauf auf, Verbindung wackelig);
+> per LAN-Kabel 192.168.0.247.
+
+**Nachtrag 2026-09-26, ~17:30-18:15 Uhr:** Pi lief ab 16:12:42 (`uptime -s`) am Heimnetz **ohne
+CAN-Adapter** (`lsusb` ohne CANable, `can-logger.service` "dependency failed"); jemand hatte um
+17:30 die Vcan-Simulation im Dash gestartet (`/tmp/mx5_sim_active`). Die sechs Fahrt-Logs des
+Tages lagen dort unter falschem Datum (No-RTC, Anker 19.09.) und wurden **auf dem Pi umbenannt**
+(`candump-2026-09-26_120029` … `_154000`, samt `clockstate-*`), siehe Logbuch "Fahrtag 26.09.".
+`last_known_time` steht noch auf "2026-09-20 02:31:42" (falscher Anker aus der letzten Session) -
+beim nächsten Start ohne NTP wird die Uhr darauf gestellt, der Marker warnt aber korrekt.
+**18:55 Uhr, Pi wieder online (Boot 18:53:41, NTP ok):** in der Offline-Zeit liefen zwei weitere
+Fahrten (ohne NTP, als `candump-2026-09-20_023215/_031203` benannt) - auf dem Pi umbenannt in
+`candump-2026-09-26_180459/_184447` (geschätzt, siehe Logbuch). `last_known_time` von der falschen
+"2026-09-20 03:18:16" auf "2026-09-26 18:53:00" gesetzt, damit der nächste Start ohne NTP
+wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo, altes Skript in
+`backup-2026-09-26b/`), 6-s-Lauftest auf vcan0 ohne Fehler. Greift ab der nächsten Session.
+
+**Nachtrag 2026-09-27, ~00:05 Uhr (Bootzeit-Optimierung):** journald `Storage=volatile`, Boot-Timer/-Dienste abgeschaltet, ModemManager maskiert, `camera_auto_detect=0` (per `raspi-config nonint do_camera 1`), `dash_gui.py` (md5 4a7c1a56, Vorversion `backup-boot-2026-09-26/dash_gui.py.94b3dc87`) schreibt beim ersten Frame eine Zeile nach `/home/pi/canlogs/boot_timing.log`. Details/Messwerte: `logs/can-bus-status.md` ("Bootzeit-Optimierung 27.09."), Config-Kopien in `scripts/pi-config/SETUP.md`. Panel/pcmanfm im System-Autostart deaktiviert (`/etc/xdg/labwc/autostart`, Original `backup-boot-2026-09-26/labwc-autostart.orig`). Danach (27.09. ~00:45): Audio-Kette (pipewire/wireplumber/pulseaudio) global maskiert, polkit-Agent/pwrkey/pprompt aus dem Session-Autostart, `wlan-watchdog.timer` neu (siehe SETUP.md). Dash-Erstframe zuletzt bei 34,6 s nach Boot (ohne CANable). **Engpass ist die SD-Karte selbst (~5-7 MB/s auf belegten Bereichen)** - siehe Logbuch.
+
+**Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
+Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
