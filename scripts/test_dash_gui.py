@@ -276,27 +276,110 @@ def test_testmode_has_priority_over_logging():
     assert app.testmode_screen.refreshed
 
 
-def test_prepare_replay_log_streams_without_buffering_all_lines():
-    """Regression fuer den OOM-Absturz beim Klick auf "Vcan-Simulation starten"
-    (2026-09-17): _prepare_replay_log() sammelte frueher jede Zeile in einer
-    Liste, bevor sie geschrieben wurde. Bei den ~50MB-gzip-Logs, die hier
-    taeglich anfallen, entpackt das auf mehrere hundert MB Text und hat den
-    Pi (1.8GB RAM) per OOM-Killer abgeschossen. Der Test prueft nur noch das
-    fachliche Verhalten (abgeschnittene letzte Zeile wird verworfen), nicht
-    den Speicherverbrauch."""
+def test_sim_start_twice_at_once_starts_one_canplayer():
+    """Ein Tipp kam doppelt an (10.10.2026) und startete zwei canplayer. Auch ohne den Touch-Fix darf
+    ein zweiter Start waehrend eines langsamen Starts keinen zweiten Prozess erzeugen."""
+    import threading
+    import time
+    from unittest import mock
+
+    started = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    with tempfile.TemporaryDirectory() as tmp, \
+            mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", os.path.join(tmp, "trigger")), \
+            mock.patch.object(dash_gui.subprocess, "run"), \
+            mock.patch.object(dash_gui.subprocess, "Popen", side_effect=lambda *a, **k: time.sleep(0.2) or started.append(1) or Proc()):
+        sim = dash_gui.SimController()
+        threads = [threading.Thread(target=sim.start, args=("x.log.gz",)) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    assert len(started) == 1, started
+
+
+def test_sim_loop_replays_whole_log_until_stopped():
+    """Ganzes Log statt der ersten ~10 min (10.10.2026): die Schleife streamt das gz komplett und von vorn,
+    solange der Trigger existiert; stop() beendet sh, zcat und Abspieler zusammen. canplayer ist hier
+    durch cat ersetzt (sein Streaming-/Uhrsprung-Verhalten wurde auf dem Pi von Hand geprueft)."""
+    import time
+    from unittest import mock
+
     with tempfile.TemporaryDirectory() as tmp:
-        gz_path = os.path.join(tmp, "in.log.gz")
-        out_path = os.path.join(tmp, "out.log")
-        good = "(1700000000.123456) can0 123#DEADBEEF\n"
-        truncated = "(1700000000.223456) can0 12"
-        with gzip.open(gz_path, "wt") as f:
-            f.write(good * 3 + truncated)
+        log, out = os.path.join(tmp, "candump-x.log.gz"), os.path.join(tmp, "out")
+        with gzip.open(log, "wt") as f:
+            f.write("(1.000000) can0 123#01\n(2.000000) can0 123#02\n")
+        loop = dash_gui.SIM_LOOP_SH.replace("canplayer -s 5 vcan0=can0", f"cat >> {out}")
+        assert loop != dash_gui.SIM_LOOP_SH
+        with mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", os.path.join(tmp, "trigger")), \
+                mock.patch.object(dash_gui, "SIM_LOOP_SH", loop), \
+                mock.patch.object(dash_gui.subprocess, "run"):
+            sim = dash_gui.SimController()
+            assert sim.start(log) == (True, "candump-x.log.gz")
+            pgid = sim.proc.pid
+            time.sleep(1.5)  # Durchlauf 1, sleep 1, Durchlauf 2
+            sim.stop()
+        with open(out) as f:
+            assert f.read() == "(1.000000) can0 123#01\n(2.000000) can0 123#02\n" * 2
+        try:
+            os.killpg(pgid, 0)
+            raise AssertionError("Prozessgruppe lebt nach stop() noch")
+        except ProcessLookupError:
+            pass
 
-        dash_gui.SimController._prepare_replay_log(gz_path, out_path)
 
-        with open(out_path) as f:
-            result = f.read()
-        assert result == good * 3
+def test_sim_log_choice_newest_first_without_stubs():
+    """Log-Auswahl fuer die Simulation (10.10.2026): neuestes zuerst und vorausgewaehlt, leere
+    50-Byte-Stummel nicht waehlbar, der gewaehlte Pfad landet beim Start."""
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, size in (("candump-2026-09-11_194804.log.gz", 50),
+                           ("candump-2026-10-04_092939.log.gz", 5000),
+                           ("candump-2026-10-10_133226.log.gz", 3_000_000)):
+            with open(os.path.join(tmp, name), "wb") as f:
+                f.write(b"x" * size)
+        with mock.patch.object(dash_gui, "LOG_DIR", tmp):
+            names = [os.path.basename(p) for p, _ in dash_gui.SimController.list_logs()]
+            assert names == ["candump-2026-10-10_133226.log.gz", "candump-2026-10-04_092939.log.gz"]
+            screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
+            screen.refresh({"values": {}, "can_up": False})
+        assert screen.sim_spinner.text == "2026-10-10_133226 · 3 MB"
+        assert len(screen.sim_spinner.values) == 2
+        screen.sim_spinner.text = screen.sim_spinner.values[1]
+        with mock.patch.object(dash_gui.threading, "Thread") as thread:
+            screen._on_sim_button()
+        assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
+
+
+def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
+    """Waehrend der Simulation zeigt das Dash den Drive-Screen, der Stopp-Knopf des Status-Screens war
+    unerreichbar (10.10.2026). Der Fusszeilen-Knopf erscheint nur bei laufender Simulation und stoppt sie."""
+    from types import SimpleNamespace
+    from kivy.uix.button import Button
+
+    stopped = []
+    sim = SimpleNamespace(running=True)
+    app = SimpleNamespace(
+        drive_screen=SimpleNamespace(status_bar=dash_gui.StatusBar()),
+        status_screen=SimpleNamespace(sim=sim, _stop_sim_thread=lambda: stopped.append(1)),
+        sim_stop_button=Button())
+    sync = lambda: dash_gui.MX5DashApp._sync_sim_stop_button(app)
+
+    sync()
+    assert app.sim_stop_button.parent is app.drive_screen.status_bar
+    dash_gui.MX5DashApp._stop_sim(app)
+    assert app.sim_stop_button.disabled
+    sim.running = False
+    sync()
+    assert app.sim_stop_button.parent is None
+    import time
+    time.sleep(0.1)  # Stopp laeuft im Thread
+    assert stopped == [1], stopped
 
 
 def test_gear_display_turns_baby_blue_when_clutch_not_closed():
@@ -503,7 +586,10 @@ if __name__ == "__main__":
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
-    test_prepare_replay_log_streams_without_buffering_all_lines()
+    test_sim_start_twice_at_once_starts_one_canplayer()
+    test_sim_loop_replays_whole_log_until_stopped()
+    test_sim_log_choice_newest_first_without_stubs()
+    test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
     test_gear_display_keeps_last_gear_while_clutch_pressed()

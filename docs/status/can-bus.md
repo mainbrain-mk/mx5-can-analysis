@@ -290,7 +290,7 @@ Kraftstoff-/Wegzähler, i-stop, Kamera u. a.) stehen gesammelt in
   mDNS mit einem anderen Gerät im Netz). Erreichbar unter `pi@192.168.0.247` bzw. `car.local`,
   passwortloses SSH + sudo, Debian 12 Bookworm.
   - Root-Dateisystem läuft schreibgeschützt mit RAM-Overlay (`overlayroot`, `recurse=0`) – nur
-    `/home/pi/canlogs` (USB-Stick, 14,6GB) ist persistent. Systemänderungen dauerhaft per
+    `/home/pi/canlogs` (USB-Stick, seit 10.10. SanDisk Ultra Flair 128 GB an USB 3) ist persistent. Systemänderungen dauerhaft per
     `overlayroot-chroot` (siehe `scripts/pi-config/SETUP.md`).
   - `can-logger.service` (systemd, root, device-bound an `can0`) startet `session_logger.py`,
     das per `KeyState` (0x050) automatisch pro Fahrt ein `candump -l -r 16 MiB`-Log startet/stoppt.
@@ -508,7 +508,8 @@ OBD/CAN-Referenz gesucht werden muss):
   im ~5-s-Takt. **Ursache belegt:** Der USB-Stick hängt beim Schreiben bis ~2–4 s, und der Default-Socket-Puffer
   von candump reicht nur ~0,1 s. Das Backend sah im selben Zeitraum keine Lücken, und zu Hause auf vcan0
   ließ es sich reproduzieren: 4,5 % Verlust mit Default-Puffer, 0 mit `-r 16 MiB` (~13 s Puffer). Der Fix ist
-  deployt. Nach der nächsten Fahrt Lücken je Log und `ifstats` prüfen. Ereignisse mit Lücke verwirft
+  deployt, und **seit 10.10. spätabends steckt ein schneller Stick** (SanDisk USB 3, `write()` max. 0,02 s statt
+  bis 3 s). Nach der nächsten Fahrt Lücken je Log und `ifstats` prüfen. Ereignisse mit Lücke verwirft
   `shift_time_analysis`. Herleitung: `logs/can-bus-status.md` „Datenlücken im candump seit 02.10.2026“ und
   „Pi-Infrastruktur: Lücken zu Hause reproduziert…“.
 - **Kein Datums-/Uhrzeitkanal fürs No-RTC-Problem gefunden (2026-09-21):** systematisch

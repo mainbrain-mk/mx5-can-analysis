@@ -5506,3 +5506,158 @@ wenigstens beim heutigen Abend beginnt. **`tpms_poller.py` deployt** (md5 = Repo
 
 **Stand davor: 2026-09-26, 11:40 Uhr** (Deploy der Offline-Ausbeute; per SSH auf `pi@192.168.0.247` geprüft,
 Hostname `car`, passwordless SSH+sudo — siehe `mx5_can_bus_logging`-Memory).
+
+## Stick-Tausch auf SanDisk Ultra Flair (10.10.2026 spätabends)
+
+Ein Foto der Einbausituation zeigte als Stick einen USB-2.0-Werbe-Schlüsselstick. Der Nutzer hatte einen
+ungenutzten SanDisk Ultra Flair 128 GB (USB 3.2 Gen1, 0781:5591, zuvor Ubuntu-Installer) und gab ihn frei.
+
+**Messung, beide Sticks gleichzeitig am Pi** (der SanDisk dabei noch im USB-2-Port):
+
+| | 4-kB-Synchronschreiben | 200 MB am Stück | candump 10 min, Default-Puffer, vcan1 ~2900/s |
+|---|---|---|---|
+| Werbestick | 25 ms je Vorgang | 0,9 MB/s (228 s; nachmittags noch ~5 MB/s) | 6,6 % verloren, 29 Lücken bis 3,1 s, `write()` max 1,7 s |
+| SanDisk (USB 2) | 4,6 ms | 21,6 MB/s | 0,01 % (95 Frames), keine Lücke > 0,1 s, `write()` max 0,02 s |
+
+Im blauen USB-3-Port nach dem Tausch: 3,5 ms je Sync-Schreibvorgang, 60 MB/s schreiben, 144 MB/s lesen.
+candump-Gegenprobe dort, 5 min, **Default-Puffer**: 0 von 854 623 Frames verloren, `write()` max. 0,01 s
+(p99 0,2 ms).
+
+**Umzug:** Gerät per `/dev/disk/by-id` und Modell geprüft, `wipefs`, eine Partition, `mkfs.ext4 -L canlogs
+-i 65536 -E lazy_itable_init=0,lazy_journal_init=0` (45 s; ohne das schreibt ext4lazyinit tagelang im
+Hintergrund). Dann `rsync -aHAX --numeric-ids` (2,7 GB, 3:18 min). Dateizahl gleich (5293), Git-Repo sauber auf
+`14b5246`. Die fstab im Unterbau läuft jetzt über UUID `93602dc0-0a15-41d4-9b7c-3dbdfbb4a644`, die alte Zeile
+steht als Kommentar darüber, Sicherung in `/etc/fstab.vor-sandisk-2026-10-10`. `/media/root-ro` blieb danach
+wie bekannt auf `rw` hängen, der Neustart hat das behoben. Abschluss: `rsync --delete`, 0 Unterschiede,
+aushängen, `poweroff`, Tausch durch den Nutzer. Nach dem Boot ist alles ok: USB 3 mit 5 Gbit/s, `ro`,
+`throttled=0x0`, Backend/Dash laufen, Dash-Erstframe 34,9 s, Pack-Timer geplant, 106 GB frei.
+Der Werbestick bleibt als Backup mit dem Stand von 10.10. 22:20.
+
+**Nebenbefund:** Beim Umbau lief die Vcan-Simulation aus dem Dash (Start 20:51), und zwar mit zwei
+canplayer-Prozessen gleichzeitig. Ob das ein doppeltes Antippen war, ist noch offen.
+
+## USV-Recherche für den Pi im Auto (10.10.2026)
+
+**Randbedingungen (vom Nutzer):** Der Pi sitzt direkt auf der Rückseite des 10,1"-Displays
+(„10.1inch LCD Display-H“), darunter ist kein Platz. Im Mazda steckt ein 12V/5V-36-W-Adapter. Die 12-V-Buchse
+ist bei Zündung aus **und während des Anlassens** stromlos. Leistung laut Nutzer: Pi 4B 6–8 W bei Volllast,
+Display 1–2 W. Mit USB-Geräten im schlechtesten Fall ~11 W ≈ 2,2 A.
+
+**Anforderungen:** das Anlassen (1–2 s) lückenlos überbrücken, bei Zündung aus sauber herunterfahren, danach
+alles stromlos, beim nächsten Zündung-An selbst booten. Der Zündzustand kommt aus dem CAN-Bus (KeyState). Die
+Abschaltregel soll deshalb lauten: Strom weg **und** KeyState OFF. So lösen Anlassen und i-stop nie einen
+Shutdown aus.
+
+**Bewertung:**
+- **AQEX qUPS-P-SC (Superkondensator, 49,80 €): Favorit.** −40 bis +65 °C, kein Akku, laut Hersteller
+  29/44/84 s Überbrückung bei voller/halber/keiner Last, 2,5 A (reicht, ~12 % Reserve im schlechtesten Fall).
+  Signale Power Good/Limit Low/Shutdown auf GPIO 17/27/22 (DIP-Schalter, Pins 11/13/15, frei). Er startet den
+  Pi erst, wenn genug Energie für Boot und Shutdown da ist, und fängt ab, wenn der Strom während des
+  Shutdowns zurückkommt. Er ist ein aufsteckbarer HAT; geplant ist aber, ihn **neben** den Pi auf die freie
+  untere Display-Rückseite zu kleben (selbstklebende Abstandshalter ≥ 10 mm) und zu verkabeln: 5 V auf
+  Pins 2+4, GND auf 6+14, je doppelt; das Display-Kabel kommt an den qUPS. Die USB-C-Buchse des Pi bleibt
+  dann leer.
+- Waveshare UPS HAT (D) (2× 21700, Pogo-Pins von unten): passt mechanisch nicht. Außerdem bleibt nach dem
+  Shutdown vermutlich der 5-V-Ausgang an (der Akku läuft im Stand leer), und Li-Ionen im Auto sind bei Hitze
+  und beim Laden unter 0 °C problematisch.
+- PiSugar 3 Plus: max. 3 A, RTC auf 0x68 kollidiert mit der DS3231. Geekworm X728: teuer, RTC auf 0x68.
+  Billige USV-Module ohne Signal: verschieben den harten Stromausfall nur. 12-V-Superkondensator-Modul
+  (25 F, 9–24 V): ~3 min Ladezeit, kein Schutz, wenn der Strom während des Shutdowns zurückkommt, und auf
+  Marktplätzen 100–160 $.
+
+**Offen (Nutzerentscheid):** Bestellung, Halterungspunkte an der Display-Rückseite, Typenschild des
+36-W-Adapters (5 V/3 A an einem Port?). Software (Abschaltlogik, Auto-Boot, Anzeige im Dash) nach dem Einbau.
+
+## Dash: jeder Tipp kam doppelt an, Simulation entpackte ganze Fahrten in den RAM (10.10.2026 spätabends)
+
+**Befund:** Ein Klick auf „Vcan-Simulation starten“ startete zweimal zwei canplayer-Prozesse. Beide liefen
+unter dem Dash als Elternprozess und starteten in derselben Sekunde. Das hat eine Diagnose-Kopie des Dash
+mit Touch-Protokoll belegt: **Ein** Fingertipp erzeugt `MTDMotionEvent` (probesysfs liest `/dev/input/event4`
+direkt) **und** `MouseMotionEvent` (Xwayland meldet denselben Tipp als Maus), beide mit Druck vor dem Loslassen.
+Damit löste jeder Knopf zweimal `on_release` aus. Betroffen waren alle Knöpfe, auch der Testmodus
+(„Überspringen“ sprang zwei Schritte). Ursache ist die Kivy-Konfiguration auf dem Pi (`~/.kivy/config.ini`,
+`[input] mouse = mouse` plus `%(name)s = probesysfs`).
+Zweites Problem: `SimController._prepare_replay_log()` entpackte das **ganze** letzte Log nach `/tmp`. Das
+liegt im RAM-Overlay (923 MB). Bei der Fahrt `133226` waren das 585 MB (62 % des Overlays) und ~40 s Startzeit.
+Nach einer 2-h-Fahrt (~900 MB) wäre das Overlay übergelaufen. Die beiden gleichzeitigen Starts schrieben
+außerdem in dieselbe Datei.
+
+**Fix (`c22b68b`, auf dem Pi):**
+- `Config.set("input", "mouse", "mouse,disable_on_activity")` in `dash_gui.py`, vor dem Start der
+  Eingabe-Provider. Mausereignisse werden verworfen, solange ein echter Touch aktiv ist, eine USB-Maus geht
+  weiter. Bewusst im Code und nicht in `~/.kivy/config.ini` (Overlay-Unterbau, nicht im Git).
+- `SimController.start/stop` laufen unter einer Sperre.
+- Das Replay umfasst nur die ersten 1,8 Mio. Zeilen (~10 min, ~83 MB, `SIM_MAX_LINES`).
+- Tests: `test_prepare_replay_log_keeps_only_the_start_of_long_logs` und
+  `test_sim_start_twice_at_once_starts_one_canplayer`. Alle Dash-Tests laufen auf dem Pi.
+
+**Verifiziert nach dem Reboot (Nutzer tippt einmal):** Start in wenigen Sekunden, genau 1 canplayer, Replay
+83 MB, Overlay 10 % belegt, Backend ~1370 Frames/s.
+**Zwischenfall dabei:** `pgrep -f "python3 /home/pi/canlogs/dash_gui.py"` im SSH-Kommando traf die eigene
+Shell (bekannte Falle). Dash-Prozesse deshalb nur per explizit ermittelter PID beenden.
+**Nachtrag: Simulation ließ sich nicht beenden (`083c1e1`).** Während der Simulation meldet das Backend
+„logging“, und das Dash zeigt den Fahrbildschirm. Der Knopf „Simulation stoppen“ auf dem Status-Bildschirm
+war dann nie zu sehen, die Simulation lief bis zum Reboot oder bis der echte `can0` kam. Neu: In der Fußzeile
+des Fahrbildschirms erscheint ein roter Knopf „SIMULATION BEENDEN“, nur solange die Simulation läuft. Er stoppt
+gezielt, ein Doppeltipp kann also nichts neu starten (Test
+`test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs`). Der Nutzer hat den Ablauf
+Start → Fahrbildschirm → Beenden → Status-Bildschirm durchgespielt. Danach: 0 canplayer, Trigger- und
+Replay-Datei sowie `vcan0` entfernt, Overlay 2 %.
+
+**Nachtrag USV (10.10.2026, nachts): Handbuch qUPS-P-SC v1.3 gelesen** (`aqexhu/qups-guard`, `docs/UserManual`).
+- Netzteil: 5 V, mindestens 2 A, empfohlen 3 A. Laut Kapitel 3.2.3 sind „Safety power supplies that disable 5V at
+  their output in the absence of a connected device“ ungeeignet. So arbeitet jeder USB-C-PD-Port, auch der des
+  Schwaiger-Kfz-Adapters (USB-C 5 V/3 A, USB-A 5 V/2,4 A, Modellreihe LADC0140). Widerspruch: Der Anhang listet
+  das Pi-5-Netzteil als getestet. **Nach Lieferung testen**, ob die Eingangs-LED (6) am USB-C-Port leuchtet.
+  Sonst USB-A mit A-auf-C-Kabel (2,4 A) oder einen 12→5-V/5-A-Wandler auf den Klemmeneingang (5).
+- AUTO-Modus: Der Pi bekommt erst Strom, wenn die Kondensatoren den HIGH-Pegel (Boot + Shutdown) erreicht haben,
+  laut Handbuch „up to minutes“. Im Auto fehlt dann der Fahrtbeginn. Die Pegel lassen sich mit L1–L4 einstellen
+  (Pi 4 bei 50 % Last: L1 ON, Rest OFF). ON-Modus: sofort an, ein Shutdown ist aber erst garantiert, wenn
+  genug geladen ist. Plan: AUTO mit gesenktem Pegel, Verzögerung nach dem Einbau messen.
+- Signale: pfo (Power Good, 1 = Netz), lim (1 = Energie über Grenzwert), shd (Pi setzt 1, solange er läuft; 0
+  nach dem Shutdown, dann startet der qUPS den Pi bei Netzrückkehr sicher neu). Umschaltung 100–300 µs, eine
+  „Under-voltage“-Meldung ist dabei möglich und harmlos. Die Eingangsschwelle stellt das Poti (8) ein (bei zu
+  hoher Einstellung pendelt er zwischen den Modi). Reset-Kontakt (10) unterbricht die Versorgung. Verkabelter
+  Betrieb über Pin 2/4 (+5 V) und GND ist vorgesehen (Kapitel 3.2.2).
+- Der Hersteller-Daemon fährt erst bei lim = 0 herunter. Für uns ist eine eigene Logik geplant: shd setzen;
+  pfo = 0 und KeyState OFF → sofort Shutdown; lim = 0 → immer Shutdown.
+
+## Dash: Log-Auswahl und ganze Logs in der Vcan-Simulation (10.10.2026, nachts)
+
+**Wunsch des Nutzers:** In der Simulation ein Log auswählen und es komplett abspielen, nicht nur die ersten
+~10 min (`SIM_MAX_LINES`, siehe Abschnitt davor).
+
+**Umbau (`bce5930`, auf dem Pi):**
+- Neben „Vcan-Simulation starten“ sitzt eine Auswahlliste (Kivy-`Spinner`) mit allen `candump-*.log.gz`,
+  neuestes oben und vorausgewählt, mit Größe. Sortiert nach Name, nicht nach mtime: Die mtimes der Logs ohne
+  RTC liegen teils Tage daneben (z. B. `2026-09-26_*` mit mtime 20.09.). Leere 50-Byte-Stummel vom 11.09.
+  fehlen. Die Liste wird neu eingelesen, sobald der Knopf erscheint. Auf dem Pi sind es 73 Logs.
+- Replay: `while [ -e TRIGGER ]; do zcat -- LOG | canplayer -s 5 vcan0=can0; sleep 1; done` in eigener
+  Prozessgruppe. Das Entpacken nach `/tmp` (`_prepare_replay_log`) entfällt ganz.
+  - Pro Durchlauf ein neuer canplayer, weil er von stdin nicht zurückspulen kann (`-l`).
+  - Bricht eine abgeschnittene letzte Zeile canplayer ab, endet nur dieser Durchlauf.
+  - Endbedingung ist die Trigger-Datei. Das Backend (`kill_processes("canplayer")`, wenn `can0` kommt) trifft
+    auch die `sh`-Schleife, weil „canplayer“ in ihrer Kommandozeile steht, und löscht danach den Trigger.
+  - `stop()` beendet die ganze Gruppe per `killpg`.
+
+**canplayer 2020.11 auf dem Pi von Hand geprüft** (`stdout=can0`, ohne Interface):
+- liest von stdin;
+- `-s 5` synchronisiert bei einem Uhrsprung **rückwärts** sofort neu (kein Frame-Schwall) und überspringt
+  Vorwärtslücken > 5 s;
+- eine abgeschnittene gzip-Datei liefert alles bis zum Bruch.
+
+**Test mit echtem canplayer auf `vcan1`** (Backend unberührt), Log `133226` (116 MB):
+- Start nach 0,00 s statt einigen Sekunden.
+- ~2765 Frames/s, das entspricht der Fahrzeugrate.
+- `/tmp` bei 2 %; sh, zcat und canplayer je ~1,4 MB RSS.
+- Beide Wege zum Beenden lassen keine Prozesse übrig: das Backend, wenn `can0` kommt, und `stop()`.
+
+Tests: `test_sim_loop_replays_whole_log_until_stopped` (canplayer durch `cat` ersetzt: zwei volle
+Durchläufe, danach keine Prozessgruppe mehr) und `test_sim_log_choice_newest_first_without_stubs`. Alle
+Dash-Tests laufen auf dem Pi. Nach dem Deploy nur das Dash per PID neu gestartet. Ein Bildschirmfoto (`grim`)
+zeigt die Auswahl auf dem Status-Bildschirm.
+**Bestätigt (11.10.2026, 00:31):** Der Nutzer hat per Touch `2026-10-04_142137` (142 MB, 5558 s) gestartet.
+- Nach 39 min lief noch der erste canplayer-Prozess, gzip hatte 42 % der Datei gelesen (= 2347/5558 s).
+- Das Dash zeigte 130,2–130,5 km/h, Öl 97,8 → 97,5 °C und Lambda 0,99. Im Datalake stehen dieselben Werte bei
+  15:00:17–15:00:47 (t = 2320–2350 s), das passt bis auf wenige Sekunden zur Wanduhr seit dem Start.
+- Das Backend dekodiert ~1410 Frames/s wie bei früheren Simulationen.

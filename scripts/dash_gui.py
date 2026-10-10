@@ -14,17 +14,24 @@ Die Umschaltlogik entspricht StatusGui.update_state() in status_gui.py.
 import csv
 import datetime
 import glob
-import gzip
 import json
 import math
 import os
-import re
+import signal
 import socket
 import subprocess
 import threading
 import time
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
+
+from kivy.config import Config
+
+# Jeder Tipp kam doppelt an (10.10.2026 auf dem Pi protokolliert): probesysfs/MTD liest den Touchscreen
+# direkt (event4), Xwayland meldet denselben Tipp zusaetzlich als Maus. Jeder Knopf loeste zweimal aus
+# (Sim-Start -> zwei canplayer). disable_on_activity verwirft Maus-Ereignisse, solange ein echter Touch
+# aktiv ist; eine USB-Maus funktioniert weiter. Muss vor dem Start der Eingabe-Provider gesetzt sein.
+Config.set("input", "mouse", "mouse,disable_on_activity")
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -37,6 +44,7 @@ from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.image import Image
+from kivy.uix.spinner import Spinner
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
@@ -50,7 +58,14 @@ MX5_LOGO_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"
 UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
 # Gegenstueck zu can_backend.py SIM_TRIGGER_PATH - siehe SimController unten.
 SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
-SIM_REPLAY_LOG = "/tmp/mx5_sim_replay.log"
+# Ganzes Log gestreamt statt vorab nach /tmp entpackt: /tmp liegt im RAM (overlayroot, 923 MB), ganze
+# Fahrten sind 600-900 MB Text, darum spielte die Simulation bis 10.10. nur die ersten ~10 min.
+# zcat entpackt nur so schnell, wie canplayer abspielt. Pro Durchlauf ein frischer canplayer: von stdin
+# kann er nicht zurueckspulen (-l), und eine abgeschnittene letzte Zeile beendet nur diesen Durchlauf.
+# Schleifenbedingung Trigger-Datei: can_backend.py loescht sie, wenn can0 kommt (und killt canplayer).
+# -s 5 ueberspringt Luecken >5 s und synchronisiert auch bei Uhrspruengen rueckwaerts neu (auf dem Pi
+# mit canplayer 2020.11 geprueft). sleep 1: kein Leerlauf-Karussell, falls canplayer sofort scheitert.
+SIM_LOOP_SH = 'while [ -e "$1" ]; do zcat -- "$2" | canplayer -s 5 vcan0=can0; sleep 1; done'
 # Screen-Umschaltung + Status-/Testmodus-Refresh. War 1 s - zu traege fuer die
 # Pedal-Kacheln im Testmodus ("Kupplung ca. 25 %" usw.), die Arbeit pro Takt ist klein.
 POLL_INTERVAL_S = 0.2
@@ -1019,99 +1034,84 @@ class PedalRow(BoxLayout):
 
 class SimController:
     """"Vcan-Simulation starten"-Knopf auf dem WARTE-AUF-CAN-BUS-Screen: baut
-    vcan0 auf, spielt das zuletzt geschriebene candump-Log darauf ab (gleiche
-    Methodik wie beim manuellen Testen diese Session: canplayer -l i -s 5,
-    vorher die evtl. abgeschnittene letzte Zeile verwerfen - sonst bricht
-    canplayer komplett ab, siehe can_log_parser.py-Waisenzeilen-Guard fuer den
-    selben Fall) und setzt SIM_TRIGGER_PATH, das can_backend.py's
-    run_decode_loop()/run_process_watch() dazu bringt, auf vcan0 umzuschalten
-    und can_up/logging als aktiv zu melden."""
-
-    LINE_RE = re.compile(r"^\(\d+\.\d+\) \S+ [0-9A-Fa-f]{3,8}#[0-9A-Fa-f]{0,16}\s*$")
+    vcan0 auf, spielt das ausgewaehlte (Standard: neueste) candump-Log komplett
+    und in Schleife darauf ab (SIM_LOOP_SH) und setzt SIM_TRIGGER_PATH, das
+    can_backend.py's run_decode_loop()/run_process_watch() dazu bringt, auf
+    vcan0 umzuschalten und can_up/logging als aktiv zu melden."""
 
     def __init__(self):
         self.proc = None
         self.log_name = None
+        # Start/Stopp laufen in Threads; ohne Sperre starteten zwei schnelle Tipps zwei canplayer (10.10.2026)
+        self._lock = threading.Lock()
 
     @property
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self):
+    def start(self, log_path=None):
+        with self._lock:
+            return self._start(log_path)
+
+    def _start(self, log_path):
         if self.running:
             return True, self.log_name
-        latest = self._find_latest_log()
-        if latest is None:
-            return False, "kein Log gefunden"
+        if log_path is None:
+            logs = self.list_logs()
+            if not logs:
+                return False, "kein Log gefunden"
+            log_path = logs[0][0]
         try:
             for cmd in (["sudo", "modprobe", "vcan"],
                         ["sudo", "ip", "link", "add", "dev", "vcan0", "type", "vcan"],
                         ["sudo", "ip", "link", "set", "up", "vcan0"]):
                 subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._prepare_replay_log(latest, SIM_REPLAY_LOG)
-            self.proc = subprocess.Popen(
-                ["canplayer", "-I", SIM_REPLAY_LOG, "-l", "i", "-s", "5", "vcan0=can0"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            with open(SIM_TRIGGER_PATH, "w") as f:
+            with open(SIM_TRIGGER_PATH, "w") as f:  # vor dem Start: Schleifenbedingung
                 f.write("vcan0")
-            self.log_name = os.path.basename(latest)
+            # Eigene Prozessgruppe: stop() beendet sh, zcat und canplayer zusammen
+            self.proc = subprocess.Popen(
+                ["sh", "-c", SIM_LOOP_SH, "sh", SIM_TRIGGER_PATH, log_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self.log_name = os.path.basename(log_path)
             return True, self.log_name
         except Exception as exc:
             return False, str(exc)
 
     def stop(self):
+        with self._lock:
+            self._stop()
+
+    def _stop(self):
         try:
             os.remove(SIM_TRIGGER_PATH)
         except FileNotFoundError:
             pass
         if self.proc is not None:
-            self.proc.terminate()
             try:
+                os.killpg(self.proc.pid, signal.SIGTERM)
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except ProcessLookupError:  # schon weg, z.B. vom Backend beendet (can0 kam)
+                pass
             self.proc = None
         subprocess.run(["sudo", "ip", "link", "delete", "vcan0"], check=False,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            os.remove(SIM_REPLAY_LOG)
-        except FileNotFoundError:
-            pass
 
     @staticmethod
-    def _find_latest_log():
-        candidates = glob.glob(os.path.join(LOG_DIR, "candump-*.log.gz"))
-        if not candidates:
-            return None
-        return max(candidates, key=os.path.getmtime)
-
-    @classmethod
-    def _prepare_replay_log(cls, gz_path, out_path):
-        # Zeilenweise statt readlines(): das "letzte geschriebene Log" ist per
-        # Definition das mit der hoechsten Chance, mitten im gzip-Puffer
-        # abgebrochen zu sein (Zuendung aus waehrend candump/gzip noch
-        # puffern) - beobachtet an candump-2026-09-16_090826.log.gz (8MB
-        # glatt, "ended before end-of-stream marker"). readlines() wirft
-        # dabei alles weg; zeilenweises Lesen behaelt, was bis zum Abbruch
-        # erfolgreich entpackt wurde - gleiche Idee wie der candump-
-        # Waisenzeilen-Guard in can_log_parser.py, nur auf Container- statt
-        # Zeilenebene.
-        # Nur die letzte Zeile im Speicher halten statt der ganzen Liste:
-        # ein 52MB-gzip (Alltag hier) entpackt auf 500MB+ Text und hat den
-        # Pi (1.8GB RAM) per OOM-Killer den Dash-Prozess abschiessen lassen
-        # (Klick auf "Vcan-Simulation starten" -> Absturz).
-        prev_line = None
-        with open(out_path, "w") as f_out:
+    def list_logs():
+        """-> [(Pfad, Bytes)], neuestes zuerst. Nach Name statt mtime: die mtimes alter No-RTC-Logs
+        sind teils Tage daneben, die Namen stimmen seit der RTC (28.09.). Leere Stummel (50-Byte-gzip
+        ohne Frames, z.B. 11.09.) fliegen raus - canplayer haette nichts abzuspielen."""
+        logs = []
+        for path in sorted(glob.glob(os.path.join(LOG_DIR, "candump-*.log.gz")), reverse=True):
             try:
-                with gzip.open(gz_path, "rt", errors="replace") as f_in:
-                    for line in f_in:
-                        if prev_line is not None:
-                            f_out.write(prev_line)
-                        prev_line = line
-            except (OSError, EOFError):
-                pass
-            if prev_line is not None and cls.LINE_RE.match(prev_line):
-                f_out.write(prev_line)
+                size = os.path.getsize(path)
+            except OSError:  # zwischen glob und stat weggepackt/geloescht
+                continue
+            if size > 1000:
+                logs.append((path, size))
+        return logs
 
 
 class StatusScreen(Screen):
@@ -1152,12 +1152,13 @@ class StatusScreen(Screen):
         col.add_widget(self._extras)
 
         # Nur sichtbar bei WARTE AUF CAN-BUS - Vcan-Simulation mit dem
-        # zuletzt geschriebenen Log, siehe SimController.
+        # im Spinner gewaehlten Log (Standard: neuestes), siehe SimController.
         self.sim = SimController()
-        self.sim_button = Button(text="Vcan-Simulation starten", font_size="20sp",
-                                  size_hint_y=None, height=52)
+        self._sim_logs = {}  # Spinner-Text -> Pfad
+        self.sim_spinner = Spinner(text="", font_size="16sp", size_hint_x=0.45)
+        self.sim_button = Button(text="Vcan-Simulation starten", font_size="20sp")
         self.sim_button.bind(on_release=lambda *_: self._on_sim_button())
-        self._sim_area = BoxLayout(orientation="vertical", size_hint_y=None, height=52)
+        self._sim_area = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=None, height=52)
         self._sim_button_visible = False
         col.add_widget(self._sim_area)
 
@@ -1173,17 +1174,26 @@ class StatusScreen(Screen):
             self._extras.add_widget(self.live_grid)
             self._extras.add_widget(self.tpms)
 
+    def _refresh_sim_logs(self):
+        self._sim_logs = {f"{os.path.basename(p)[8:25]} · {size / 1e6:.0f} MB": p
+                          for p, size in SimController.list_logs()}
+        self.sim_spinner.values = list(self._sim_logs)
+        if self.sim_spinner.text not in self._sim_logs:
+            self.sim_spinner.text = next(iter(self._sim_logs), "kein Log")
+
     def _on_sim_button(self):
         self.sim_button.disabled = True
+        self.sim_spinner.disabled = True
         if self.sim.running:
             self.sim_button.text = "Simulation stoppt..."
             threading.Thread(target=self._stop_sim_thread, daemon=True).start()
         else:
             self.sim_button.text = "Simulation startet..."
-            threading.Thread(target=self._start_sim_thread, daemon=True).start()
+            log_path = self._sim_logs.get(self.sim_spinner.text)
+            threading.Thread(target=self._start_sim_thread, args=(log_path,), daemon=True).start()
 
-    def _start_sim_thread(self):
-        ok, info = self.sim.start()
+    def _start_sim_thread(self, log_path=None):
+        ok, info = self.sim.start(log_path)
         Clock.schedule_once(lambda dt: self._on_sim_result(ok, info))
 
     def _stop_sim_thread(self):
@@ -1192,6 +1202,7 @@ class StatusScreen(Screen):
 
     def _on_sim_result(self, ok, info):
         self.sim_button.disabled = False
+        self.sim_spinner.disabled = self.sim.running
         if self.sim.running:
             self.sim_button.text = f"Simulation stoppen ({info})"
         elif ok:
@@ -1241,6 +1252,8 @@ class StatusScreen(Screen):
             self._sim_button_visible = want_sim
             self._sim_area.clear_widgets()
             if want_sim:
+                self._refresh_sim_logs()  # neue Logs seit dem letzten Mal (Fahrt dazwischen)
+                self._sim_area.add_widget(self.sim_spinner)
                 self._sim_area.add_widget(self.sim_button)
         self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
 
@@ -1408,6 +1421,14 @@ class MX5DashApp(App):
         self.sm.current = "status"
 
         self._in_testmode = False
+        # Laeuft die Vcan-Simulation, meldet das Backend "logging" und das Dash zeigt den Drive-Screen -
+        # der Stopp-Knopf auf dem Status-Screen war dann nie zu sehen (10.10.2026). Darum hier ein eigener
+        # Knopf in der Fusszeile, nur solange die Simulation laeuft. Stoppt nur (kein Umschalter): ein
+        # doppelt ankommender Tipp darf die Simulation nicht wieder starten.
+        self.sim_stop_button = Button(text="SIMULATION BEENDEN", font_size="16sp", bold=True,
+                                      size_hint_x=None, width=240, background_color=RED)
+        self.sim_stop_button.bind(on_release=lambda *_: self._stop_sim())
+        Clock.schedule_interval(self._sync_sim_stop_button, 0.5)
         Clock.schedule_interval(self.update_state, POLL_INTERVAL_S)
         Clock.schedule_interval(self._drive_tick, 1.0 / DRIVE_REFRESH_HZ)
         Clock.schedule_interval(
@@ -1420,6 +1441,19 @@ class MX5DashApp(App):
         # 30-Hz-Refresh auch auf dem Status-/Testmodus-Screen mit (CPU auf dem Pi).
         if self.sm.current == "drive":
             self.drive_screen.refresh(dt)
+
+    def _sync_sim_stop_button(self, *_args):
+        bar = self.drive_screen.status_bar
+        shown = self.sim_stop_button.parent is not None
+        if self.status_screen.sim.running and not shown:
+            self.sim_stop_button.disabled = False
+            bar.add_widget(self.sim_stop_button, index=2)  # vor LOG-Status und Uhr
+        elif not self.status_screen.sim.running and shown:
+            bar.remove_widget(self.sim_stop_button)
+
+    def _stop_sim(self):
+        self.sim_stop_button.disabled = True
+        threading.Thread(target=self.status_screen._stop_sim_thread, daemon=True).start()
 
     def start_test_mode(self):
         self._in_testmode = True
