@@ -5603,3 +5603,21 @@ gezielt, ein Doppeltipp kann also nichts neu starten (Test
 `test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs`). Der Nutzer hat den Ablauf
 Start → Fahrbildschirm → Beenden → Status-Bildschirm durchgespielt. Danach: 0 canplayer, Trigger- und
 Replay-Datei sowie `vcan0` entfernt, Overlay 2 %.
+
+**Nachtrag USV (10.10.2026, nachts): Handbuch qUPS-P-SC v1.3 gelesen** (`aqexhu/qups-guard`, `docs/UserManual`).
+- Netzteil: 5 V, mindestens 2 A, empfohlen 3 A. Laut Kapitel 3.2.3 sind „Safety power supplies that disable 5V at
+  their output in the absence of a connected device“ ungeeignet. So arbeitet jeder USB-C-PD-Port, auch der des
+  Schwaiger-Kfz-Adapters (USB-C 5 V/3 A, USB-A 5 V/2,4 A, Modellreihe LADC0140). Widerspruch: Der Anhang listet
+  das Pi-5-Netzteil als getestet. **Nach Lieferung testen**, ob die Eingangs-LED (6) am USB-C-Port leuchtet.
+  Sonst USB-A mit A-auf-C-Kabel (2,4 A) oder einen 12→5-V/5-A-Wandler auf den Klemmeneingang (5).
+- AUTO-Modus: Der Pi bekommt erst Strom, wenn die Kondensatoren den HIGH-Pegel (Boot + Shutdown) erreicht haben,
+  laut Handbuch „up to minutes“. Im Auto fehlt dann der Fahrtbeginn. Die Pegel lassen sich mit L1–L4 einstellen
+  (Pi 4 bei 50 % Last: L1 ON, Rest OFF). ON-Modus: sofort an, ein Shutdown ist aber erst garantiert, wenn
+  genug geladen ist. Plan: AUTO mit gesenktem Pegel, Verzögerung nach dem Einbau messen.
+- Signale: pfo (Power Good, 1 = Netz), lim (1 = Energie über Grenzwert), shd (Pi setzt 1, solange er läuft; 0
+  nach dem Shutdown, dann startet der qUPS den Pi bei Netzrückkehr sicher neu). Umschaltung 100–300 µs, eine
+  „Under-voltage“-Meldung ist dabei möglich und harmlos. Die Eingangsschwelle stellt das Poti (8) ein (bei zu
+  hoher Einstellung pendelt er zwischen den Modi). Reset-Kontakt (10) unterbricht die Versorgung. Verkabelter
+  Betrieb über Pin 2/4 (+5 V) und GND ist vorgesehen (Kapitel 3.2.2).
+- Der Hersteller-Daemon fährt erst bei lim = 0 herunter. Für uns ist eine eigene Logik geplant: shd setzen;
+  pfo = 0 und KeyState OFF → sofort Shutdown; lim = 0 → immer Shutdown.
