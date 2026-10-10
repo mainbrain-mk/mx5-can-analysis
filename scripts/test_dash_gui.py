@@ -299,6 +299,49 @@ def test_prepare_replay_log_streams_without_buffering_all_lines():
         assert result == good * 3
 
 
+def test_prepare_replay_log_keeps_only_the_start_of_long_logs():
+    """Replay nur aus den ersten max_lines Zeilen: ganze Fahrten (600-900 MB) entpackt in /tmp
+    (RAM-Overlay, 923 MB) fuellten 62 % und brauchten ~40 s (10.10.2026)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        gz_path = os.path.join(tmp, "in.log.gz")
+        out_path = os.path.join(tmp, "out.log")
+        lines = [f"(1700000000.{i:06d}) can0 123#DEADBEEF\n" for i in range(10)]
+        with gzip.open(gz_path, "wt") as f:
+            f.writelines(lines)
+        dash_gui.SimController._prepare_replay_log(gz_path, out_path, max_lines=4)
+        with open(out_path) as f:
+            assert f.read() == "".join(lines[:4])
+
+
+def test_sim_start_twice_at_once_starts_one_canplayer():
+    """Ein Tipp kam doppelt an (10.10.2026) und startete zwei canplayer. Auch ohne den Touch-Fix darf
+    ein zweiter Start waehrend des (langsamen) Entpackens keinen zweiten Prozess erzeugen."""
+    import threading
+    import time
+    from unittest import mock
+
+    started = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    with tempfile.TemporaryDirectory() as tmp, \
+            mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", os.path.join(tmp, "trigger")), \
+            mock.patch.object(dash_gui.SimController, "_find_latest_log", staticmethod(lambda: "x.log.gz")), \
+            mock.patch.object(dash_gui.SimController, "_prepare_replay_log",
+                              classmethod(lambda cls, gz, out: time.sleep(0.2))), \
+            mock.patch.object(dash_gui.subprocess, "run"), \
+            mock.patch.object(dash_gui.subprocess, "Popen", side_effect=lambda *a, **k: started.append(1) or Proc()):
+        sim = dash_gui.SimController()
+        threads = [threading.Thread(target=sim.start) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    assert len(started) == 1, started
+
+
 def test_gear_display_turns_baby_blue_when_clutch_not_closed():
     """Kupplung nicht geschlossen (Pedal getreten) -> GEAR-Anzeige babyblau,
     sonst normale Textfarbe - siehe CLUTCH_ACTIVE_RAW (gleiche Schwelle wie
@@ -504,6 +547,8 @@ if __name__ == "__main__":
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
     test_prepare_replay_log_streams_without_buffering_all_lines()
+    test_prepare_replay_log_keeps_only_the_start_of_long_logs()
+    test_sim_start_twice_at_once_starts_one_canplayer()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
     test_gear_display_keeps_last_gear_while_clutch_pressed()

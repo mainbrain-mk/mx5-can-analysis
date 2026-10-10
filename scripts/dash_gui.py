@@ -26,6 +26,14 @@ import time
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 
+from kivy.config import Config
+
+# Jeder Tipp kam doppelt an (10.10.2026 auf dem Pi protokolliert): probesysfs/MTD liest den Touchscreen
+# direkt (event4), Xwayland meldet denselben Tipp zusaetzlich als Maus. Jeder Knopf loeste zweimal aus
+# (Sim-Start -> zwei canplayer). disable_on_activity verwirft Maus-Ereignisse, solange ein echter Touch
+# aktiv ist; eine USB-Maus funktioniert weiter. Muss vor dem Start der Eingabe-Provider gesetzt sein.
+Config.set("input", "mouse", "mouse,disable_on_activity")
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
@@ -51,6 +59,10 @@ UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
 # Gegenstueck zu can_backend.py SIM_TRIGGER_PATH - siehe SimController unten.
 SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
 SIM_REPLAY_LOG = "/tmp/mx5_sim_replay.log"
+# Replay nur aus dem Anfang des letzten Logs: /tmp liegt im RAM (overlayroot, 923 MB). Ganze Fahrten sind
+# seit Oktober 600-900 MB Text, das Entpacken dauerte ~40 s und belegte 62 % des Overlays (10.10.).
+# ~1,8 Mio. Zeilen = ~10 min bei ~2900 Frames/s, ~85 MB; canplayer -l i spielt sie in Schleife.
+SIM_MAX_LINES = 1_800_000
 # Screen-Umschaltung + Status-/Testmodus-Refresh. War 1 s - zu traege fuer die
 # Pedal-Kacheln im Testmodus ("Kupplung ca. 25 %" usw.), die Arbeit pro Takt ist klein.
 POLL_INTERVAL_S = 0.2
@@ -1032,12 +1044,19 @@ class SimController:
     def __init__(self):
         self.proc = None
         self.log_name = None
+        # Start/Stopp laufen in Threads; ohne Sperre starteten zwei schnelle Tipps zwei canplayer,
+        # die in dieselbe Replay-Datei schrieben (10.10.2026)
+        self._lock = threading.Lock()
 
     @property
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
+        with self._lock:
+            return self._start()
+
+    def _start(self):
         if self.running:
             return True, self.log_name
         latest = self._find_latest_log()
@@ -1060,6 +1079,10 @@ class SimController:
             return False, str(exc)
 
     def stop(self):
+        with self._lock:
+            self._stop()
+
+    def _stop(self):
         try:
             os.remove(SIM_TRIGGER_PATH)
         except FileNotFoundError:
@@ -1086,7 +1109,7 @@ class SimController:
         return max(candidates, key=os.path.getmtime)
 
     @classmethod
-    def _prepare_replay_log(cls, gz_path, out_path):
+    def _prepare_replay_log(cls, gz_path, out_path, max_lines=SIM_MAX_LINES):
         # Zeilenweise statt readlines(): das "letzte geschriebene Log" ist per
         # Definition das mit der hoechsten Chance, mitten im gzip-Puffer
         # abgebrochen zu sein (Zuendung aus waehrend candump/gzip noch
@@ -1104,7 +1127,9 @@ class SimController:
         with open(out_path, "w") as f_out:
             try:
                 with gzip.open(gz_path, "rt", errors="replace") as f_in:
-                    for line in f_in:
+                    for n, line in enumerate(f_in):
+                        if n >= max_lines:
+                            break
                         if prev_line is not None:
                             f_out.write(prev_line)
                         prev_line = line
