@@ -342,6 +342,32 @@ def test_sim_start_twice_at_once_starts_one_canplayer():
     assert len(started) == 1, started
 
 
+def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
+    """Waehrend der Simulation zeigt das Dash den Drive-Screen, der Stopp-Knopf des Status-Screens war
+    unerreichbar (10.10.2026). Der Fusszeilen-Knopf erscheint nur bei laufender Simulation und stoppt sie."""
+    from types import SimpleNamespace
+    from kivy.uix.button import Button
+
+    stopped = []
+    sim = SimpleNamespace(running=True)
+    app = SimpleNamespace(
+        drive_screen=SimpleNamespace(status_bar=dash_gui.StatusBar()),
+        status_screen=SimpleNamespace(sim=sim, _stop_sim_thread=lambda: stopped.append(1)),
+        sim_stop_button=Button())
+    sync = lambda: dash_gui.MX5DashApp._sync_sim_stop_button(app)
+
+    sync()
+    assert app.sim_stop_button.parent is app.drive_screen.status_bar
+    dash_gui.MX5DashApp._stop_sim(app)
+    assert app.sim_stop_button.disabled
+    sim.running = False
+    sync()
+    assert app.sim_stop_button.parent is None
+    import time
+    time.sleep(0.1)  # Stopp laeuft im Thread
+    assert stopped == [1], stopped
+
+
 def test_gear_display_turns_baby_blue_when_clutch_not_closed():
     """Kupplung nicht geschlossen (Pedal getreten) -> GEAR-Anzeige babyblau,
     sonst normale Textfarbe - siehe CLUTCH_ACTIVE_RAW (gleiche Schwelle wie
@@ -549,6 +575,7 @@ if __name__ == "__main__":
     test_prepare_replay_log_streams_without_buffering_all_lines()
     test_prepare_replay_log_keeps_only_the_start_of_long_logs()
     test_sim_start_twice_at_once_starts_one_canplayer()
+    test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
     test_gear_display_keeps_last_gear_while_clutch_pressed()

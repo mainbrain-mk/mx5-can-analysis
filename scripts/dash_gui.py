@@ -1433,6 +1433,14 @@ class MX5DashApp(App):
         self.sm.current = "status"
 
         self._in_testmode = False
+        # Laeuft die Vcan-Simulation, meldet das Backend "logging" und das Dash zeigt den Drive-Screen -
+        # der Stopp-Knopf auf dem Status-Screen war dann nie zu sehen (10.10.2026). Darum hier ein eigener
+        # Knopf in der Fusszeile, nur solange die Simulation laeuft. Stoppt nur (kein Umschalter): ein
+        # doppelt ankommender Tipp darf die Simulation nicht wieder starten.
+        self.sim_stop_button = Button(text="SIMULATION BEENDEN", font_size="16sp", bold=True,
+                                      size_hint_x=None, width=240, background_color=RED)
+        self.sim_stop_button.bind(on_release=lambda *_: self._stop_sim())
+        Clock.schedule_interval(self._sync_sim_stop_button, 0.5)
         Clock.schedule_interval(self.update_state, POLL_INTERVAL_S)
         Clock.schedule_interval(self._drive_tick, 1.0 / DRIVE_REFRESH_HZ)
         Clock.schedule_interval(
@@ -1445,6 +1453,19 @@ class MX5DashApp(App):
         # 30-Hz-Refresh auch auf dem Status-/Testmodus-Screen mit (CPU auf dem Pi).
         if self.sm.current == "drive":
             self.drive_screen.refresh(dt)
+
+    def _sync_sim_stop_button(self, *_args):
+        bar = self.drive_screen.status_bar
+        shown = self.sim_stop_button.parent is not None
+        if self.status_screen.sim.running and not shown:
+            self.sim_stop_button.disabled = False
+            bar.add_widget(self.sim_stop_button, index=2)  # vor LOG-Status und Uhr
+        elif not self.status_screen.sim.running and shown:
+            bar.remove_widget(self.sim_stop_button)
+
+    def _stop_sim(self):
+        self.sim_stop_button.disabled = True
+        threading.Thread(target=self.status_screen._stop_sim_thread, daemon=True).start()
 
     def start_test_mode(self):
         self._in_testmode = True

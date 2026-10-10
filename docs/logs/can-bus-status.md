@@ -5567,3 +5567,31 @@ Shutdown aus.
 
 **Offen (Nutzerentscheid):** Bestellung, Halterungspunkte an der Display-Rückseite, Typenschild des
 36-W-Adapters (5 V/3 A an einem Port?). Software (Abschaltlogik, Auto-Boot, Anzeige im Dash) nach dem Einbau.
+
+## Dash: jeder Tipp kam doppelt an, Simulation entpackte ganze Fahrten in den RAM (10.10.2026 spätabends)
+
+**Befund:** Ein Klick auf „Vcan-Simulation starten“ startete zweimal zwei canplayer-Prozesse. Beide liefen
+unter dem Dash als Elternprozess und starteten in derselben Sekunde. Das hat eine Diagnose-Kopie des Dash
+mit Touch-Protokoll belegt: **Ein** Fingertipp erzeugt `MTDMotionEvent` (probesysfs liest `/dev/input/event4`
+direkt) **und** `MouseMotionEvent` (Xwayland meldet denselben Tipp als Maus), beide mit Druck vor dem Loslassen.
+Damit löste jeder Knopf zweimal `on_release` aus. Betroffen waren alle Knöpfe, auch der Testmodus
+(„Überspringen“ sprang zwei Schritte). Ursache ist die Kivy-Konfiguration auf dem Pi (`~/.kivy/config.ini`,
+`[input] mouse = mouse` plus `%(name)s = probesysfs`).
+Zweites Problem: `SimController._prepare_replay_log()` entpackte das **ganze** letzte Log nach `/tmp`. Das
+liegt im RAM-Overlay (923 MB). Bei der Fahrt `133226` waren das 585 MB (62 % des Overlays) und ~40 s Startzeit.
+Nach einer 2-h-Fahrt (~900 MB) wäre das Overlay übergelaufen. Die beiden gleichzeitigen Starts schrieben
+außerdem in dieselbe Datei.
+
+**Fix (`c22b68b`, auf dem Pi):**
+- `Config.set("input", "mouse", "mouse,disable_on_activity")` in `dash_gui.py`, vor dem Start der
+  Eingabe-Provider. Mausereignisse werden verworfen, solange ein echter Touch aktiv ist, eine USB-Maus geht
+  weiter. Bewusst im Code und nicht in `~/.kivy/config.ini` (Overlay-Unterbau, nicht im Git).
+- `SimController.start/stop` laufen unter einer Sperre.
+- Das Replay umfasst nur die ersten 1,8 Mio. Zeilen (~10 min, ~83 MB, `SIM_MAX_LINES`).
+- Tests: `test_prepare_replay_log_keeps_only_the_start_of_long_logs` und
+  `test_sim_start_twice_at_once_starts_one_canplayer`. Alle Dash-Tests laufen auf dem Pi.
+
+**Verifiziert nach dem Reboot (Nutzer tippt einmal):** Start in wenigen Sekunden, genau 1 canplayer, Replay
+83 MB, Overlay 10 % belegt, Backend ~1370 Frames/s.
+**Zwischenfall dabei:** `pgrep -f "python3 /home/pi/canlogs/dash_gui.py"` im SSH-Kommando traf die eigene
+Shell (bekannte Falle). Dash-Prozesse deshalb nur per explizit ermittelter PID beenden.
