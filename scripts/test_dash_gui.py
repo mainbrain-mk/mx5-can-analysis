@@ -276,46 +276,9 @@ def test_testmode_has_priority_over_logging():
     assert app.testmode_screen.refreshed
 
 
-def test_prepare_replay_log_streams_without_buffering_all_lines():
-    """Regression fuer den OOM-Absturz beim Klick auf "Vcan-Simulation starten"
-    (2026-09-17): _prepare_replay_log() sammelte frueher jede Zeile in einer
-    Liste, bevor sie geschrieben wurde. Bei den ~50MB-gzip-Logs, die hier
-    taeglich anfallen, entpackt das auf mehrere hundert MB Text und hat den
-    Pi (1.8GB RAM) per OOM-Killer abgeschossen. Der Test prueft nur noch das
-    fachliche Verhalten (abgeschnittene letzte Zeile wird verworfen), nicht
-    den Speicherverbrauch."""
-    with tempfile.TemporaryDirectory() as tmp:
-        gz_path = os.path.join(tmp, "in.log.gz")
-        out_path = os.path.join(tmp, "out.log")
-        good = "(1700000000.123456) can0 123#DEADBEEF\n"
-        truncated = "(1700000000.223456) can0 12"
-        with gzip.open(gz_path, "wt") as f:
-            f.write(good * 3 + truncated)
-
-        dash_gui.SimController._prepare_replay_log(gz_path, out_path)
-
-        with open(out_path) as f:
-            result = f.read()
-        assert result == good * 3
-
-
-def test_prepare_replay_log_keeps_only_the_start_of_long_logs():
-    """Replay nur aus den ersten max_lines Zeilen: ganze Fahrten (600-900 MB) entpackt in /tmp
-    (RAM-Overlay, 923 MB) fuellten 62 % und brauchten ~40 s (10.10.2026)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        gz_path = os.path.join(tmp, "in.log.gz")
-        out_path = os.path.join(tmp, "out.log")
-        lines = [f"(1700000000.{i:06d}) can0 123#DEADBEEF\n" for i in range(10)]
-        with gzip.open(gz_path, "wt") as f:
-            f.writelines(lines)
-        dash_gui.SimController._prepare_replay_log(gz_path, out_path, max_lines=4)
-        with open(out_path) as f:
-            assert f.read() == "".join(lines[:4])
-
-
 def test_sim_start_twice_at_once_starts_one_canplayer():
     """Ein Tipp kam doppelt an (10.10.2026) und startete zwei canplayer. Auch ohne den Touch-Fix darf
-    ein zweiter Start waehrend des (langsamen) Entpackens keinen zweiten Prozess erzeugen."""
+    ein zweiter Start waehrend eines langsamen Starts keinen zweiten Prozess erzeugen."""
     import threading
     import time
     from unittest import mock
@@ -328,18 +291,69 @@ def test_sim_start_twice_at_once_starts_one_canplayer():
 
     with tempfile.TemporaryDirectory() as tmp, \
             mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", os.path.join(tmp, "trigger")), \
-            mock.patch.object(dash_gui.SimController, "_find_latest_log", staticmethod(lambda: "x.log.gz")), \
-            mock.patch.object(dash_gui.SimController, "_prepare_replay_log",
-                              classmethod(lambda cls, gz, out: time.sleep(0.2))), \
             mock.patch.object(dash_gui.subprocess, "run"), \
-            mock.patch.object(dash_gui.subprocess, "Popen", side_effect=lambda *a, **k: started.append(1) or Proc()):
+            mock.patch.object(dash_gui.subprocess, "Popen", side_effect=lambda *a, **k: time.sleep(0.2) or started.append(1) or Proc()):
         sim = dash_gui.SimController()
-        threads = [threading.Thread(target=sim.start) for _ in range(2)]
+        threads = [threading.Thread(target=sim.start, args=("x.log.gz",)) for _ in range(2)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
     assert len(started) == 1, started
+
+
+def test_sim_loop_replays_whole_log_until_stopped():
+    """Ganzes Log statt der ersten ~10 min (10.10.2026): die Schleife streamt das gz komplett und von vorn,
+    solange der Trigger existiert; stop() beendet sh, zcat und Abspieler zusammen. canplayer ist hier
+    durch cat ersetzt (sein Streaming-/Uhrsprung-Verhalten wurde auf dem Pi von Hand geprueft)."""
+    import time
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log, out = os.path.join(tmp, "candump-x.log.gz"), os.path.join(tmp, "out")
+        with gzip.open(log, "wt") as f:
+            f.write("(1.000000) can0 123#01\n(2.000000) can0 123#02\n")
+        loop = dash_gui.SIM_LOOP_SH.replace("canplayer -s 5 vcan0=can0", f"cat >> {out}")
+        assert loop != dash_gui.SIM_LOOP_SH
+        with mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", os.path.join(tmp, "trigger")), \
+                mock.patch.object(dash_gui, "SIM_LOOP_SH", loop), \
+                mock.patch.object(dash_gui.subprocess, "run"):
+            sim = dash_gui.SimController()
+            assert sim.start(log) == (True, "candump-x.log.gz")
+            pgid = sim.proc.pid
+            time.sleep(1.5)  # Durchlauf 1, sleep 1, Durchlauf 2
+            sim.stop()
+        with open(out) as f:
+            assert f.read() == "(1.000000) can0 123#01\n(2.000000) can0 123#02\n" * 2
+        try:
+            os.killpg(pgid, 0)
+            raise AssertionError("Prozessgruppe lebt nach stop() noch")
+        except ProcessLookupError:
+            pass
+
+
+def test_sim_log_choice_newest_first_without_stubs():
+    """Log-Auswahl fuer die Simulation (10.10.2026): neuestes zuerst und vorausgewaehlt, leere
+    50-Byte-Stummel nicht waehlbar, der gewaehlte Pfad landet beim Start."""
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, size in (("candump-2026-09-11_194804.log.gz", 50),
+                           ("candump-2026-10-04_092939.log.gz", 5000),
+                           ("candump-2026-10-10_133226.log.gz", 3_000_000)):
+            with open(os.path.join(tmp, name), "wb") as f:
+                f.write(b"x" * size)
+        with mock.patch.object(dash_gui, "LOG_DIR", tmp):
+            names = [os.path.basename(p) for p, _ in dash_gui.SimController.list_logs()]
+            assert names == ["candump-2026-10-10_133226.log.gz", "candump-2026-10-04_092939.log.gz"]
+            screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
+            screen.refresh({"values": {}, "can_up": False})
+        assert screen.sim_spinner.text == "2026-10-10_133226 · 3 MB"
+        assert len(screen.sim_spinner.values) == 2
+        screen.sim_spinner.text = screen.sim_spinner.values[1]
+        with mock.patch.object(dash_gui.threading, "Thread") as thread:
+            screen._on_sim_button()
+        assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
 
 
 def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
@@ -572,9 +586,9 @@ if __name__ == "__main__":
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
-    test_prepare_replay_log_streams_without_buffering_all_lines()
-    test_prepare_replay_log_keeps_only_the_start_of_long_logs()
     test_sim_start_twice_at_once_starts_one_canplayer()
+    test_sim_loop_replays_whole_log_until_stopped()
+    test_sim_log_choice_newest_first_without_stubs()
     test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
