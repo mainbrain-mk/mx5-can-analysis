@@ -356,6 +356,39 @@ def test_sim_log_choice_newest_first_without_stubs():
         assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
 
 
+def test_sim_log_list_picks_up_logs_packed_after_dash_start():
+    """16.10.2026: Das Dash las die Liste beim Boot einmal ein, der Packdienst legte die .gz der letzten Fahrt
+    erst 10 min spaeter an - sie fehlte, solange kein can0 kam. Jetzt wird nachgelesen; die Standard-Auswahl
+    folgt dem neuesten Log, eine bewusst gewaehlte aeltere bleibt."""
+    from unittest import mock
+
+    def put(tmp, stamp):
+        with open(os.path.join(tmp, f"candump-{stamp}.log.gz"), "wb") as f:
+            f.write(b"x" * 5000)
+
+    with tempfile.TemporaryDirectory() as tmp, mock.patch.object(dash_gui, "LOG_DIR", tmp):
+        put(tmp, "2026-10-16_181006")
+        screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
+        waiting = {"values": {}, "can_up": False}
+        screen.refresh(waiting)
+        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+
+        put(tmp, "2026-10-16_183252")
+        screen.refresh(waiting)  # innerhalb von SIM_LOGS_REFRESH_S: noch nicht nachgelesen
+        assert len(screen.sim_spinner.values) == 1
+        screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
+        screen.refresh(waiting)
+        assert len(screen.sim_spinner.values) == 2
+        assert screen.sim_spinner.text.startswith("2026-10-16_183252")
+
+        screen.sim_spinner.text = screen.sim_spinner.values[1]  # Nutzer waehlt das aeltere
+        put(tmp, "2026-10-16_200000")
+        screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
+        screen.refresh(waiting)
+        assert len(screen.sim_spinner.values) == 3
+        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+
+
 def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
     """Waehrend der Simulation zeigt das Dash den Drive-Screen, der Stopp-Knopf des Status-Screens war
     unerreichbar (10.10.2026). Der Fusszeilen-Knopf erscheint nur bei laufender Simulation und stoppt sie."""
@@ -589,6 +622,7 @@ if __name__ == "__main__":
     test_sim_start_twice_at_once_starts_one_canplayer()
     test_sim_loop_replays_whole_log_until_stopped()
     test_sim_log_choice_newest_first_without_stubs()
+    test_sim_log_list_picks_up_logs_packed_after_dash_start()
     test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
     test_gear_label_shows_reverse_neutral_and_first_at_standstill()
