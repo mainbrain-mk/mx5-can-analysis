@@ -5661,3 +5661,66 @@ zeigt die Auswahl auf dem Status-Bildschirm.
 - Das Dash zeigte 130,2–130,5 km/h, Öl 97,8 → 97,5 °C und Lambda 0,99. Im Datalake stehen dieselben Werte bei
   15:00:17–15:00:47 (t = 2320–2350 s), das passt bis auf wenige Sekunden zur Wanduhr seit dem Start.
 - Das Backend dekodiert ~1410 Frames/s wie bei früheren Simulationen.
+
+## CAN-Empfang nach i-stop-Neustart auf ~5 % eingebrochen (Fahrt 16.10.2026, untersucht 16.10. abends)
+
+Log `candump-2026-10-16_181006` (18:10–18:31). Der Nutzer hat im letzten Viertel fehlende Werte im Dash
+und eine CAN-Rate von nur 30–70 Hz gesehen. Untersucht per SSH; der Pi war um 19:00 neu gestartet, das
+Journal der Fahrt ist also weg (volatile). Ausgewertet wurden `ifstats-*`, `applogs/can_backend.log` und das Roh-Log.
+
+- **Beginn: 18:21:12–18:21:22**, genau als der Motor nach dem i-stop wieder ansprang (i-stop 638–671 s im Log).
+  - Davor: Backend ~1410 fps, 7E0 ~1750 Antworten/10 s, Roh-Log ~2920 Frames/s.
+  - Danach: 20–100 fps, keine 7E0-Antworten mehr, im Roh-Log ~85–200 Frames/s.
+- **Alle IDs gleichmäßig betroffen** (2–7 % der vorherigen Rate). Die Frames kommen gebündelt mit gleichem
+  Zeitstempel. Das Auto hat den Bus also nicht ruhiger gemacht, die Frames gingen auf dem Weg zum Pi verloren.
+- **Der Kernel sah nichts davon:** `ifstats` blieb ERROR-ACTIVE, Bus-Errors, Drops, missed und Overrun alle 0.
+  RX stieg ab 18:21 nur um ~8000/min statt ~175000/min.
+  - TX fror bei 113563 ein: Der Poller hat ab da gar nicht mehr gesendet, ohne TX-Fehler. Vermutlich hängt er
+    beim Schreiben, weil der Adapter nichts mehr annimmt.
+  - Die minütlichen ifstats-Einträge kamen ab 18:22 jeweils 4–5 s zu spät.
+  - Arbeitshypothese: Die Lücke entsteht im CANable/gs_usb oder auf der USB-Strecke und nicht in candump.
+- **Erholung erst durch einen neuen USB-Anmeldevorgang:** `can_backend.log` meldet um 18:32:37 „Network is down“, danach
+  „No such device“. `can0` war also kurz weg. In der Sitzung `183252` lief es wieder voll mit ~2910 Frames/s
+  und dem Poller. Die 20-s-Sitzung `183204` dazwischen war noch im kaputten Zustand (~59 Frames/s).
+- **Neu:** 39 frühere Logs mit i-stop hatten danach keinen Einbruch. Die Fahrt `183252` hatte keinen i-stop.
+
+Offene Fragen an den Nutzer:
+- War das Ab- und Anmelden von `can0` um 18:32:37 ein Umstecken von Hand?
+- Hängt die Powerbank am Zigarettenanzünder? Die Buchse ist beim Anlassen tot, ein kurzer Spannungseinbruch auf VBUS wäre plausibel.
+
+Ohne Journal und `vcgencmd get_throttled` der Fahrt ist die Ursache nicht belegt.
+
+**Nachtrag (16.10.2026, später):** Laut Nutzer war der CAN-Stecker am CANable lose. Er fiel beim Anheben ganz
+ab, und beim Wiederanstecken wurde auch USB kurz getrennt. Die Daten sprechen klar für den **CAN-Stecker** und
+gegen USB:
+- **Keine aufgestauten Frames:** Nach dem Einbruch kam keine einzige Botschaft schneller als ihre Periode an
+  (0x215/0x075 10 ms, 0x086/0x240 12 ms, 0 % mit dt < 0,5 Periode). Hätte die USB-Strecke gehangen, hätte der
+  Adapter Frames gepuffert und gestaucht nachgeliefert. Die Frames kamen also in Echtzeit an, nur viele davon gar nicht.
+- **Kurze Empfangsfenster:** 9321 Fenster mit im Median 4 Frames und ~7 ms Dauer. Darin liegen die Frames
+  0,25 ms auseinander wie auf dem Bus, dazwischen ~33 ms Pause. Das passt zu einem Wackelkontakt.
+- **USB blieb angemeldet:** Das erste „No such device“ kam um 18:32:37, beim Trennen durch den Nutzer.
+- **Senden fror ein:** TX blieb ab 18:21 ohne Fehler stehen. Das passt zu fehlendem ACK auf einer unterbrochenen Leitung.
+- **Nicht aussagekräftig:** Die Fehlerzähler bleiben auch beim kompletten Abziehen um 18:32 bei 0, weil
+  BERR-Reporting aus ist. Die Restrate hängt nicht von der Geschwindigkeit ab (Spearman −0,04).
+- **Auslöser:** vermutlich der Ruck beim Motorstart nach dem i-stop.
+
+**Korrektur zum Abschnitt oben:** „gebündelt mit gleichem Zeitstempel“ war ein Ausgabefehler.
+awk unter `de_DE` liest `1792...123.456` nur bis zum Punkt. Für Zeitstempel `LC_ALL=C` setzen oder Python nehmen.
+Die Arbeitshypothese „CANable/USB“ ist damit widerlegt.
+
+## Dash: Sim-Logliste zeigte nur das erste Log des Tages (16.10.2026 abends)
+
+**Befund (Nutzer):** In der Auswahlliste der Vcan-Simulation stand von heute nur `181006`. Es fehlten `183204`
+und `183252`, obwohl alle drei gepackt auf dem Stick lagen.
+- Ursache: Das Dash startete um 19:01:00 und las die Liste dabei einmal ein. Der Packdienst packte die beiden
+  späteren Logs erst um 19:10 (`gepackt: candump-2026-10-16_183252.log in 13 s`), wie üblich 10 min nach dem Boot.
+- Die Liste wurde nur neu eingelesen, wenn der Sim-Knopf neu erschien. Ohne `can0` blieb er die ganze Zeit
+  sichtbar, die Liste also auf dem Stand vom Boot.
+
+**Fix (`487d19c`, auf dem Pi):**
+- Solange der Knopf sichtbar ist und keine Simulation läuft, liest das Dash die Liste alle 2 s neu ein
+  (`SIM_LOGS_REFRESH_S`). Das Dropdown wird nur bei Änderungen neu aufgebaut.
+- Stand die Auswahl auf dem neuesten Log, folgt sie einem neu gepackten. Eine bewusst gewählte ältere bleibt.
+- Halbe Dateien können nicht in der Liste auftauchen: `_gzip_one()` schreibt `.gz.tmp` und benennt atomar um.
+- Test `test_sim_log_list_picks_up_logs_packed_after_dash_start`. Alle Dash-Tests laufen auf dem Pi.
+- Nach dem Deploy das Dash per PID neu gestartet. Das Bildschirmfoto zeigt `2026-10-16_183252 · 30 MB` vorausgewählt.

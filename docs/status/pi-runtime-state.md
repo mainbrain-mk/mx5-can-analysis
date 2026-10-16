@@ -7,7 +7,7 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 „Pi-Infrastruktur: Lücken zu Hause reproduziert…“ (10.10.2026).
 
 **Stand 2026-10-10, ~23:50** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter, nach dem Stick-Tausch):
-- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`), zuletzt `bce5930` (Dash: Log-Auswahl, ganze Logs in der Simulation).
+- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`), zuletzt `487d19c` (Dash: Sim-Logliste wird laufend nachgelesen). PR #46 offen.
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
@@ -39,7 +39,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   Log zeigen. Ohne Handy-Dongle laufen sie ungebremst (~150 Anfragen/s auf 0x7E0). Sieht er fremde Tester-Anfragen,
   sind es 5 Runden/s (`FAST_PERIOD_SHARED_S`).
 - **Vcan-Simulation** (Knopf auf dem Status-Bildschirm, wenn kein `can0` da ist): spielt das in der Liste
-  daneben gewählte Log (Standard: neuestes) komplett und in Schleife ab und zeigt den Fahrbildschirm. Gestreamt
+  daneben gewählte Log (Standard: neuestes) komplett und in Schleife ab und zeigt den Fahrbildschirm. Die Liste
+  wird alle 2 s neu eingelesen; gerade gepackte Logs erscheinen also ohne Dash-Neustart. Gestreamt
   per `zcat | canplayer -s 5`, nichts landet in `/tmp`. Beenden über „SIMULATION BEENDEN“ in dessen Fußzeile.
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
   `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
