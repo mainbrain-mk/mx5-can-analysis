@@ -6536,3 +6536,36 @@ Ausgewertet sind die Fahrten vom 02., 04. und 10.10. auf Hankook W462 195/50 R16
   nicht aus den neuen Logs.
 - Die Schaltrekorde 5→6/5→4 sind Artefakte von CAN-Datenlücken, siehe `logs/can-bus-status.md`
   „Datenlücken im candump seit 02.10.2026“.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-10-15)
+
+- `candump-2026-10-15_084956`, Masse=1170.2kg (Tank ~15.1 l (CAN Fuel_Tank Median 11.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-15_093151`, Masse=1171.1kg (Tank ~16.2 l (CAN Fuel_Tank Median 12.0 roh), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 0.95 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=1).
+- shift_record: Neue Bestzeit 3 -> 4 (upshift): 0.16s (vorher 0.94s), candump-2026-10-15_093151 @ t=0.0s.
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-10-16)
+
+- `candump-2026-10-16_181006`, Masse=1244.1kg (Tank ~13.6 l (CAN Fuel_Tank Median 9.6 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-16_183204`, Masse=1169.8kg (Tank ~14.4 l (CAN Fuel_Tank Median 10.4 roh), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-10-16_183252`, Masse=1243.4kg (Tank ~12.7 l (CAN Fuel_Tank Median 8.8 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.11 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=8).
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-10-26)
+
+- `candump-2026-10-26_080634`, Masse=1166.3kg (Tank ~9.8 l (CAN Fuel_Tank Median 6.2 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-26_151415`, Masse=1166.0kg (Tank ~9.4 l (CAN Fuel_Tank Median 5.8 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-26_153332`, Masse=1190.9kg (Tank ~42.8 l (CAN Fuel_Tank Median 36.2 roh), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.06 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=9).
+- dgm_gap: candump-2026-10-26_080634 t=534-544s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-10-26_080634 t=581-588s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- shift_record: Neue Bestzeit 4 -> 3 (downshift): 1.10s (vorher 1.12s), candump-2026-10-26_153332 @ t=301.6s.
