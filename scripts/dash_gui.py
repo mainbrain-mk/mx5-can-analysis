@@ -66,6 +66,9 @@ SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
 # -s 5 ueberspringt Luecken >5 s und synchronisiert auch bei Uhrspruengen rueckwaerts neu (auf dem Pi
 # mit canplayer 2020.11 geprueft). sleep 1: kein Leerlauf-Karussell, falls canplayer sofort scheitert.
 SIM_LOOP_SH = 'while [ -e "$1" ]; do zcat -- "$2" | canplayer -s 5 vcan0=can0; sleep 1; done'
+# Log-Liste neu einlesen, solange der Sim-Knopf sichtbar ist: der Packdienst legt die .gz der letzten Fahrt
+# erst ~10 min nach dem Boot an, das Dash steht dann schon (16.10.2026: nur das erste Log des Tages da).
+SIM_LOGS_REFRESH_S = 2.0
 # Screen-Umschaltung + Status-/Testmodus-Refresh. War 1 s - zu traege fuer die
 # Pedal-Kacheln im Testmodus ("Kupplung ca. 25 %" usw.), die Arbeit pro Takt ist klein.
 POLL_INTERVAL_S = 0.2
@@ -1155,6 +1158,7 @@ class StatusScreen(Screen):
         # im Spinner gewaehlten Log (Standard: neuestes), siehe SimController.
         self.sim = SimController()
         self._sim_logs = {}  # Spinner-Text -> Pfad
+        self._sim_logs_at = 0.0  # time.monotonic() des letzten Einlesens
         self.sim_spinner = Spinner(text="", font_size="16sp", size_hint_x=0.45)
         self.sim_button = Button(text="Vcan-Simulation starten", font_size="20sp")
         self.sim_button.bind(on_release=lambda *_: self._on_sim_button())
@@ -1175,10 +1179,16 @@ class StatusScreen(Screen):
             self._extras.add_widget(self.tpms)
 
     def _refresh_sim_logs(self):
+        self._sim_logs_at = time.monotonic()
+        old_newest = self.sim_spinner.values[0] if self.sim_spinner.values else None
         self._sim_logs = {f"{os.path.basename(p)[8:25]} · {size / 1e6:.0f} MB": p
                           for p, size in SimController.list_logs()}
-        self.sim_spinner.values = list(self._sim_logs)
-        if self.sim_spinner.text not in self._sim_logs:
+        values = list(self._sim_logs)
+        if values != list(self.sim_spinner.values):  # baut das Dropdown neu, also nur bei Aenderung
+            self.sim_spinner.values = values
+        # Stand die Auswahl auf dem neuesten Log (Standard), folgt sie einem neu gepackten; eine bewusst
+        # gewaehlte aeltere bleibt stehen.
+        if self.sim_spinner.text not in self._sim_logs or self.sim_spinner.text == old_newest:
             self.sim_spinner.text = next(iter(self._sim_logs), "kein Log")
 
     def _on_sim_button(self):
@@ -1255,6 +1265,8 @@ class StatusScreen(Screen):
                 self._refresh_sim_logs()  # neue Logs seit dem letzten Mal (Fahrt dazwischen)
                 self._sim_area.add_widget(self.sim_spinner)
                 self._sim_area.add_widget(self.sim_button)
+        elif want_sim and not self.sim.running and time.monotonic() - self._sim_logs_at >= SIM_LOGS_REFRESH_S:
+            self._refresh_sim_logs()
         self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
 
 
