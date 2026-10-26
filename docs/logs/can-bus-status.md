@@ -5823,3 +5823,36 @@ Logger ein), E und D vom geloggten Zähler bei 4834/l mit hochgerechneten Lücke
   Skill-Referenz `abgeleitete-anker.md`.
 - Nicht betroffen: Masse und Tankinhalt (beide aus dem Tankgeber `Fuel_Tank`, Kennlinie 3,0 + 1,10 · roh unverändert),
   Dash/Pi (rechnet keine Liter aus dem Zähler).
+
+**Nachtrag 04.10. (Nutzer, 26.10.):** Am 04.10. um 10:59 für 70,99 € an der Sprint Germendorf (Germendorfer Allee,
+MTS-K „Sprint er Allee“) getankt. Sorte ist nicht notiert. Den Literpreis habe ich nicht gefunden: Das Tankerkönig-Archiv
+(Azure DevOps) verlangt eine Anmeldung, benzinpreis-aktuell.de zeigt nur den aktuellen Preis
+(26.10. abends: Super 2,049, E10 1,989).
+- Erwartung aus dem Zähler (27.09.→04.10., 4960/l): 32,9 l, also **≈ 2,16 €/l** (±1 l → 2,09–2,23 €/l).
+  Aus dem Tankgeber (45 − 12,7 l) folgen 32,3 l, also ≈ 2,20 €/l. Ohne bekannten Literpreis ist das ein
+  Zirkelschluss und deshalb kein Kalibrierpunkt.
+- Mit Literpreis (Beleg/App) oder Litern wird 16.09.→26.10. eine lückenlose Kette.
+
+## Kalibrierung 4985/l: lückenlose Voll-bis-Voll-Kette 16.09.→26.10. (26.10.2026)
+
+**Angabe (Nutzer):** Am 04.10. wurde Super E10 getankt, Literpreis nach Erinnerung 2,199 €, kein Bon.
+70,99 € / 2,199 €/l = **32,28 l**. Erwartet waren aus dem Tankgeber 32,3 l und aus dem Zähler (4960/l) 32,9 l.
+
+Weil alle fünf Stopps voll waren, bilden die Intervalle eine lückenlose Kette. Die Streuung beim Abschalten der
+Zapfpistole hebt sich an jedem inneren Stopp auf und wirkt nur an den Enden 16.09. und 26.10.:
+
+| Intervall | Schritte | getankt | Schritte/l | Rest bei 4985/l |
+|---|---|---|---|---|
+| A 16.→26.09. | 166 277 | 34,40 l | 4834 | −1,04 l |
+| B 26.→27.09. | 97 133 | 18,67 l | 5203 | +0,82 l |
+| F 27.09.→04.10. | 163 099 | 32,28 l | 5053 | +0,44 l |
+| E 04.→10.10. | 117 466 | 24,24 l | 4846 | −0,68 l |
+| D 10.→26.10. | 175 958 | 34,86 l | 5048 | +0,44 l |
+| **Kette** | 719 933 | 144,45 l | **4984** | Summe 0 |
+
+- F: geloggter Zähler 33,74 l bei 4834/l über `27_170308` … `04_092939`, ohne ODO-Lücken.
+- **Neu: 4985 Schritte/l** (0,201 ml je Schritt, 6,69 Schritte/g). Unsicherheit ~1 %: ±1 l Füllstand an
+  den zwei Enden auf 144 l, dazu hochgerechnete Lücken in D. Der Literpreis aus der Erinnerung wirkt kaum
+  (1 ct/l ≈ 0,15 l ≈ 0,1 %). Die 4960/l von vorhin sind damit überholt.
+- Umgesetzt: `FUEL_COUNTS_PER_G = 4985/745`, `SCHEMA_VERSIONS["can"]` 11 → 12, DBC-Kommentar, Status-Docs,
+  Skill-Referenz. `FuelRate_CAN` liegt jetzt 3,0 % unter dem alten Stand mit 4834/l.

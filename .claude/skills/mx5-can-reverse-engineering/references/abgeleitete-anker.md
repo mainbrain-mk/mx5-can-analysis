@@ -167,7 +167,7 @@ allen 28 Logs. Gegen `|d/dt δ_H|` testen, nicht vorzeichenbehaftet.
   die mit Überlauf umlaufen, sind klassische Weg-/Verbrauchszähler.
 - Überlauf vor dem Differenzieren entfalten (unwrap mod 2^n).
 - Vorbilder: `Travel_distance_related` (0x420 Byte1, 0,1992 m/Schritt gegen ODO),
-  `FuelConsumption_Counter` (0x420 Byte2, 4960 Schritte/l über 4 Voll-bis-Voll-Intervalle),
+  `FuelConsumption_Counter` (0x420 Byte2, 4985 Schritte/l über die Voll-bis-Voll-Kette 16.09.→26.10.),
   `DistanceToService_related` (0x3D1, zählt 1/km herunter).
 
 ## 7. GPS und Handy-IMU

@@ -167,7 +167,7 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 # CANONICAL_UNIT/UNIT_CONVERSIONS wirken auf dlg UND csv -> dann beide.
 # Alle starten bei "8" (= der letzten gemeinsamen Version), damit die
 # Umstellung selbst keinen Re-Ingest ausloest.
-SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "11"}  # can 9: dlg-GPS an CAN-Logs (27.09.); 10: Motormoment 0x167 (02.10.); 11: Kraftstoff 4960/l (26.10.)
+SCHEMA_VERSIONS = {"dlg": "8", "csv": "8", "can": "12"}  # can 9: dlg-GPS an CAN-Logs (27.09.); 10: Motormoment 0x167 (02.10.); 11/12: Kraftstoff 4960 -> 4985/l (26.10.)
 
 # Was die ingest_*()-Funktionen liefern. Tabelle `measurements` = log_id,
 # source_file, source_format + diese Spalten; die ersten drei sind pro Log
@@ -371,10 +371,10 @@ CAN_SIGNAL_MAP = {
 }
 # Byte2 von 0x420: 5025 Schritte je Bordcomputer-Liter (26.09., zwei Logs 5024/5026); der Bordcomputer
 # zaehlt aber 4,0 % zu wenig (Voll-bis-Voll 16.09.->26.09.: 34,4 l getankt gegen 33,09 l angezeigt),
-# also 4834 Schritte je echtem Liter. Seit 26.10. gepoolt ueber 4 Voll-bis-Voll-Intervalle (16.09.-26.10.,
-# 112,17 l getankt, Einzelwerte 4834-5203, Rest je Intervall <= 0,9 l): 4960 Schritte/l, bei 0,745 kg/l
-# ~6,66 Schritte/g (docs/logs/can-bus-status.md "Kalibrierung 4960/l"). Vorher 7,03 aus OBD-MAF/Lambda.
-FUEL_COUNTS_PER_G = 4960.0 / 745.0
+# also 4834 Schritte je echtem Liter. Seit 26.10. lueckenlose Voll-bis-Voll-Kette 16.09.-26.10. (5 Tankstopps,
+# 144,45 l getankt, Einzelintervalle 4834-5203, Rest je Intervall <= 1,0 l): 4985 Schritte/l, bei 0,745 kg/l
+# ~6,69 Schritte/g (docs/logs/can-bus-status.md "Kalibrierung 4985/l"). Vorher 7,03 aus OBD-MAF/Lambda.
+FUEL_COUNTS_PER_G = 4985.0 / 745.0
 FUEL_RATE_WINDOW_S = 2.0           # Zaehler zaehlt nur ~1 Schritt/s im Leerlauf -> ueber ein Fenster mitteln
 # Init-/Ungueltig-Werte, die sonst als echte Messwerte im Datalake landen (2026-09-26 gesehen:
 # Batterietemperatur 255-40=215, Aussentemperatur Rohwert 0 (Init, seit 0,25/LSB = 0,0), Spannungen 0 in den ersten Frames).
