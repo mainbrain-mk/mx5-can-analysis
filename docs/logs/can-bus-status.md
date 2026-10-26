@@ -5724,3 +5724,102 @@ und `183252`, obwohl alle drei gepackt auf dem Stick lagen.
 - Halbe Dateien können nicht in der Liste auftauchen: `_gzip_one()` schreibt `.gz.tmp` und benennt atomar um.
 - Test `test_sim_log_list_picks_up_logs_packed_after_dash_start`. Alle Dash-Tests laufen auf dem Pi.
 - Nach dem Deploy das Dash per PID neu gestartet. Das Bildschirmfoto zeigt `2026-10-16_183252 · 30 MB` vorausgewählt.
+
+## Tankabgleich 26.10.2026: 34,86 l nachgetankt
+
+**Angabe (Nutzer):** heute 34,86 l Benzin nachgetankt, bis zum Abschalten der Zapfpistole (voll, bestätigt).
+Getankt wurde zwischen `candump-2026-10-26_151415` (Ende 15:30:50) und `candump-2026-10-26_153332`
+(Start 15:33:32). Der Kilometerstand liegt bei beiden bei 172104 km.
+
+| | `Fuel_Tank` roh (Median 120 s) | Liter (3,0 + 1,10 · roh) |
+|---|---|---|
+| Ende 151415 (vor dem Tanken) | 5,6 | 9,2 |
+| + getankt | | 34,86 |
+| = erwartet nach dem Tanken | | **44,0** |
+| Start 153332 | 36,2 (Sättigung) | 42,8 (Formelwert, gedeckelt) |
+
+- Vor dem Tanken stand der Geber auf roh 5,6, knapp über der Anzeige-0 (roh ~4,6, ~8 l).
+- Nach dem Tanken sättigt der Geber wie am 26.09. bei 36,2. 9,2 + 34,86 = 44,0 l liegt passend zu „voll = 45 l“
+  oberhalb der Sättigung. Da voll getankt wurde, ist die Kennlinie im unteren Bereich auf ~1 l bestätigt.
+  Gemessen an 45 l läge der untere Ast um ~1 l zu tief. Die Abweichung liegt aber in der Größenordnung
+  von Geberschwappen und Zapfabschaltung, die Kennlinie bleibt daher unverändert.
+- Plausibilitätscheck des Kraftstoffzählers (FuelRate_CAN integriert, 0,745 kg/l): 080634 2,32 l / 33 km,
+  151415 0,52 l / 7 km, 153332 1,76 l / 30 km.
+- Masse von 153332: Der gesättigte Median unterschätzt den Tank um höchstens ~1 l, also < 1 kg.
+  Das ist für das Modell vernachlässigbar.
+- **Startpunkt für den nächsten Voll-bis-Voll-Abgleich:** voll ab `candump-2026-10-26_153332`, 172104 km.
+  Beim nächsten Volltanken die Zählerliter ab hier gegen die getankte Menge prüfen, so wie 16.→26.09.
+  (4834 Schritte/l).
+
+## Tankstopp 10.10. ~11:00: 24,24 l voll, Voll-bis-Voll 10.10.→26.10. (26.10.2026)
+
+**Angabe (Nutzer, 26.10.):** am 10.10. gegen 11:00 24,24 l getankt, voll (bis zum Abschalten).
+Liegt zwischen `candump-2026-10-10_104315` (Ende 10:58:27) und `_110130` (Start 11:01:30), ODO 171575 km bei beiden.
+
+- **Tankgeber:** Vor dem Tanken roh 16,4 → 21,0 l. Mit 24,24 l ergibt das 45,2 l und trifft „voll = 45 l“.
+  Danach ist der Geber gesättigt (36,2).
+- **Ungemeldeter Tankstopp 04.10.:** Zwischen `candump-2026-10-04_092939` (Ende 10:58, roh 8,8 → 12,7 l) und `_110018`
+  (Start 11:00, roh 36,2), ODO 171166 km bei beiden. Damit ist 27.09.→10.10. **kein** Voll-bis-Voll-Intervall:
+  Die Zähler über 851 km summieren sich auf 57,45 l, getankt wurden 24,24 l. Menge vom 04.10. und „voll?“ sind offen.
+
+**Intervall D 10.10. 11:00 → 26.10. 15:32 (voll → voll, 34,86 l getankt), Zähler mit 4834 Schritten/l:**
+
+| Posten | km | Liter |
+|---|---|---|
+| 10 Logs `10_110130` … `26_151415`, geloggt | ~477 | 32,81 |
+| ODO-Lücken ohne Logger: 171829→850 (10.10., Stick-Hänger-Tag), 171991→172005, 172056→064 | 43 | ~3,0 |
+| `16_181006`: CAN-Empfangseinbruch nach i-stop (Zählerlücken bis 191 s, ODO 172026→035) | ~9 | ~0,6 |
+| **Summe** | 529 | **≈ 36,4 ± 1** |
+
+- Der Zähler liegt ≈ **4 % über** den getankten 34,86 l. Das entspräche ~5050 Schritten/l. Die Unsicherheit ist groß,
+  weil ~10 % der Strecke hochgerechnet sind (Verbrauch geloggt im Mittel 6,9 l/100 km).
+- **Bedingt nutzbar, Intervall E 04.10. 11:00 → 10.10. 11:00:** Gilt nur, falls am 04.10. voll getankt wurde.
+  Geloggt 23,71 l auf 399 km (`04_110018` … `10_104315`), dazu 10 km ohne Logger (171554→557→564), ≈ 0,6 l.
+  Summe ≈ **24,3 l gegen 24,24 l** getankt, also 4834/l auf 0,3 % genau.
+- Bisherige Intervalle: 16.→26.09. 4834/l (Definition), 26.→27.09. ~7 % Zähler zu hoch, gepoolt 4963/l.
+  D liegt mit ~4 % zu hoch dazwischen. Die Streuung je Intervall bleibt einige %, typisch für den Füllstand beim
+  Abschalten der Zapfpistole. Gepoolt über die drei sicheren Intervalle (Zähler 34,4 + 19,9 + 36,4 = 90,7 l gegen
+  34,4 + 18,67 + 34,86 = 87,93 l getankt, also +3,2 %) läge man bei ≈ 4990/l.
+- **Kalibrierung bleibt 4834/l**, wie am 27.09. vom Nutzer entschieden. Neu bewerten, falls sich E bestätigt.
+- Bordcomputer-Mittelwert (`AvgFuelConsumption_CAN`) ist für D nicht auswertbar: Er wurde am 10.10. nicht zurückgesetzt,
+  zwischen 04.10. (7,67) und 10.10. (5,71) aber ungeloggt schon, und in `26_153332` erneut (6,64 → 5,37).
+
+**Nachtrag (Nutzer, 26.10.):** Es wird **immer bis voll** getankt, also auch am 04.10. Getankte Menge 04.10. unbekannt.
+
+- **Intervall E 04.10. → 10.10. gilt damit:** Zähler ≈ 24,3 l gegen 24,24 l getankt, also 4834/l auf 0,3 % genau.
+- **27.09. 17:03 → 04.10. 11:00:** Zähler 33,74 l auf 442 km (`27_170308` … `04_092939`), ohne ODO-Lücken.
+  Ohne getankte Menge ist das kein Kalibrierpunkt. Gegenprobe: 45 − 33,74 = 11,3 l Rest laut Zähler,
+  Tankgeber vor dem Tanken 12,7 l. Erwartete Tankmenge ≈ 32–34 l.
+- **Gepoolt über vier Voll-bis-Voll-Intervalle** (16.→26.09., 26.→27.09., 04.→10.10., 10.→26.10.):
+  Zähler 34,4 + 19,9 + 24,3 + 36,4 = 115,0 l gegen 34,4 + 18,67 + 24,24 + 34,86 = 112,17 l getankt.
+  Das sind +2,5 %, also ≈ 4955 Schritte/l. Die Einzelwerte streuen von 0 % bis +7 %.
+  Die Kalibrierung bleibt bei 4834/l, bis der Nutzer anders entscheidet.
+
+## Kalibrierung 4960/l: Kraftstoffzähler 0x420 über alle Tankstopps neu angepasst (26.10.2026)
+
+**Auftrag (Nutzer):** Schritte je Liter so anpassen, dass sie über die bekannten Tankstopps am besten zur Realität passen.
+
+Alle Intervalle in Zählerschritten. A und B stammen vom Bordcomputer (Anzeige-Liter × 5025, schließt Fahrten ohne
+Logger ein), E und D vom geloggten Zähler bei 4834/l mit hochgerechneten Lücken (siehe oben).
+
+| Intervall | Schritte | getankt | Schritte/l | Rest bei 4960/l |
+|---|---|---|---|---|
+| A 16.→26.09. | 166 277 | 34,40 l | 4834 | −0,88 l |
+| B 26.→27.09. | 97 133 | 18,67 l | 5203 | +0,91 l |
+| E 04.→10.10. | 117 466 | 24,24 l | 4846 | −0,56 l |
+| D 10.→26.10. | 175 958 | 34,86 l | 5048 | +0,62 l |
+| **gepoolt** | 556 834 | 112,17 l | **4964** | |
+
+- Kleinste Quadrate durch den Ursprung ergeben 4952, der Median 4947. Gewählt: **4960 Schritte/l** (0,202 ml je
+  Schritt, 6,66 Schritte/g bei 0,745 kg/l). Bisher galten 4834, gemessen nur an A. Die Literwerte des Zählers
+  sinken dadurch um 2,5 %.
+- Die Reste liegen alle innerhalb ±0,9 l und wechseln das Vorzeichen. Das passt zum Füllstand beim Abschalten der
+  Zapfpistole (~1 l Streuung je Stopp) und nicht zu einem Fehler in der Steigung. Die Unsicherheit der 4960 schätze
+  ich auf ~±1,5 %.
+- **Verbesserung möglich:** Mit der Tankmenge vom 04.10. (Beleg?) wäre 16.09.→26.10. eine lückenlose Kette mit
+  ~150 l. Dort zählt die Streuung beim Abschalten nur an den beiden Enden, die Unsicherheit fiele unter 1 %.
+- Umgesetzt: `FUEL_COUNTS_PER_G = 4960/745` in `build_datalake.py`, `SCHEMA_VERSIONS["can"]` 10 → 11 (alle CAN-Logs
+  neu ingestiert, `FuelRate_CAN` um −2,5 %), DBC-Kommentar, `docs/status/can-bus.md`, `docs/status/can-open-fields.md`,
+  Skill-Referenz `abgeleitete-anker.md`.
+- Nicht betroffen: Masse und Tankinhalt (beide aus dem Tankgeber `Fuel_Tank`, Kennlinie 3,0 + 1,10 · roh unverändert),
+  Dash/Pi (rechnet keine Liter aus dem Zähler).

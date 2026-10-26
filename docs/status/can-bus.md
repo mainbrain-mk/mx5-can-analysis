@@ -39,8 +39,8 @@ korrigiert, Dongle-Konflikt gefunden.** Herleitung im Logbuch ("Fahrtag 26.09.�
    (0x340 Byte3-High-Nibble, `PassengerSeatEmpty_maybe`/`PassengerSeatPending_maybe`),
    `EmergencyStopSignal_maybe` (0x09A Bit 61), `AvgFuelConsumption` (0x4F3 Byte4-5, Bordcomputer).
    `HighDecel_maybe` an zwei Vollbremsungen bestätigt.
-4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 **absolut 4834 Schritte je Liter** (Voll-bis-Voll
-   16.→26.09., 34,4 l getankt; der Bordcomputer rechnet mit 5025/l und zeigt 4 % zu wenig),
+4. **Kalibrierungen:** Kraftstoffzähler 0x420 Byte2 **absolut 4960 Schritte je Liter** (seit 26.10. gepoolt
+   über 4 Voll-bis-Voll-Intervalle 16.09.→26.10., 112,17 l getankt, Rest je Intervall ≤ 0,9 l; zuvor 4834/l aus 16.→26.09.; der Bordcomputer rechnet mit 5025/l und zeigt 4 % zu wenig),
    Tankgeber `Fuel_Tank` → Liter ≈ 3,0 + 1,10 · roh (voll = 45 l laut Mazda), Wegzähler 0x420 Byte1 =
    0,1992 m/Schritt (gegen ODO statt VehicleSpeed).
    `VehicleSpeed` liegt ~3 % über GPS.
