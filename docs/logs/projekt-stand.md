@@ -6569,3 +6569,57 @@ Auffaelligkeiten:
 - dgm_gap: candump-2026-10-26_080634 t=534-544s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
 - dgm_gap: candump-2026-10-26_080634 t=581-588s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
 - shift_record: Neue Bestzeit 4 -> 3 (downshift): 1.10s (vorher 1.12s), candump-2026-10-26_153332 @ t=301.6s.
+
+## Automatischer Lauf: 9 neue CAN-Logs uebernommen (2026-10-29)
+
+- `candump-2026-10-27_075726`, Masse=1189.1kg (Tank ~40.4 l (CAN Fuel_Tank Median 34.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-27_151224`, Masse=1199.9kg (Tank ~38.6 l (CAN Fuel_Tank Median 32.4 roh), Beifahrer 16% der Fahrt (0x340))
+- `candump-2026-10-27_162055`, Masse=1186.3kg (Tank ~36.7 l (CAN Fuel_Tank Median 30.6 roh), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-10-27_163404`, Masse=1260.7kg (Tank ~35.8 l (CAN Fuel_Tank Median 29.8 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-27_165433`, Masse=1260.7kg (Tank ~35.8 l (CAN Fuel_Tank Median 29.8 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-28_074010`, Masse=1184.0kg (Tank ~33.6 l (CAN Fuel_Tank Median 27.8 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-28_162846`, Masse=1183.4kg (Tank ~32.7 l (CAN Fuel_Tank Median 27.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-29_082704`, Masse=1180.9kg (Tank ~29.4 l (CAN Fuel_Tank Median 24.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-10-29_103615`, Masse=1182.4kg (Tank ~31.4 l (CAN Fuel_Tank Median 25.8 roh), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 2 -> 3 (upshift): 0.88s (vorher 0.96s), candump-2026-10-27_075726 @ t=1320.1s.
+- shift_record: Neue Bestzeit 5 -> 4 (downshift): 0.86s (vorher 0.98s), candump-2026-10-27_075726 @ t=1440.5s.
+- script_error: .venv/bin/python scripts/drivetrain_model_validation.py: exit code 1: le = load_thueringen_tile(e_km, n_km)
+  File "/home/manuel/claude/scripts/elevation_model.py", line 512, in load_thueringen_tile
+    with zipfile.ZipFile(zpath) as zf:
+         ~~~~~~~~~~~~~~~^^^^^^^
+  File "/usr/lib/python3.14/zipfile/__init__.py", line 1471, in __init__
+    self._RealGetContents()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/zipfile/__init__.py", line 1538, in _RealGetContents
+    raise BadZipFile("File is not a zip file")
+zipfile.BadZipFile: File is not a zip file
+
+- script_error: .venv/bin/python scripts/top_speed_validation.py: exit code 1: le = load_thueringen_tile(e_km, n_km)
+  File "/home/manuel/claude/scripts/elevation_model.py", line 512, in load_thueringen_tile
+    with zipfile.ZipFile(zpath) as zf:
+         ~~~~~~~~~~~~~~~^^^^^^^
+  File "/usr/lib/python3.14/zipfile/__init__.py", line 1471, in __init__
+    self._RealGetContents()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/zipfile/__init__.py", line 1538, in _RealGetContents
+    raise BadZipFile("File is not a zip file")
+zipfile.BadZipFile: File is not a zip file
+
+
+## Fix: Thueringen-DGM-Kacheln als HTML gecacht (2026-10-29)
+
+Ursache der beiden `script_error` oben (`drivetrain_model_validation.py`,
+`top_speed_validation.py`, `BadZipFile`): das Geoportal Thueringen antwortet
+auf fehlende Kacheln mit einer 404-Seite und waehrend Wartung mit einer
+"Serviceinformation"-Seite ("Dienst ... noch nicht verfuegbar"), beide mit
+HTTP 200. `_download_if_missing()` speicherte diese HTML-Seiten als `.zip`.
+Betroffen: `707_5669`, `799_5842` (heute 18:5x, Wartungsseite) sowie die
+alten `679_5521`/`679_5522` (30.08., 404-Seite, bisher nie gelesen).
+
+Fix in `scripts/elevation_model.py`: HTML-Antworten (erstes Byte `<`) gelten
+als Download-Fehler (-> Kachel `None`, also Luecke statt Absturz), bereits so
+gecachte Dateien werden beim naechsten Zugriff verworfen und neu versucht.
+Die 4 kaputten Dateien sind entfernt. Beide Skripte laufen wieder (Exit 0).

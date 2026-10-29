@@ -473,13 +473,23 @@ def query_berlin_wms(e: float, n: float) -> float:
 def _download_if_missing(url: str, dest: Path, timeout: int = 120) -> bool:
     """Laedt eine Datei nach, falls sie noch nicht existiert. True bei Erfolg
     (oder falls bereits vorhanden), False bei Fehler (z.B. 404 - Kachel
-    existiert nicht bei der Quelle, kein harter Fehler)."""
+    existiert nicht bei der Quelle, kein harter Fehler).
+
+    HTML-Antworten gelten als Fehler: das Geoportal Thueringen liefert fuer
+    fehlende Kacheln eine 404-Seite und bei Wartung eine "Serviceinformation"-
+    Seite, beide mit HTTP 200 (Bug 29.10.2026: als .zip gecacht -> BadZipFile).
+    Bereits so gecachte Dateien werden verworfen und neu versucht."""
     if dest.exists():
-        return True
+        with open(dest, "rb") as f:
+            if f.read(1) != b"<":
+                return True
+        dest.unlink()
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = resp.read()
+        if data.lstrip()[:1] == b"<":
+            return False
         tmp = dest.with_suffix(dest.suffix + ".part")
         tmp.write_bytes(data)
         tmp.rename(dest)
