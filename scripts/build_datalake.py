@@ -146,6 +146,9 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+import can_log_parser
+from datalake_channels import log_key
+
 RAW_DLG_DIR = "data/raw"
 RAW_CSV_DIR = "data/raw_csv"
 CAN_DIR = "data/can"
@@ -722,9 +725,9 @@ def _derive_fuel_rate(decoded):
     return pd.concat([decoded[~sel], rate], ignore_index=True)
 
 
-def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
+def ingest_can(can_log_path, decoded_path, t0_epoch):
     """CAN-Log in den Datalake einlesen. Nutzt die von can_log_parser.py bereits
-    erzeugte *_decoded.csv (Long-Format t/can_id/message/signal/value) statt
+    erzeugte *_decoded.parquet bzw. (Altlogs) *_decoded.csv (Long-Format) statt
     erneut >1 Mio Rohframes zu dekodieren - die CSV wird ohnehin schon fuers
     CAN-Reverse-Engineering gepflegt (siehe docs/logs/can-bus-status.md)."""
     t0_local = datetime.fromtimestamp(t0_epoch, tz=LOCAL_TZ).replace(tzinfo=None)
@@ -735,9 +738,18 @@ def ingest_can(can_log_path, decoded_csv_path, t0_epoch):
     # Signalnamen muessen vorab als Kategorie existieren.
     # Kein usecols: pandas 3.0.5 wirft damit IndexError, sobald die gemischte
     # value-Spalte eine DtypeWarning ausloest (grosse CSVs, z.B. candump-2026-09-19_163755).
-    raw_decoded = pd.read_csv(decoded_csv_path,
-                              dtype={"message": "category", "signal": "category"}
-                              ).drop(columns="can_id")
+    if decoded_path.endswith(".parquet"):
+        # Seit 31.10.2026 (can_log_parser.write_decoded): nur die hier gebrauchten Signale lesen,
+        # value/value_text wieder zur gemischten Spalte wie aus der CSV - der Rest bleibt gleich.
+        raw_decoded = can_log_parser.read_decoded(
+            can_log_path, signals=[*CAN_SIGNAL_MAP, "MT_Gear_Position", "MT_Gear_Select"])
+        text = raw_decoded.pop("value_text")
+        raw_decoded["value"] = raw_decoded["value"].astype(object).where(text.isna(), text)
+        raw_decoded = raw_decoded.drop(columns="can_id").astype({"message": "category", "signal": "category"})
+    else:
+        raw_decoded = pd.read_csv(decoded_path,
+                                  dtype={"message": "category", "signal": "category"}
+                                  ).drop(columns="can_id")
     new_signals = [s for s in ("VehicleSpeed_Display", "MT_Gear_Status")
                    if s not in raw_decoded["signal"].cat.categories]
     raw_decoded["signal"] = raw_decoded["signal"].cat.add_categories(new_signals)
@@ -915,10 +927,12 @@ def _build_can_target(can_name, gpx_name):
     geaenderte Logs), das Membership-Kriterium selbst ist billig (Dateien
     vorhanden? erste candump-Zeile lesbar?)."""
     can_path = os.path.join(CAN_DIR, can_name)
-    decoded_csv_path = os.path.splitext(can_path)[0] + "_decoded.csv"
+    decoded_path = can_log_parser.decoded_path(can_path)
+    if not os.path.exists(decoded_path):  # Altlogs vor 31.10.2026: CSV
+        decoded_path = os.path.splitext(can_path)[0] + "_decoded.csv"
     gpx_path = os.path.join(CAN_DIR, gpx_name) if gpx_name else None
-    if not (os.path.exists(can_path) and os.path.exists(decoded_csv_path)):
-        print(f"CAN-Log oder *_decoded.csv fehlt, uebersprungen: {can_name}")
+    if not (os.path.exists(can_path) and os.path.exists(decoded_path)):
+        print(f"CAN-Log oder *_decoded.parquet/.csv fehlt, uebersprungen: {can_name}")
         return None
     log_id = os.path.splitext(can_name)[0]
     t0_epoch = log_start_epoch(can_path)
@@ -928,13 +942,13 @@ def _build_can_target(can_name, gpx_name):
     has_gpx = bool(gpx_path and os.path.exists(gpx_path))
     dlg_path = None if has_gpx or can_name in DLG_GPS_EXCLUDE else _find_overlapping_dlg(can_path, t0_epoch)
     gps_path = gpx_path if has_gpx else dlg_path
-    paths = [can_path, decoded_csv_path] + ([gps_path] if gps_path else [])
+    paths = [can_path, decoded_path] + ([gps_path] if gps_path else [])
     if can_name in _can_clock_offsets():  # Versatz geaendert -> Fingerabdruck geaendert -> Re-Ingest
         paths.append(CAN_CLOCK_OFFSETS_PATH)
 
     def ingest():
         print(f"lade (can): {can_name}")
-        combined = ingest_can(can_path, decoded_csv_path, t0_epoch)
+        combined = ingest_can(can_path, decoded_path, t0_epoch)
         if gps_path:
             print(f"lade (gps): {os.path.basename(gps_path)}")
             gps_df = ingest_gps(gpx_path, t0_epoch) if has_gpx else ingest_dlg_gps(dlg_path, t0_epoch)
@@ -1024,11 +1038,40 @@ def _ensure_schema(con):
         con.execute("""CREATE TABLE measurements (
             log_id VARCHAR, source_file VARCHAR, source_format VARCHAR,
             channel VARCHAR, channel_original VARCHAR, unit VARCHAR,
-            t_elapsed_s DOUBLE, timestamp_local TIMESTAMP, value DOUBLE)""")
+            t_elapsed_s DOUBLE, timestamp_local TIMESTAMP, value DOUBLE, log_key BIGINT)""")
         con.execute("""CREATE TABLE logs (
             log_id VARCHAR, source_file VARCHAR, source_format VARCHAR,
             start_time_local TIMESTAMP, duration_s DOUBLE, n_measurements BIGINT,
             content_fingerprint VARCHAR, schema_version VARCHAR)""")
+
+
+def _migrate_log_key(db_path):
+    """Einmalig (30.10.2026): Spalte measurements.log_key nachruesten (siehe
+    datalake_channels.log_key). Schreibt beide Tabellen per CTAS in eine neue Datei und tauscht
+    sie aus - kein UPDATE ueber 400 Mio. Zeilen, die Einfuege-Reihenfolge bleibt erhalten
+    (reine Projektion, kein JOIN) und die Datei wird dabei gleich kompaktiert."""
+    if not os.path.exists(db_path):
+        return
+    con = duckdb.connect(db_path)
+    try:
+        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        if "measurements" not in tables or "log_key" in {
+                r[1] for r in con.execute("PRAGMA table_info('measurements')").fetchall()}:
+            return
+        ids = [r[0] for r in con.execute("SELECT DISTINCT log_id FROM measurements").fetchall()]
+        lut = ", ".join(f"'{i.replace(chr(39), chr(39) * 2)}': {log_key(i)}" for i in ids)
+        tmp = db_path + ".migrate"
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        print(f"Migration: log_key fuer {len(ids)} Logs nachruesten ...")
+        con.execute(f"ATTACH '{tmp}' AS neu")
+        con.execute("CREATE TABLE neu.logs AS SELECT * FROM logs")
+        con.execute(f"CREATE TABLE neu.measurements AS SELECT *, (MAP {{{lut}}})[log_id]::BIGINT AS log_key "
+                    "FROM measurements")
+        con.execute("DETACH neu")
+    finally:
+        con.close()
+    os.replace(tmp, db_path)
 
 
 def _insert_measurements(con, df, log_id, source_file, source_format, table="measurements"):
@@ -1065,9 +1108,9 @@ def _insert_measurements(con, df, log_id, source_file, source_format, table="mea
     try:
         con.execute(f"""INSERT INTO {table}
             SELECT ?, ?, ?, l.channel, l.channel_original, l.unit,
-                   b.t_elapsed_s, b.timestamp_local, b.value
+                   b.t_elapsed_s, b.timestamp_local, b.value, ?
             FROM _ins_batch b JOIN _ins_lut l USING (code)
-            ORDER BY b.rn""", [log_id, source_file, source_format])
+            ORDER BY b.rn""", [log_id, source_file, source_format, log_key(log_id)])
     finally:
         con.unregister("_ins_batch")
         con.unregister("_ins_lut")
@@ -1078,6 +1121,7 @@ def run_build(force_full=False):
     targets = build_targets()
     fingerprints = {log_id: _fingerprint(t["paths"]) for log_id, t in targets.items()}
 
+    _migrate_log_key(DB_PATH)
     con = duckdb.connect(DB_PATH)
     _ensure_schema(con)
     existing = {row[0]: (row[1], row[2]) for row in

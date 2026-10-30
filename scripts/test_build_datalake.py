@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 import build_datalake as bd
+import can_log_parser
 
 HEADER = ("Time (sec),Motordrehzahl (RPM),Engine Revolutions Per Minute (RPM),"
           "Tatsächlicher Gangstatus des Getriebes,"
@@ -370,6 +371,31 @@ def test_insert_preserves_order_and_nulls():
     assert set(back["log_id"]) == {"L"} and set(back["source_format"]) == {"dlg"}
 
 
+def test_migrate_log_key_keeps_order():
+    # Altbestand ohne log_key: Migration muss die Spalte je Log korrekt fuellen und die
+    # Einfuege-Reihenfolge erhalten (Leser ohne ORDER BY verlassen sich darauf).
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "dl.duckdb")
+        con = duckdb.connect(path)
+        con.execute("CREATE TABLE logs (log_id VARCHAR)")
+        con.execute("INSERT INTO logs VALUES ('candump-a'), ('it''s')")
+        con.execute("""CREATE TABLE measurements AS SELECT
+            CASE WHEN i % 3 = 0 THEN 'candump-a' ELSE 'it''s' END AS log_id, i::DOUBLE AS t_elapsed_s
+            FROM range(200000) t(i)""")
+        con.close()
+        bd._migrate_log_key(path)
+        bd._migrate_log_key(path)  # zweiter Aufruf: nichts zu tun
+        con = duckdb.connect(path)
+        back = con.execute("SELECT log_id, t_elapsed_s, log_key FROM measurements ORDER BY rowid").df()
+        assert con.execute("SELECT count(*) FROM logs").fetchone()[0] == 2
+        con.close()
+        assert (back["t_elapsed_s"].to_numpy() == np.arange(200000)).all(), "Reihenfolge verloren"
+        assert (back["log_key"] == back["log_id"].map(bd.log_key)).all()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_can_ingest():
     # CAN-Pfad arbeitet seit 2026-09-26 mit Categoricals - Sonderfaelle pruefen:
     # Tacho-VehicleSpeed (HS_IC) getrennt, Enum-Strings -> Rohcode, Sentinels und
@@ -377,7 +403,7 @@ def test_can_ingest():
     tmpdir = tempfile.mkdtemp()
     try:
         path = os.path.join(tmpdir, "x_decoded.csv")
-        pd.DataFrame([
+        rows = pd.DataFrame([
             (0.00, 1, "HS_PCM", "VehicleSpeed", "100.5"),
             (0.01, 1, "HS_IC", "VehicleSpeed", "104"),
             (0.02, 1, "HS_PCM", "KeyState", "ON"),
@@ -390,13 +416,22 @@ def test_can_ingest():
             (0.09, 1, "HS_PCM", "EngineRPM", "kaputt"),
             (0.10, 1, "HS_TCM", "MT_Gear_Position", "2nd"),
             (0.10, 1, "HS_TCM", "MT_Gear_Select", "InGear"),
-        ], columns=["t", "can_id", "message", "signal", "value"]).to_csv(path, index=False)
+        ], columns=["t", "can_id", "message", "signal", "value"])
+        rows.to_csv(path, index=False)
+        expected = [("VehicleSpeed", 100.5), ("DisplaySpeed_CAN", 104.0), ("KeyState_CAN", 2.0),
+                    ("WheelSpeed_CAN_1", 80.0), ("LateralAcc_CAN", -0.5), ("AmbientTemp_CAN", 12.0),
+                    ("MT_Gear_Status", 2.0)]
         out = bd.ingest_can(os.path.join(tmpdir, "x.log"), path, 1_789_000_000.0)
-        got = list(zip(out["channel"], out["value"]))
-        assert got == [("VehicleSpeed", 100.5), ("DisplaySpeed_CAN", 104.0), ("KeyState_CAN", 2.0),
-                       ("WheelSpeed_CAN_1", 80.0), ("LateralAcc_CAN", -0.5), ("AmbientTemp_CAN", 12.0),
-                       ("MT_Gear_Status", 2.0)], got
+        assert list(zip(out["channel"], out["value"])) == expected, out
         assert list(out.columns) == bd.INGEST_COLUMNS
+        # Parquet (seit 31.10.): Zahl und Enum-Text getrennt - gleiches Ergebnis wie die CSV
+        num = pd.to_numeric(rows["value"], errors="coerce")
+        rows["value_text"] = pd.Categorical(rows["value"].where(num.isna(), None))
+        rows["value"] = num
+        pq = can_log_parser.decoded_path(os.path.join(tmpdir, "x.log"))
+        can_log_parser.write_decoded(rows, pq)
+        out = bd.ingest_can(os.path.join(tmpdir, "x.log"), pq, 1_789_000_000.0)
+        assert list(zip(out["channel"], out["value"])) == expected, out
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

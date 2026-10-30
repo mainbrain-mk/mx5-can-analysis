@@ -6623,3 +6623,150 @@ Fix in `scripts/elevation_model.py`: HTML-Antworten (erstes Byte `<`) gelten
 als Download-Fehler (-> Kachel `None`, also Luecke statt Absturz), bereits so
 gecachte Dateien werden beim naechsten Zugriff verworfen und neu versucht.
 Die 4 kaputten Dateien sind entfernt. Beide Skripte laufen wieder (Exit 0).
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-10-30)
+
+- `candump-2026-10-30_162447`, Masse=1254.9kg (Tank ~28.1 l (CAN Fuel_Tank Median 22.8 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-30_164517`, Masse=1254.1kg (Tank ~27.0 l (CAN Fuel_Tank Median 21.8 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-10-30_173217`, Masse=1254.8kg (Tank ~27.9 l (CAN Fuel_Tank Median 22.6 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.06 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=8).
+- dgm_gap: candump-2026-10-30_162447 t=545-559s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+
+## Pipeline-Laufzeit: Datalake-Abfragen lasen immer die ganze Tabelle (2026-10-30)
+
+Anlass: der Lauf vom 30.10. (3 neue CAN-Logs) brauchte ~67 min. Zeitlinie aus den
+Datei-Zeitstempeln: CAN-Dekodierung 4 min, build_datalake 1,5 min, Masse 38 s,
+Schalt-/Kurven-/Bremsskripte 2,5 min - und **58 min** fuer partial_load_model (27),
+drivetrain_model_validation (18,5) und top_speed_validation (12). Die drei rechneten
+alle 204 Logs neu, weil Commit 5b82746 (29.10.) `elevation_model.py` geaendert hatte,
+das in MODEL_CACHE_DEPS steht - der Ergebnis-Cache je Log (per_log_cache.py) verfaellt
+bei jeder Aenderung an einer dieser Dateien komplett. Das ist so gewollt; das eigentliche
+Problem war, wie teuer ein Log zu rechnen ist.
+
+**Ursache 1 - jede Kanalabfrage ein Vollscan:** `WHERE log_id = ? AND channel = ?`
+dauerte 0,9 s Wandzeit / 6,9 s CPU (alle 8 Kerne), auch bei 0 Treffern. DuckDB fuehrt
+Min/Max je Zeilenblock fuer Text nur ueber die ersten 8 Zeichen - "candump-" ist bei
+allen CAN-Logs gleich, "2026-09-" bei allen Handy-Logs eines Monats. Kein Block liess
+sich ueberspringen, jede Abfrage las alle 395 Mio. Zeilen. (Der Kanal-Cache in
+datalake_channels.py vom 02.10. hatte nur das Symptom gedaempft.)
+Fix: neue Spalte `measurements.log_key BIGINT` = 56-bit-SHA-256 der log_id
+(`datalake_channels.log_key()`). Die Zeilen eines Logs liegen zusammenhaengend (geprueft:
+alle 204 Logs), Integer-Min/Max greifen voll -> `WHERE log_key = ? AND log_id = ?`
+(log_id bleibt als Kollisionsschutz). Abfrage 0,9 s -> 0,03 s.
+Umgestellt: `datalake_channels._query/_can_has`, die eigenen Abfragen in
+shift_time_analysis, shift_traction_gap_analysis, clutch_ride_detection,
+can_traction_circle, can_corner_event_analysis und run_daily_pipeline.compute_mass.
+build_datalake schreibt log_key beim Einfuegen; `_migrate_log_key()` ruestet einen
+Altbestand einmalig per CTAS in eine neue Datei nach (Reihenfolge bleibt, kein JOIN) -
+heute ausgefuehrt: 2:15 min, 395 098 973 Zeilen vorher/nachher, Inhalt+Reihenfolge
+stichprobenartig zeilengleich, Datei 6,05 -> 5,96 GB. Andere Skripte mit eigenem
+`WHERE log_id = ?` (ausserhalb der Pipeline) funktionieren unveraendert, nur langsam.
+
+**Ursache 2 - Bruecken-Puffer gegen alle 93k Segmente:** `is_near_bridge_latlon` (Vmax-/
+Volllast-Steigung) und `ElevationModel._bridge_mask` rechneten jeden Trackpunkt gegen
+jedes Segment des ganzen Trip-Brueckencaches (75 134 Wege) als eigene numpy-Operation,
+~5 s je Segment. Fix: Bounding-Box-Vorfilter (`_segments_near`), nur Segmente im Puffer
+der Punkte-BBox werden gerechnet - Ergebnis beweisbar gleich, gegen Brute-Force auf
+echten Brueckendaten geprueft (identisch inkl. 29 Treffer).
+
+**Messung (Vollneurechnung aller 204 Logs, wie im Lauf vom 30.10.):**
+
+| Skript | vorher | nach log_key | + Brueckenfilter |
+|---|---|---|---|
+| partial_load_model | 27 min | 2,2 min | 2,2 min (327 s CPU) |
+| drivetrain_model_validation | 18,5 min | 12,1 min | 9,2 min (2342 s CPU) |
+| top_speed_validation | 12 min | 7,6 min | 4,0 min (942 s CPU) |
+| steering_lateral_model (3 Logs) | ~30 s | 34 s | 8 s |
+
+Summe der drei grossen: 58 -> ~15 min. **Ergebnisse identisch** zu den results/*.json
+des Laufs vom 30.10. (rekursiver Vergleich aller Felder, bitgleich) - einzige
+Ausnahme steering_lateral_model_summary.json/log_summaries (k, R2, LOO, Kalibrierpunkte
+gleich): dort standen Cache-Werte vom 02.10., gerechnet mit einem minimal anderen k
+(k geht nur auf 3 Stellen gerundet in den Cache-Schluessel). Gegenprobe: alter
+Abfragecode auf dem alten Datalake mit aktuellem k liefert exakt die neuen Werte.
+
+Offene Kandidaten (nicht umgesetzt):
+- Rest von drivetrain/top_speed: ~70 % ist LAZ-Entpacken der ALS-Rohpunktwolken
+  (2,3 s je Kachel, in jedem Prozess neu; RAW_POINT_CACHE_SIZE=8). Ideen: beide
+  Skripte teilen sich die Kacheln (gemeinsamer Prozess / groesserer Cache), oder die
+  praezise Steigung je Segment direkt cachen.
+- Fehlende DGM-Kacheln werden bei jedem Lauf erneut per HTTP angefragt (20 Logs:
+  134 Verbindungen, ~9 s) - Negativ-Cache wuerde die Wiederholung nach Wartungsseiten
+  (Fix 29.10.) beruehren, daher offen.
+- CAN-Dekodierung `can_log_parser.decode()`: cantools Frame fuer Frame, ~80 s/Log
+  auf einem Kern; vektorisiert je Botschaft (numpy) deutlich schneller, aber
+  Umbau mit Risiko (Vorzeichen/Endianness/Enum-Texte).
+- `compute_mass` parst jedes neue Rohlog nur fuer 0x340 noch einmal (~13 s/Log),
+  obwohl `PassengerSeatOccupied_CAN` im Datalake liegt.
+- Cache-Invalidierung ist grob (jede Aenderung an einer der 6 MODEL_CACHE_DEPS ->
+  alles neu); mit ~15 min statt 58 min fuer eine Vollneurechnung weniger dringend.
+
+Backup des Datalake vor der Migration: `data/datalake.duckdb.bak-2026-10-30` (6 GB,
+kann geloescht werden, sobald der naechste Pipeline-Lauf sauber durch ist).
+
+### Nachtrag 31.10.: offene Kandidaten bewertet, CAN-Dekodierung vektorisiert
+
+Bewertet nach Kosten im **normalen** Lauf (Cache voll, nur neue Logs): drivetrain/
+top_speed brauchen mit vollem Cache je 2,4 s fuer alle 204 Logs - der Cache verfiel seit
+02.10. genau einmal (5b82746). Wiederkehrend teuer ist je neuem CAN-Log die Kette
+Dekodieren -> CSV schreiben -> CSV in build_datalake lesen.
+
+Umgesetzt: `can_log_parser.decode()` liest die Bits je CAN-ID fuer alle Frames auf einmal per
+numpy (Intel: little-endian-Wort, Motorola: big-endian-Wort, Startbit = MSB in Saegezahn-
+Zaehlung), Skalierung/Enum-Namen je eindeutigem Rohwert ueber cantools' eigene
+`conversion.raw_to_scaled` - Werte und Typen damit exakt wie vorher. Frames < 8 Byte per
+numpy-Scatter aufgefuellt, message/signal als Categorical. Die 2 Multiplex-Botschaften
+(0x40A, 0x728) laufen weiter Frame fuer Frame. Messung (CSV jeweils **bytegleich** zur
+alten Version):
+
+| Log | Frames | decode alt | decode neu |
+|---|---|---|---|
+| candump-2026-10-30_173217 | 1,1 Mio | 5,9 s | 1,7 s |
+| candump-2026-09-27_125452 | 18,6 Mio | 130 s | 57 s (davon 19 s OBD-Teil, unveraendert) |
+
+Test `test_vectorized_decode_matches_cantools` (test_can_log_parser.py): je DBC-Botschaft
+40 Zufallsframes, 20 % verkuerzt, gegen cantools Frame fuer Frame - Wert, Typ, Enum-Name,
+Reihenfolge identisch.
+
+Bewusst nicht umgesetzt:
+- CSV-Schreiben (`to_csv`) ist jetzt der groesste Posten je Log (8,5 s bei 1,1 Mio Frames,
+  150-170 s bei 18,6 Mio), dazu das Lesen in build_datalake. Abhilfe waere ein anderes
+  Format (z.B. Parquet mit numerischer value-Spalte + Enum-Spalte) - aendert aber die
+  _decoded.csv-Schnittstelle, die auch fuers Reverse Engineering gelesen wird. Offen,
+  Nutzerentscheid.
+- LAZ-Entpacken und HTTP-Versuche fuer fehlende Kacheln: fallen nur bei Vollneurechnung
+  ins Gewicht (seit 02.10. einmal), je neuem Log wenige Sekunden.
+- compute_mass liest das Rohlog fuer 0x340 noch einmal: 1,7 s bei 1,1 Mio Frames - lohnt
+  den Umbau nicht (die teure Datalake-Abfrage darin ist seit log_key schnell).
+
+### Nachtrag 31.10. (2): _decoded.csv -> _decoded.parquet (Nutzerentscheid)
+
+`can_log_parser.py` schreibt neue Logs als `<log>_decoded.parquet` (via DuckDB, zstd; kein
+pyarrow noetig). Die gemischte value-Spalte ist getrennt: `value` (float64, NaN bei
+benannten Enum-Werten) + `value_text` (Enum-Name). `read_decoded(log_path, signals)` liest
+Parquet bzw. als Fallback die alte CSV; build_datalake nimmt Parquet, wenn vorhanden, sonst
+CSV - die ~100 Altlogs behalten CSV und Fingerabdruck (kein Re-Ingest).
+build_datalake liest aus Parquet nur die gemappten Signale (+ MT_Gear_Position/Select)
+und setzt value/value_text wieder zur gemischten Spalte wie aus der CSV zusammen, der Rest
+des Ingest ist unveraendert.
+
+Falle gefunden: `WHERE signal IN (<lange Liste>)` macht DuckDB zum Join, der parallel
+UNGEORDNET liefert (5/5 Laeufe im Test) - read_decoded sortiert deshalb ausdruecklich nach
+`file_row_number`. Test `test_parquet_roundtrip_keeps_order`.
+
+Vergleich ingest_can CSV vs. Parquet an 2 echten Logs (0,98 Mio / 16,9 Mio Zeilen): Kanaele,
+Einheiten, Reihenfolge identisch; Zahlen bis 9,6e-13 relativ, Zeitstempel bis 2 ns
+verschieden - die CSV hatte Floats beim Schreiben auf 15 signifikante Stellen gekuerzt
+(0.00962495803833 statt 0.009624958038330078), Parquet ist exakt.
+
+| | CSV | Parquet |
+|---|---|---|
+| candump-2026-10-30_162447 komplett (parse+decode+schreiben) | 87 s (Lauf 30.10.) | 12 s |
+| Dateigroesse 162447 / 173217 / 09-27_125452 | 369 / 146 / 2514 MB | 17,5 / 7 / 114 MB |
+| ingest_can 173217 / 09-27_125452 | 3,3 / 51 s | 2,0 / 37 s |
+
+Offen: Altlogs nach Parquet umwandeln wuerde ~44 GB Platte freigeben (data/can 68 GB, Platte
+90 % voll), loest aber einen Re-Ingest aller CAN-Logs und eine Neurechnung der Modell-Caches aus.

@@ -4,6 +4,13 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
+**Status 2026-10-31 — Dekodierte Logs jetzt als Parquet.** `can_log_parser.py` schreibt `<log>_decoded.parquet`
+(Spalten t/can_id/message/signal/value/value_text; Enum-Namen wie KeyState "ON" in `value_text`, `value` dann NaN)
+statt `_decoded.csv` - ~20x kleiner, Dekodieren+Schreiben ~7x schneller. Logs bis 30.10. haben weiter die CSV.
+Lesen fürs Reverse Engineering: `can_log_parser.read_decoded(log_path, signals=[...])` (liest beide Formate) oder
+`duckdb.sql("FROM 'data/can/<log>_decoded.parquet'")`; `pd.read_parquet` geht nicht (kein pyarrow). Details:
+[`../logs/projekt-stand.md`](../logs/projekt-stand.md) "Nachtrag 31.10.".
+
 **Status 2026-09-27 — Dash (`dash_gui.py`/`can_backend.py`) überarbeitet, im Repo, noch nicht auf dem Pi.**
 Details im Logbuch ("Dash-Überarbeitung…"), Deploy-Schritte in [`pi-runtime-state.md`](pi-runtime-state.md).
 Ein Backend-Ausfall wird erkannt (rote Meldung statt eingefrorenem Drive-Screen). Wert-Zeitstempel und REC-Timer

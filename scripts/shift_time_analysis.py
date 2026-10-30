@@ -59,6 +59,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(__file__))
 from performance_simulation import ATTACK_SHIFT_S
 
+from datalake_channels import log_key
 from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
@@ -71,9 +72,9 @@ STANDSTILL_MAX_S = 3.0   # laenger als das ist kein Schaltvorgang mehr, sondern 
 
 def load_channel(con, log_id, channel):
     return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_id = ? AND channel = ? "
+        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_key = ? AND log_id = ? AND channel = ? "
         "AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
+        [log_key(log_id), log_id, channel],
     ).fetchdf()
 
 

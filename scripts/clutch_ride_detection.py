@@ -28,6 +28,7 @@ import os
 import duckdb
 import numpy as np
 
+from datalake_channels import log_key
 from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
@@ -45,10 +46,10 @@ def compute_ride_duration(con, log_id, t_start, t_end):
     RIDE_ZONE_RAW faellt (kann bei sehr kurzen/unvollstaendigen Betaetigungen
     vorkommen)."""
     df = con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_id = ? "
+        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_key = ? AND log_id = ? "
         "AND channel = 'ClutchPosition_CAN_raw' AND t_elapsed_s BETWEEN ? AND ? "
         "AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, t_start - 0.1, t_end + 0.1],
+        [log_key(log_id), log_id, t_start - 0.1, t_end + 0.1],
     ).fetchdf()
     if df.empty:
         return None

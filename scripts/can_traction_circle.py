@@ -54,6 +54,7 @@ matplotlib.use("Agg")
 import matplotlib.colors  # noqa: E402
 import matplotlib.pyplot as plt
 
+from datalake_channels import log_key  # noqa: E402
 from per_log_cache import cached  # noqa: E402
 
 DB_PATH = "data/datalake.duckdb"
@@ -78,9 +79,9 @@ SHIFT_SETTLE_S = 1.0
 
 def load_channel(con, log_id, channel):
     return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_id = ? AND channel = ? "
+        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_key = ? AND log_id = ? AND channel = ? "
         "AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
+        [log_key(log_id), log_id, channel],
     ).fetchdf()
 
 

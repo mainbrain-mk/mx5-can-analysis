@@ -48,6 +48,8 @@ import os
 import duckdb
 import numpy as np
 
+from datalake_channels import log_key
+
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
 
@@ -68,9 +70,9 @@ EXCLUDED_EVENTS = {
 
 def load_channel(con, log_id, channel):
     return con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_id = ? AND channel = ? "
+        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_key = ? AND log_id = ? AND channel = ? "
         "AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel],
+        [log_key(log_id), log_id, channel],
     ).fetchdf()
 
 

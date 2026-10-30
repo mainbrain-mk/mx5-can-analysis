@@ -4,6 +4,7 @@ compute_drive_gap() sie korrekt wiederfindet. Kein Framework noetig:
 `python scripts/test_shift_traction_gap_analysis.py`.
 """
 import duckdb
+from datalake_channels import log_key
 import numpy as np
 
 import shift_traction_gap_analysis as sga
@@ -12,10 +13,10 @@ import shift_traction_gap_analysis as sga
 def _make_db_with_wheel_speeds(t, v):
     con = duckdb.connect(":memory:")
     con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, "
-                "t_elapsed_s DOUBLE, value DOUBLE)")
+                f"t_elapsed_s DOUBLE, value DOUBLE, log_key BIGINT DEFAULT {log_key('log')})")
     for ch in sga.WHEEL_CHANNELS_REAR:
         for ti, vi in zip(t, v):
-            con.execute("INSERT INTO measurements VALUES ('log', ?, ?, ?)", [ch, ti, vi])
+            con.execute("INSERT INTO measurements (log_id, channel, t_elapsed_s, value) VALUES ('log', ?, ?, ?)", [ch, ti, vi])
     return con
 
 
@@ -51,7 +52,7 @@ def test_no_gap_when_always_accelerating():
 def test_missing_wheel_channel_returns_none():
     con = duckdb.connect(":memory:")
     con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, "
-                "t_elapsed_s DOUBLE, value DOUBLE)")
+                f"t_elapsed_s DOUBLE, value DOUBLE, log_key BIGINT DEFAULT {log_key('log')})")
     r = sga.compute_drive_gap(con, "log", t_start=0.9, t_end=1.6)
     assert r is None
 
