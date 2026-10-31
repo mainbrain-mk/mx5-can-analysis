@@ -218,6 +218,25 @@ def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     assert abs(screen._fuel_smooth - 80.0) < 0.1
 
 
+def test_fuel_card_shows_momentary_consumption_right_of_level():
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(158, "Fuel_Tank", (33.0 + 0.02) / 2.486)
+    client.set(1056, "_FuelConsumption_l100km_derived", 7.25)
+    screen.refresh()
+    assert screen.fuel_card.value_label.text == "33%"
+    assert screen.fuel_card.side_label.text == "7,2l/100km"
+    client.set(1056, "_FuelRate_lh_derived", 0.84)
+    screen.refresh()
+    assert screen.fuel_card.side_label.text == "7,2l/100km"   # Fahrt: l/100km hat Vorrang
+    client.set(1056, "_FuelConsumption_l100km_derived", None)   # Stand
+    screen.refresh()
+    assert screen.fuel_card.side_label.text == "0,8l/h"
+    client.set(1056, "_FuelRate_lh_derived", None)              # kein 0x420
+    screen.refresh()
+    assert screen.fuel_card.side_label.text == ""
+
+
 class RecordingClient(FakeSnapshotClient):
     def __init__(self):
         super().__init__()
@@ -239,7 +258,8 @@ def test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists():
     dash_gui.LiveGrid(client).refresh()
     assert len(client.requested) > 30
 
-    derived = {"_BrakePedalPercent_derived", "_OilTemp_derived"} | {
+    derived = {"_BrakePedalPercent_derived", "_OilTemp_derived",
+               "_FuelConsumption_l100km_derived", "_FuelRate_lh_derived"} | {
         f"_{name}_derived" for name, _, _ in can_backend._OBD1_PIDS.values()}
     # Repo: ../data/can/, auf dem Pi liegt die DBC neben den Skripten in LOG_DIR.
     here = os.path.dirname(os.path.abspath(__file__))
@@ -616,6 +636,7 @@ if __name__ == "__main__":
     test_rpm_bar_only_recolors_changed_segments_and_matches_zones()
     test_led_dot_recolors_without_rebuilding_canvas()
     test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
+    test_fuel_card_shows_momentary_consumption_right_of_level()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()

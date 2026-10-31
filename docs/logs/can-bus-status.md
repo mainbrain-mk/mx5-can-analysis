@@ -5856,3 +5856,30 @@ Zapfpistole hebt sich an jedem inneren Stopp auf und wirkt nur an den Enden 16.0
   (1 ct/l ≈ 0,15 l ≈ 0,1 %). Die 4960/l von vorhin sind damit überholt.
 - Umgesetzt: `FUEL_COUNTS_PER_G = 4985/745`, `SCHEMA_VERSIONS["can"]` 11 → 12, DBC-Kommentar, Status-Docs,
   Skill-Referenz. `FuelRate_CAN` liegt jetzt 3,0 % unter dem alten Stand mit 4834/l.
+
+## Momentanverbrauch im Dash (31.10.2026)
+
+**Wunsch (Nutzer):** In der KRAFTSTOFF-Kachel, gleiche Zeile wie der Füllstand, rechtsbündig `x,xl/100km`.
+
+- `can_backend.py`: `ConsumptionMeter` differenziert je 0x420-Frame (10 Hz) Byte2 (`FuelConsumption_Counter`,
+  4985 Schritte/l) und Byte1 (`Travel_distance_related`, 0,1992 m/Schritt), beide 8 Bit umlaufend, und
+  mittelt über 2 s (wie `FUEL_RATE_WINDOW_S` im Datalake; ein Schritt = 0,2 ml ist grob). Strecke aus dem
+  ODO-kalibrierten Wegzähler, nicht aus `VehicleSpeed` (2,9 % zu hoch). Sprünge > 60 Weg-/20 Kraftstoffschritte
+  je Frame verworfen, Lücke > 1 s startet neu, unter 5 m im Fenster kein Wert. Neuer Snapshot-Schlüssel
+  `1056:_FuelConsumption_l100km_derived`.
+- `dash_gui.py`: `MetricCard(side=True)` mit Zweitwert rechts in der Wertzeile (26 sp, Breite = Textbreite).
+  Gemessen auf dem Pi: „100%" 128 px + „45,3l/100km" 150 px bei 279 px Kachel-Innenbreite, daher Deckel 99,9.
+- Abgespielt gegen `candump-2026-10-30_173217` (4,2 km): P5/P50/P95 0,0/5,6/21,2 l/100km, max 45,3,
+  Gesamt 6,65 l/100km. Schub zeigt 0,0.
+- Tests: `test_can_backend.py` (Umlauf, Stand, Lücke), `test_dash_gui.py` (Kachel) auf dem Pi grün.
+- **Offen:** Deploy auf den Pi, Ablesen während einer Fahrt (zappelt die Zahl bei 2 s zu sehr?).
+
+**Nachtrag 31.10. (Nutzer: „im Stillstand stehen wir auf l/h um"):** unter 5 m im 2-s-Fenster zeigt die Kachel
+jetzt `x,xl/h` statt nichts; Backend liefert dafür zusätzlich `1056:_FuelRate_lh_derived`. Im Log
+`30_173217` (44 s im Stand): häufigster Wert 0,7 l/h, P50 1,8, P95 4,5. Ein Schritt = 0,2 ml macht den
+Leerlaufwert grob (~1 Schritt/s → Sprünge um ~0,4 l/h); bei Bedarf Fenster im Stand verlängern.
+
+**Nachtrag 31.10. (Nutzer: 1 s, ab 4 km/h):** `CONSUMPTION_WINDOW_S` 2 → 1 s, Umschaltschwelle jetzt als
+Geschwindigkeit `CONSUMPTION_MIN_KMH = 4` (vorher 5 m im Fenster ≈ 9 km/h). Replay `30_173217`, Median-Sprung
+der Anzeige je 0,5 s (P90) bei 2 s → 1 s: 9–30 km/h 1,2 (3,8) → 1,4 (6,7); 30–70 km/h 0,5 (2,2) → 0,5 (3,1);
+4–9 km/h (neu als l/100km) Median 29 l/100km, Sprung 18 (P90 64). Bewusst schneller statt ruhiger.

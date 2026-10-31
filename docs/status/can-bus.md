@@ -4,6 +4,11 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
+**Status 2026-10-31 — Momentanverbrauch im Dash (Nutzerwunsch).** KRAFTSTOFF-Kachel zeigt rechts neben dem
+Füllstand `x,xl/100km`. `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
+(Weg, 0,1992 m/Schritt) über 1 s, also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`
+(beides Nutzerwunsch), Anzeige gedeckelt bei 99,9. Im Repo, **noch nicht auf dem Pi** und nicht live gesehen. Logbuch 31.10.
+
 **Status 2026-10-31 — Dekodierte Logs jetzt als Parquet.** `can_log_parser.py` schreibt `<log>_decoded.parquet`
 (Spalten t/can_id/message/signal/value/value_text; Enum-Namen wie KeyState "ON" in `value_text`, `value` dann NaN)
 statt `_decoded.csv` - ~20x kleiner, Dekodieren+Schreiben ~7x schneller. Seit 31.10. auch alle Altlogs (CSV geloescht;
