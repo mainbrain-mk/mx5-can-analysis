@@ -5883,3 +5883,6 @@ Leerlaufwert grob (~1 Schritt/s → Sprünge um ~0,4 l/h); bei Bedarf Fenster im
 Geschwindigkeit `CONSUMPTION_MIN_KMH = 4` (vorher 5 m im Fenster ≈ 9 km/h). Replay `30_173217`, Median-Sprung
 der Anzeige je 0,5 s (P90) bei 2 s → 1 s: 9–30 km/h 1,2 (3,8) → 1,4 (6,7); 30–70 km/h 0,5 (2,2) → 0,5 (3,1);
 4–9 km/h (neu als l/100km) Median 29 l/100km, Sprung 18 (P90 64). Bewusst schneller statt ruhiger.
+
+**Deploy 31.10.:** `7095095` per `git push car HEAD:deployed` (f9130b2 → 7095095), Backend/Dash per PID neu
+gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen während der nächsten Fahrt.
