@@ -33,6 +33,7 @@ import pandas as pd
 
 import can_log_parser
 from build_datalake import KNOWN_CAN_LOG_DUPLICATES
+from datalake_channels import log_key
 import pipeline_checks
 import render_report
 
@@ -351,11 +352,11 @@ def _clockstate_name(log_id):
 
 def _rename_can_log(old_id, new_id, errors):
     """Benennt .log/.log.gz/clockstate auf dem Pi (root-owned -> sudo) und lokal zusaetzlich
-    _decoded.csv um. Pi zuerst: behielte er den alten Namen, holte der naechste Sync das Log
+    _decoded.parquet/.csv um. Pi zuerst: behielte er den alten Namen, holte der naechste Sync das Log
     erneut als "neu". Bricht ab, wenn ein Zielname schon existiert."""
     names = [(f"{old_id}.log", f"{new_id}.log"), (f"{old_id}.log.gz", f"{new_id}.log.gz"),
              (_clockstate_name(old_id), _clockstate_name(new_id))]
-    local = names + [(f"{old_id}_decoded.csv", f"{new_id}_decoded.csv")]
+    local = names + [(f"{old_id}_decoded{ext}", f"{new_id}_decoded{ext}") for ext in (".parquet", ".csv")]
     if any(os.path.exists(os.path.join(CAN_DIR, b)) for _, b in local):
         errors.append((f"{old_id}.log", f"Uhrkorrektur: Ziel {new_id} existiert lokal schon, nichts umbenannt."))
         return False
@@ -716,8 +717,8 @@ def compute_mass(can_log_id):
     (0x340). None, falls das Log keinen Tankwert hat. Braucht den frisch gebauten Datalake."""
     con = duckdb.connect(DATALAKE_PATH, read_only=True)
     try:
-        raw = con.execute("SELECT median(value) FROM measurements WHERE log_id = ? "
-                          "AND channel = 'FuelTank_CAN_raw' AND value > 0", [can_log_id]).fetchone()[0]
+        raw = con.execute("SELECT median(value) FROM measurements WHERE log_key = ? AND log_id = ? "
+                          "AND channel = 'FuelTank_CAN_raw' AND value > 0", [log_key(can_log_id), can_log_id]).fetchone()[0]
     finally:
         con.close()
     if raw is None:

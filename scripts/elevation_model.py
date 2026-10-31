@@ -410,6 +410,30 @@ def build_bridge_cache() -> None:
     print(f"{len(bridges)} befahrbare Bruecken-Wege gespeichert: {BRIDGE_CACHE_PATH}")
 
 
+_segment_arrays: dict = {}
+
+
+def _bridge_segments(bridges: list[dict]) -> np.ndarray:
+    """Alle Bruecken-Segmente als (N, 4)-Array [a0, a1, b0, b1] in den Koordinaten von
+    bridge["points"] - je Bruecken-Liste nur einmal aufgebaut (Trip-Cache: 93k Segmente)."""
+    entry = _segment_arrays.get(id(bridges))
+    if entry is None or entry[0] is not bridges:
+        segs = [(*a, *b) for br in bridges for a, b in zip(br["points"][:-1], br["points"][1:])]
+        entry = _segment_arrays[id(bridges)] = (bridges, np.array(segs, dtype=np.float64).reshape(-1, 4))
+    return entry[1]
+
+
+def _segments_near(px, py, ax, ay, bx, by, buffer_m) -> np.ndarray:
+    """Indizes der Segmente, deren Bounding-Box samt Puffer die der Punkte schneidet - nur die
+    koennen naeher als buffer_m liegen. Vorher lief jedes der 93k Segmente als eigene numpy-
+    Operation ueber alle Punkte (30.10.2026: 5 s je Vmax-Segment, Ergebnis identisch)."""
+    if len(px) == 0:
+        return np.empty(0, dtype=np.int64)
+    return np.flatnonzero(
+        (np.minimum(ax, bx) <= px.max() + buffer_m) & (np.maximum(ax, bx) >= px.min() - buffer_m)
+        & (np.minimum(ay, by) <= py.max() + buffer_m) & (np.maximum(ay, by) >= py.min() - buffer_m))
+
+
 def _point_segment_distance(px: np.ndarray, py: np.ndarray, ax: float, ay: float, bx: float, by: float) -> np.ndarray:
     dx, dy = bx - ax, by - ay
     seg_len2 = dx * dx + dy * dy
@@ -473,13 +497,23 @@ def query_berlin_wms(e: float, n: float) -> float:
 def _download_if_missing(url: str, dest: Path, timeout: int = 120) -> bool:
     """Laedt eine Datei nach, falls sie noch nicht existiert. True bei Erfolg
     (oder falls bereits vorhanden), False bei Fehler (z.B. 404 - Kachel
-    existiert nicht bei der Quelle, kein harter Fehler)."""
+    existiert nicht bei der Quelle, kein harter Fehler).
+
+    HTML-Antworten gelten als Fehler: das Geoportal Thueringen liefert fuer
+    fehlende Kacheln eine 404-Seite und bei Wartung eine "Serviceinformation"-
+    Seite, beide mit HTTP 200 (Bug 29.10.2026: als .zip gecacht -> BadZipFile).
+    Bereits so gecachte Dateien werden verworfen und neu versucht."""
     if dest.exists():
-        return True
+        with open(dest, "rb") as f:
+            if f.read(1) != b"<":
+                return True
+        dest.unlink()
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = resp.read()
+        if data.lstrip()[:1] == b"<":
+            return False
         tmp = dest.with_suffix(dest.suffix + ".part")
         tmp.write_bytes(data)
         tmp.rename(dest)
@@ -630,15 +664,14 @@ def is_near_bridge_latlon(lat: np.ndarray, lon: np.ndarray, bridges: list[dict],
     px = (lon - lon.mean()) * m_per_deg_lon
     py = (lat - lat.mean()) * m_per_deg_lat
 
+    seg = _bridge_segments(bridges)
+    ax = (seg[:, 1] - lon.mean()) * m_per_deg_lon
+    ay = (seg[:, 0] - lat.mean()) * m_per_deg_lat
+    bx = (seg[:, 3] - lon.mean()) * m_per_deg_lon
+    by = (seg[:, 2] - lat.mean()) * m_per_deg_lat
     mask = np.zeros(lat.shape, dtype=bool)
-    for bridge in bridges:
-        pts = bridge["points"]
-        for (alat, alon), (blat, blon) in zip(pts[:-1], pts[1:]):
-            ax = (alon - lon.mean()) * m_per_deg_lon
-            ay = (alat - lat.mean()) * m_per_deg_lat
-            bx = (blon - lon.mean()) * m_per_deg_lon
-            by = (blat - lat.mean()) * m_per_deg_lat
-            mask |= _point_segment_distance(px, py, ax, ay, bx, by) < buffer_m
+    for i in _segments_near(px, py, ax, ay, bx, by, buffer_m):
+        mask |= _point_segment_distance(px, py, ax[i], ay[i], bx[i], by[i]) < buffer_m
     return mask
 
 
@@ -864,11 +897,11 @@ class ElevationModel:
         return float("nan"), None
 
     def _bridge_mask(self, e: np.ndarray, n: np.ndarray) -> np.ndarray:
+        seg = _bridge_segments(self.bridges)
+        ax, ay, bx, by = seg.T
         mask = np.zeros(e.shape, dtype=bool)
-        for bridge in self.bridges:
-            pts = bridge["points"]
-            for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
-                mask |= _point_segment_distance(e, n, ax, ay, bx, by) < BRIDGE_BUFFER_M
+        for i in _segments_near(e, n, ax, ay, bx, by, BRIDGE_BUFFER_M):
+            mask |= _point_segment_distance(e, n, ax[i], ay[i], bx[i], by[i]) < BRIDGE_BUFFER_M
         return mask
 
     def get_elevation_along_track(self, e: np.ndarray, n: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

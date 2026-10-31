@@ -340,8 +340,9 @@ def test_mass_from_can_fuel_tank():
     rdp.MASS_OVERRIDE_PATH = os.path.join(tmp, "mass.json")
     try:
         con = rdp.duckdb.connect(rdp.DATALAKE_PATH)
-        con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, value DOUBLE)")
-        con.executemany("INSERT INTO measurements VALUES ('a', 'FuelTank_CAN_raw', ?)",
+        con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, value DOUBLE, "
+                    f"log_key BIGINT DEFAULT {rdp.log_key('a')})")
+        con.executemany("INSERT INTO measurements (log_id, channel, value) VALUES ('a', 'FuelTank_CAN_raw', ?)",
                         [(v,) for v in (0, 0, 0, 14, 16, 16, 18)])
         con.close()
         open(os.path.join(tmp, "a.log"), "w").close()  # ohne 0x340 -> SOLO

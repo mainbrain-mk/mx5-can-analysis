@@ -3,6 +3,7 @@ mit bekannter Schleifzeit. Kein Framework noetig:
 `python scripts/test_clutch_ride_detection.py`.
 """
 import duckdb
+from datalake_channels import log_key
 import numpy as np
 
 import clutch_ride_detection as crd
@@ -11,9 +12,9 @@ import clutch_ride_detection as crd
 def _make_db(t, v):
     con = duckdb.connect(":memory:")
     con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, "
-                "t_elapsed_s DOUBLE, value DOUBLE)")
+                f"t_elapsed_s DOUBLE, value DOUBLE, log_key BIGINT DEFAULT {log_key('log')})")
     for ti, vi in zip(t, v):
-        con.execute("INSERT INTO measurements VALUES ('log', 'ClutchPosition_CAN_raw', ?, ?)",
+        con.execute("INSERT INTO measurements (log_id, channel, t_elapsed_s, value) VALUES ('log', 'ClutchPosition_CAN_raw', ?, ?)",
                      [ti, vi])
     return con
 
@@ -49,7 +50,7 @@ def test_riding_clutch_flagged():
 def test_no_clutch_data_returns_none():
     con = duckdb.connect(":memory:")
     con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, "
-                "t_elapsed_s DOUBLE, value DOUBLE)")
+                f"t_elapsed_s DOUBLE, value DOUBLE, log_key BIGINT DEFAULT {log_key('log')})")
     assert crd.compute_ride_duration(con, "log", 0.0, 1.0) is None
 
 

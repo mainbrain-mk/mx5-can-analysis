@@ -28,6 +28,7 @@ Zeit von einem CAN-Log abgedeckt ist, der denselben Kanal selbst liefert - dort 
 CAN-Log. Kanaele ohne CAN-Quelle (z.B. AFR_MZ) bleiben vollstaendig.
 """
 
+import hashlib
 from collections import OrderedDict
 
 import numpy as np
@@ -55,13 +56,23 @@ _channel_cache = OrderedDict()
 _has_cache = {}
 
 
+def log_key(log_id):
+    """Ganzzahl-Schluessel eines Logs (Spalte measurements.log_key, 30.10.2026). DuckDB fuehrt
+    Min/Max je Block fuer Text nur ueber die ersten 8 Zeichen - "candump-" ist bei allen CAN-Logs
+    gleich, `WHERE log_id = ?` las deshalb jedes Mal alle ~400 Mio. Zeilen (0,9 s, alle Kerne).
+    Die Zeilen eines Logs liegen zusammenhaengend, `log_key = ?` springt direkt hin (~100x).
+    Abfragen pruefen log_id zusaetzlich, eine Hash-Kollision kann also nichts vermischen."""
+    return int.from_bytes(hashlib.sha256(log_id.encode()).digest()[:7], "big")
+
+
 def _query(con, log_id, channel, with_timestamp):
     cols = "t_elapsed_s AS t, timestamp_local, value" if with_timestamp else "t_elapsed_s AS t, value"
     # channel_original+value als Tiebreaker: deterministische Reihenfolge bei gleichem t
     # (siehe drivetrain_model_validation.load_channel-Historie)
     return con.execute(
-        f"SELECT {cols} FROM measurements WHERE log_id = ? AND channel = ? AND value IS NOT NULL "
-        "ORDER BY t_elapsed_s, channel_original, value", [log_id, channel]).fetchdf()
+        f"SELECT {cols} FROM measurements WHERE log_key = ? AND log_id = ? AND channel = ? "
+        "AND value IS NOT NULL ORDER BY t_elapsed_s, channel_original, value",
+        [log_key(log_id), log_id, channel]).fetchdf()
 
 
 def can_covered_intervals(con):
@@ -93,8 +104,9 @@ def _can_has(con, can_log_id, channel):
         probe = "Breite" if channel == "Lager" else channel  # Kurs wird aus GPS berechnet
         sources = [src[0] for src in SOURCES.get(probe, [(probe,)])]
         _has_cache[key] = con.execute(
-            f"SELECT 1 FROM measurements WHERE log_id = ? AND channel IN ({','.join('?' * len(sources))}) "
-            "LIMIT 1", [can_log_id, *sources]).fetchone() is not None
+            f"SELECT 1 FROM measurements WHERE log_key = ? AND log_id = ? "
+            f"AND channel IN ({','.join('?' * len(sources))}) LIMIT 1",
+            [log_key(can_log_id), can_log_id, *sources]).fetchone() is not None
     return _has_cache[key]
 
 
@@ -170,7 +182,7 @@ if __name__ == "__main__":
     con.execute("CREATE TABLE logs (log_id VARCHAR, source_format VARCHAR, start_time_local TIMESTAMP, "
                 "duration_s DOUBLE)")
     con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, channel_original VARCHAR, "
-                "t_elapsed_s DOUBLE, timestamp_local TIMESTAMP, value DOUBLE)")
+                "t_elapsed_s DOUBLE, timestamp_local TIMESTAMP, value DOUBLE, log_key BIGINT)")
     # dlg 10:00-11:00 UTC; CAN 12:30-13:00 Ortszeit (CEST = 10:30-11:00 UTC) -> dlg t 1800-3600 gedeckt
     con.execute("INSERT INTO logs VALUES ('2026-09-26 120000', 'dlg', '2026-09-26 10:00:00', 3600), "
                 "('candump-2026-09-26_123000', 'can+gps', '2026-09-26 12:30:00', 1800)")
@@ -178,14 +190,14 @@ if __name__ == "__main__":
     rows += [("candump-2026-09-26_123000", "ClutchPosition_CAN_raw", 5.0, 80.0)]
     rows += [("candump-2026-09-26_123000", "Breite", t, lat) for t, lat in ((0, 52.0), (1, 52.001))]
     rows += [("candump-2026-09-26_123000", "Länge", t, 13.0) for t in (0, 1)]
-    con.executemany("INSERT INTO measurements VALUES (?, ?, ?, ?, NULL, ?)",
-                    [(l, c, c, t, v) for l, c, t, v in rows])
+    con.executemany("INSERT INTO measurements VALUES (?, ?, ?, ?, NULL, ?, ?)",
+                    [(l, c, c, t, v, log_key(l)) for l, c, t, v in rows])
     dlg = load_channel(con, "2026-09-26 120000", "CPP_PER_MZ")
     assert dlg["t"].tolist() == [100.0], dlg  # t=2000 liegt im CAN-Log -> verworfen
     etc = load_channel(con, "2026-09-26 120000", "ETC_ACT")
     assert etc["t"].tolist() == [100.0, 2000.0], etc  # CAN-Log hat keine Drosselklappe -> bleibt
     con.execute("INSERT INTO measurements VALUES ('candump-2026-09-26_123000', 'ThrottlePosition_CAN', "
-                "'ThrottlePosition_CAN', 1.0, NULL, 91.87)")
+                "'ThrottlePosition_CAN', 1.0, NULL, 91.87, ?)", [log_key("candump-2026-09-26_123000")])
     assert abs(load_channel(con, "candump-2026-09-26_123000", "ETC_ACT")["value"].iloc[0] - 86.63) < 0.01
     can = load_channel(con, "candump-2026-09-26_123000", "CPP_PER_MZ")
     assert can["value"].tolist() == [40.0], can  # 0,5 * roh

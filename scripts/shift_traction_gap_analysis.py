@@ -49,6 +49,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from datalake_channels import log_key
 from per_log_cache import cached
 DB_PATH = "data/datalake.duckdb"
 RESULTS_DIR = "results"
@@ -67,9 +68,9 @@ GAP_BRIDGE_S = 0.06             # einzelne Rausch-Ausreisser ueber der Schwelle 
 
 def _load(con, log_id, channel, t0, t1):
     df = con.execute(
-        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_id = ? AND channel = ? "
+        "SELECT t_elapsed_s AS t, value FROM measurements WHERE log_key = ? AND log_id = ? AND channel = ? "
         "AND t_elapsed_s BETWEEN ? AND ? AND value IS NOT NULL ORDER BY t_elapsed_s",
-        [log_id, channel, t0, t1],
+        [log_key(log_id), log_id, channel, t0, t1],
     ).fetchdf()
     return df["t"].values, df["value"].values
 

@@ -7,7 +7,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from can_log_parser import parse_candump, passenger_occupied_seconds
+import numpy as np
+import pandas as pd
+
+from can_log_parser import decode, load_db, parse_candump, passenger_occupied_seconds
 
 
 def _frame(t, can_id, byte2):
@@ -76,7 +79,64 @@ def test_truncated_last_line():
         os.unlink(path)
 
 
+def test_vectorized_decode_matches_cantools():
+    # decode() liest Bits per numpy (30.10.2026) - muss fuer jedes Signal der echten DBC exakt
+    # liefern, was cantools Frame fuer Frame liefert: Wert, Typ, Enum-Name, Reihenfolge, auch
+    # bei zu kurzen Frames (allow_truncated) und bei unbekannten IDs.
+    db = load_db()
+    rng = np.random.default_rng(0)
+    rows = []
+    for msg in db.messages:
+        for _ in range(40):
+            n = msg.length if rng.random() < 0.8 else int(rng.integers(0, msg.length + 1))
+            rows.append((float(len(rows)), msg.frame_id, rng.integers(0, 256, n, dtype=np.uint8).tobytes()))
+    rows.append((float(len(rows)), 0x7FF, b"\x01"))  # nicht im DBC
+    order = rng.permutation(len(rows))
+    df = pd.DataFrame([rows[i] for i in order], columns=["t", "can_id", "data"])
+    got, undecoded = decode(df, db)
+    by_id = {m.frame_id: m for m in db.messages}
+    want = []
+    for t, can_id, data in df.itertuples(index=False):
+        if can_id in by_id:
+            try:
+                decoded = by_id[can_id].decode(data, allow_truncated=True)
+            except Exception:
+                continue
+            want += [(t, can_id, by_id[can_id].name, sig, val) for sig, val in decoded.items()]
+    assert undecoded == {0x7FF}
+    got_rows = list(got.itertuples(index=False))
+    assert len(got_rows) == len(want), (len(got_rows), len(want))
+    for (t, c, m, s, v, txt), w in zip(got_rows, want):
+        assert (t, c, m, s) == w[:4], w
+        if isinstance(w[4], (int, float)):
+            assert v == float(w[4]) and pd.isna(txt), w  # Zahl exakt, kein Text
+        else:
+            assert np.isnan(v) and txt == str(w[4]), w   # Enum-Name als Text
+
+
+def test_parquet_roundtrip_keeps_order():
+    # read_decoded mit langer Signalliste: DuckDB macht daraus einen Join, der parallel ungeordnet
+    # liefert - ohne ORDER BY file_row_number kam die Reihenfolge durcheinander (31.10.).
+    from can_log_parser import decoded_path, read_decoded, write_decoded
+    n = 400_000
+    df = pd.DataFrame({"t": np.arange(n) * 1e-3, "can_id": 1, "message": pd.Categorical(["M"] * n),
+                       "signal": pd.Categorical([f"S{i % 50}" for i in range(n)]),
+                       "value": np.arange(n, dtype=float), "value_text": pd.Categorical([None] * n)})
+    tmpdir = tempfile.mkdtemp()
+    try:
+        log = os.path.join(tmpdir, "x.log")
+        write_decoded(df, decoded_path(log))
+        back = read_decoded(log, signals=[f"S{i}" for i in range(0, 50, 2)])
+        assert (np.diff(back["value"].to_numpy()) > 0).all(), "Reihenfolge verloren"
+        assert len(back) == n // 2 and set(back.columns) == set(df.columns)
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir)
+
+
 if __name__ == "__main__":
+    test_vectorized_decode_matches_cantools()
+    test_parquet_roundtrip_keeps_order()
     test_truncated_last_line()
     test_passenger_occupied_seconds_settle_and_session_split()
     test_passenger_occupied_seconds_no_0x340()
