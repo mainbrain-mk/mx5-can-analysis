@@ -108,8 +108,9 @@ DRIVE_RPM_YELLOW = 7000
 DRIVE_RPM_ORANGE = 7400
 DRIVE_RPM_RED = 7500
 # Nachglimmen des Drehzahlbalkens (Nutzerwunsch 31.10., v. a. nach dem Hochschalten): erloschene
-# Segmente starten bei diesem Anteil der vollen Zonenfarbe und blenden in RPM_GLOW_S auf dunkel.
-RPM_GLOW_START = 0.6
+# Segmente springen auf diese Helligkeit (Anteil der Zonenfarbe, Sprung bleibt sichtbar) und blenden
+# in RPM_GLOW_S auf die dunkle Ruhefarbe (DARK_FACTOR).
+RPM_GLOW_START = 0.5
 RPM_GLOW_S = 0.6
 DRIVE_SHIFTLIGHT_MIN = 4000
 DRIVE_SHIFTLIGHT_N = 16
@@ -250,7 +251,10 @@ def _rpm_zone_color(rpm):
     return TEXT
 
 
-def _darken(color, factor=0.19):
+DARK_FACTOR = 0.19
+
+
+def _darken(color, factor=DARK_FACTOR):
     # Gleicher Faktor, mit dem TEXT (weisse Zone) bisher auf das feste
     # Inaktiv-Grau (0.16, 0.17, 0.2) abgedunkelt wirkte - jetzt auf jede
     # Zonenfarbe angewandt statt nur auf Weiss.
@@ -652,7 +656,7 @@ class _RpmBarCanvas(Widget):
         self.n_segments = n_segments
         self.rpm = 0
         self.lit_n = 0
-        self._glow = {}  # Segment -> aktuelle Nachglimm-Helligkeit (0..RPM_GLOW_START)
+        self._glow = {}  # Segment -> aktuelle Nachglimm-Helligkeit (DARK_FACTOR..RPM_GLOW_START)
         self._zone_colors = [_rpm_zone_color((i / n_segments) * DRIVE_RPM_MAX)
                              for i in range(n_segments)]
         self._colors = []
@@ -671,20 +675,16 @@ class _RpmBarCanvas(Widget):
         if lit_n == self.lit_n and not self._glow:
             return
         for i in list(self._glow):
-            self._glow[i] -= dt / RPM_GLOW_S * RPM_GLOW_START
+            self._glow[i] -= dt / RPM_GLOW_S * (RPM_GLOW_START - DARK_FACTOR)
         for i in range(lit_n, self.lit_n):       # gerade erloschen
             self._glow[i] = RPM_GLOW_START
         for i in range(self.lit_n, lit_n):       # (wieder) an
             self._glow.pop(i, None)
             self._colors[i].rgba = self._zone_colors[i]
         for i, glow in list(self._glow.items()):
-            zone_color = self._zone_colors[i]
-            dark = _darken(zone_color)
-            if glow <= 0:
+            if glow <= DARK_FACTOR:
                 del self._glow[i]
-                self._colors[i].rgba = dark
-            else:
-                self._colors[i].rgba = tuple(d + (z - d) * glow for d, z in zip(dark, zone_color))
+            self._colors[i].rgba = _darken(self._zone_colors[i], max(glow, DARK_FACTOR))
         self.lit_n = lit_n
 
     def _layout(self, *_args):

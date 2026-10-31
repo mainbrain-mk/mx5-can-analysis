@@ -5,7 +5,7 @@
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
 **Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
-erlöschen die Segmente nicht sofort, sondern starten bei 60 % der Zonenfarbe und blenden in 0,6 s aus
+springen die Segmente auf 50 % Helligkeit (Sprung bleibt sichtbar) und blenden in 0,6 s auf die Ruhefarbe aus
 (`RPM_GLOW_START`/`RPM_GLOW_S` in `dash_gui.py`). Gilt für jeden Drehzahlabfall, nicht nur fürs Hochschalten.
 Auf dem Pi, **noch nicht während einer Fahrt gesehen**. Logbuch 31.10.
 

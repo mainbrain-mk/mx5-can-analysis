@@ -5902,3 +5902,8 @@ gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen wä
   deutlich zu sehen, beim langsamen Gaswegnehmen bleibt nur eine kurze Spur.
 - Auf dem Pi gerendert (7000 → 4500, 0,1 s/0,35 s danach), `test_dash_gui.py` auf dem Pi grün.
 - **Offen:** Wirkung während einer Fahrt; die zwei Konstanten sind die Stellschrauben.
+
+**Nachtrag 31.10. (Nutzer: Ausblenden muss bei 50 % Helligkeit beginnen, damit man den Sprung sieht):**
+`RPM_GLOW_START` ist jetzt ein echter Helligkeitsfaktor (0,5 × Zonenfarbe) statt eines Mischanteils zwischen
+dunkel und voll (0,6 ergab effektiv ~68 %). Ausblenden linear auf `DARK_FACTOR = 0,19` (bisherige Ruhefarbe,
+jetzt als Konstante für `_darken()`). Auf dem Pi gerendert und getestet.

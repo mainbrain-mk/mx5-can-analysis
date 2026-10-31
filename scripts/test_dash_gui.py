@@ -194,7 +194,7 @@ def test_rpm_bar_afterglow_fades_out_after_upshift():
     def brightness():
         return bar._colors[seg].rgba[0] / dash_gui.TEXT[0]
     full, dark = 1.0, dash_gui._darken(dash_gui.TEXT)[0] / dash_gui.TEXT[0]
-    assert dark < brightness() < full
+    assert abs(brightness() - dash_gui.RPM_GLOW_START) < 1e-4   # Sprung auf 50 %
     first = brightness()
     for _ in range(5):
         bar.update(4500, dt=0.05)
