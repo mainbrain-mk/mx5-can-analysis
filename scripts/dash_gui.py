@@ -154,6 +154,7 @@ def _clutch_gear_color(clutch_raw):
 
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
+CONSUMPTION_BAR_L100 = (4.0, 25.0)  # Verbrauchsbalken der KRAFTSTOFF-Kachel: leer .. voll (Nutzerwunsch 31.10.)
 FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
                          # liegt bei ~1-2s, echter Fuellstand aendert sich
                          # ueber Minuten - 8s glaettet das eine, verzoegert
@@ -913,6 +914,9 @@ class DriveScreen(Screen):
         self.iat_card = MetricCard("ANSAUGLUFT", unit="°C")
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
         self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
+        # Momentanverbrauch als zweiter Balken direkt ueber dem Tankbalken (index=1: vor dem letzten Kind)
+        self.consumption_bar = FillBar(color=TEXT, size_hint_y=None, height=8)
+        self.fuel_card.add_widget(self.consumption_bar, index=1)
         for c in (self.gas_card, self.brake_card, self.lambda_card, self.iat_card,
                   self.load_card, self.fuel_card):
             bottom.add_widget(c)
@@ -991,6 +995,8 @@ class DriveScreen(Screen):
             self.fuel_card.set_side("")
         else:
             self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
+        lo, hi = CONSUMPTION_BAR_L100
+        self.consumption_bar.frac = 0.0 if l100 is None else max(0.0, min(1.0, (l100 - lo) / (hi - lo)))
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:

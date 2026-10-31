@@ -251,12 +251,19 @@ def test_fuel_card_shows_momentary_consumption_right_of_level():
     assert screen.fuel_card.value_label.text == "33%"
     side = lambda: (screen.fuel_card.side_label.text, screen.fuel_card.side_unit_label.text)
     assert side() == ("7,2", "l/100km")
+    assert abs(screen.consumption_bar.frac - (7.25 - 4.0) / 21.0) < 1e-9   # Balken 4..25 l/100km
+    # Verbrauchsbalken sitzt direkt ueber dem Tankbalken (Kivy: children in umgekehrter Reihenfolge)
+    assert screen.fuel_card.children[:2] == [screen.fuel_card.bar, screen.consumption_bar]
     client.set(1056, "_FuelRate_lh_derived", 0.84)
     screen.refresh()
     assert side() == ("7,2", "l/100km")   # Fahrt: l/100km hat Vorrang
+    client.set(1056, "_FuelConsumption_l100km_derived", 30.0)
+    screen.refresh()
+    assert screen.consumption_bar.frac == 1.0
     client.set(1056, "_FuelConsumption_l100km_derived", None)   # Stand
     screen.refresh()
     assert side() == ("0,8", "l/h")
+    assert screen.consumption_bar.frac == 0.0                   # l/h hat keinen Balken
     client.set(1056, "_FuelRate_lh_derived", None)              # kein 0x420
     screen.refresh()
     assert side() == ("", "")

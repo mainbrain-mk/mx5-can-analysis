@@ -5907,3 +5907,8 @@ gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen wä
 `RPM_GLOW_START` ist jetzt ein echter Helligkeitsfaktor (0,5 × Zonenfarbe) statt eines Mischanteils zwischen
 dunkel und voll (0,6 ergab effektiv ~68 %). Ausblenden linear auf `DARK_FACTOR = 0,19` (bisherige Ruhefarbe,
 jetzt als Konstante für `_darken()`). Auf dem Pi gerendert und getestet.
+
+**Nachtrag 31.10. (Nutzer: Balken für den Momentanverbrauch über dem Tankbalken, 4,0–25 l/100km):**
+`CONSUMPTION_BAR_L100 = (4.0, 25.0)` in `dash_gui.py`, weißer `FillBar` (Farbe nicht vorgegeben, weiß wie
+die Verbrauchszahl) direkt über dem gelben Tankbalken, darunter leer, darüber voll. Im Stand (nur l/h) leer.
+Auf dem Pi gerendert und getestet.
