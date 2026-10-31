@@ -225,16 +225,17 @@ def test_fuel_card_shows_momentary_consumption_right_of_level():
     client.set(1056, "_FuelConsumption_l100km_derived", 7.25)
     screen.refresh()
     assert screen.fuel_card.value_label.text == "33%"
-    assert screen.fuel_card.side_label.text == "7,2l/100km"
+    side = lambda: (screen.fuel_card.side_label.text, screen.fuel_card.side_unit_label.text)
+    assert side() == ("7,2", "l/100km")
     client.set(1056, "_FuelRate_lh_derived", 0.84)
     screen.refresh()
-    assert screen.fuel_card.side_label.text == "7,2l/100km"   # Fahrt: l/100km hat Vorrang
+    assert side() == ("7,2", "l/100km")   # Fahrt: l/100km hat Vorrang
     client.set(1056, "_FuelConsumption_l100km_derived", None)   # Stand
     screen.refresh()
-    assert screen.fuel_card.side_label.text == "0,8l/h"
+    assert side() == ("0,8", "l/h")
     client.set(1056, "_FuelRate_lh_derived", None)              # kein 0x420
     screen.refresh()
-    assert screen.fuel_card.side_label.text == ""
+    assert side() == ("", "")
 
 
 class RecordingClient(FakeSnapshotClient):

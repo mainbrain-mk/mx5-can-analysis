@@ -5886,3 +5886,7 @@ der Anzeige je 0,5 s (P90) bei 2 s → 1 s: 9–30 km/h 1,2 (3,8) → 1,4 (6,7);
 
 **Deploy 31.10.:** `7095095` per `git push car HEAD:deployed` (f9130b2 → 7095095), Backend/Dash per PID neu
 gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen während der nächsten Fahrt.
+
+**Nachtrag 31.10. (Designentscheidung Nutzer):** Verbrauchswert in derselben Schriftgröße wie der Füllstand
+(52 sp, gleiche Höhe), Einheit `l/100km`/`l/h` klein (20 sp, gedimmt) mittig darunter. Auf dem Pi gerendert
+(1920×1080): „100%" neben „99,9" passt mit Abstand; Deckel 99,9 bleibt.

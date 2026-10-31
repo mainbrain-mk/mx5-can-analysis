@@ -437,12 +437,30 @@ class MetricCard(Panel):
         if side:
             row = BoxLayout(orientation="horizontal")
             row.add_widget(self.value_label)
-            # Breite = Textbreite, den Rest bekommt der Hauptwert - so steht der Zweitwert
-            # rechtsbuendig, ohne bei "100%" in den Hauptwert zu laufen.
-            self.side_label = Label(text="", font_size="26sp", color=TEXT, bold=True,
-                                    size_hint_x=None, width=0)
-            self.side_label.bind(texture_size=lambda w, s: setattr(w, "width", s[0]))
-            row.add_widget(self.side_label)
+            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter. Oben ein Platzhalter
+            # in Einheitenhoehe, damit der Zweitwert (Spalte mittig verankert) auf derselben Hoehe
+            # steht wie der Hauptwert. Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
+            self.side_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
+                                    size_hint_y=None, height=0)
+            self.side_unit_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
+                                         size_hint_y=None, height=0)
+            pad = Widget(size_hint_y=None, height=0)
+            col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(0, 0))
+            for w in (pad, self.side_label, self.side_unit_label):
+                col.add_widget(w)
+            anchor = AnchorLayout(anchor_x="right", anchor_y="center", size_hint_x=None, width=0)
+            anchor.add_widget(col)
+
+            def fit(*_args):
+                value_w, value_h = self.side_label.texture_size
+                unit_w, unit_h = self.side_unit_label.texture_size
+                self.side_label.height = value_h
+                self.side_unit_label.height = pad.height = unit_h
+                col.size = (max(value_w, unit_w), value_h + 2 * unit_h)
+                anchor.width = col.width
+            self.side_label.bind(texture_size=fit)
+            self.side_unit_label.bind(texture_size=fit)
+            row.add_widget(anchor)
             self.add_widget(row)
         else:
             self.add_widget(self.value_label)
@@ -463,8 +481,9 @@ class MetricCard(Panel):
         if self.bar is not None:
             self.bar.frac = max(0.0, min(1.0, value / self.bar_max))
 
-    def set_side(self, text):
+    def set_side(self, text, unit=""):
         self.side_label.text = text
+        self.side_unit_label.text = unit
 
 
 class FillBar(Widget):
@@ -946,12 +965,14 @@ class DriveScreen(Screen):
                 + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
         # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
-        # Deckel 99,9: dreistellig passt neben "100%" nicht mehr in die Kachel (gemessen 278/279 px)
+        # Deckel 99,9: dreistellig wird neben "100%" zu eng
         l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")
         lh = c.get(COOLANT_TEMP_CAN_ID, "_FuelRate_lh_derived")
         value, unit = (l100, "l/100km") if l100 is not None else (lh, "l/h")
-        self.fuel_card.set_side(
-            "" if value is None else f"{min(value, 99.9):.1f}".replace(".", ",") + unit)
+        if value is None:
+            self.fuel_card.set_side("")
+        else:
+            self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:
