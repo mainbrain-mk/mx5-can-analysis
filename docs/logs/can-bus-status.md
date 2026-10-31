@@ -5912,3 +5912,6 @@ jetzt als Konstante für `_darken()`). Auf dem Pi gerendert und getestet.
 `CONSUMPTION_BAR_L100 = (4.0, 25.0)` in `dash_gui.py`, weißer `FillBar` (Farbe nicht vorgegeben, weiß wie
 die Verbrauchszahl) direkt über dem gelben Tankbalken, darunter leer, darüber voll. Im Stand (nur l/h) leer.
 Auf dem Pi gerendert und getestet.
+
+**Nachtrag 31.10. (Nutzer: hellgelb statt weiß):** Verbrauchsbalken jetzt `LIGHT_YELLOW = (1, 0,93, 0,55)`,
+vom gelben Tankbalken (`YELLOW = (1, 0,83, 0)`) auf dem Pi-Rendering gut zu unterscheiden.

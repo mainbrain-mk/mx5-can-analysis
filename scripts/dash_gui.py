@@ -177,6 +177,7 @@ TEXT = (0.91, 0.92, 0.96, 1)
 TEXT_DIM = (0.4, 0.42, 0.47, 1)
 RED = (1, 0.18, 0.23, 1)
 YELLOW = (1, 0.83, 0, 1)
+LIGHT_YELLOW = (1, 0.93, 0.55, 1)  # Verbrauchsbalken ueber dem (gelben) Tankbalken, Nutzerwunsch 31.10.
 ORANGE = (1, 0.55, 0.1, 1)
 GREEN = (0.18, 0.8, 0.32, 1)
 BLUE = (0.22, 0.53, 0.9, 1)
@@ -915,7 +916,7 @@ class DriveScreen(Screen):
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
         self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
         # Momentanverbrauch als zweiter Balken direkt ueber dem Tankbalken (index=1: vor dem letzten Kind)
-        self.consumption_bar = FillBar(color=TEXT, size_hint_y=None, height=8)
+        self.consumption_bar = FillBar(color=LIGHT_YELLOW, size_hint_y=None, height=8)
         self.fuel_card.add_widget(self.consumption_bar, index=1)
         for c in (self.gas_card, self.brake_card, self.lambda_card, self.iat_card,
                   self.load_card, self.fuel_card):
