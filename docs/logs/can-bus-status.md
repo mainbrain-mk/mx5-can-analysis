@@ -5890,3 +5890,15 @@ gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen wä
 **Nachtrag 31.10. (Designentscheidung Nutzer):** Verbrauchswert in derselben Schriftgröße wie der Füllstand
 (52 sp, gleiche Höhe), Einheit `l/100km`/`l/h` klein (20 sp, gedimmt) mittig darunter. Auf dem Pi gerendert
 (1920×1080): „100%" neben „99,9" passt mit Abstand; Deckel 99,9 bleibt.
+
+## Drehzahlbalken: Nachglimmen nach dem Hochschalten (31.10.2026)
+
+**Wunsch (Nutzer):** Nach dem Hochschalten soll die Drehzahl im Balken „nachglimmen".
+
+- `_RpmBarCanvas.update(rpm, dt)`: erlöschende Segmente starten bei `RPM_GLOW_START = 0,6` der Zonenfarbe
+  und blenden linear in `RPM_GLOW_S = 0,6 s` auf die dunkle Ruhefarbe; steigt die Drehzahl wieder, leuchten
+  sie sofort voll. Nur die glimmenden Segmente werden je Frame umgefärbt, kein Canvas-Neuaufbau.
+- Bewusst ohne Schalterkennung: jeder Drehzahlabfall glimmt nach. Beim Hochschalten (schneller Abfall) ist das
+  deutlich zu sehen, beim langsamen Gaswegnehmen bleibt nur eine kurze Spur.
+- Auf dem Pi gerendert (7000 → 4500, 0,1 s/0,35 s danach), `test_dash_gui.py` auf dem Pi grün.
+- **Offen:** Wirkung während einer Fahrt; die zwei Konstanten sind die Stellschrauben.

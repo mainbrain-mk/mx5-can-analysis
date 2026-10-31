@@ -4,6 +4,11 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
+**Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
+erlöschen die Segmente nicht sofort, sondern starten bei 60 % der Zonenfarbe und blenden in 0,6 s aus
+(`RPM_GLOW_START`/`RPM_GLOW_S` in `dash_gui.py`). Gilt für jeden Drehzahlabfall, nicht nur fürs Hochschalten.
+Auf dem Pi, **noch nicht während einer Fahrt gesehen**. Logbuch 31.10.
+
 **Status 2026-10-31 — Momentanverbrauch im Dash (Nutzerwunsch).** KRAFTSTOFF-Kachel zeigt rechts neben dem
 Füllstand den Verbrauch in gleicher Schriftgröße, die Einheit (`l/100km` bzw. `l/h`) klein mittig darunter. `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
 (Weg, 0,1992 m/Schritt) über 1 s, also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`

@@ -107,6 +107,10 @@ DRIVE_RPM_MAX = 8000
 DRIVE_RPM_YELLOW = 7000
 DRIVE_RPM_ORANGE = 7400
 DRIVE_RPM_RED = 7500
+# Nachglimmen des Drehzahlbalkens (Nutzerwunsch 31.10., v. a. nach dem Hochschalten): erloschene
+# Segmente starten bei diesem Anteil der vollen Zonenfarbe und blenden in RPM_GLOW_S auf dunkel.
+RPM_GLOW_START = 0.6
+RPM_GLOW_S = 0.6
 DRIVE_SHIFTLIGHT_MIN = 4000
 DRIVE_SHIFTLIGHT_N = 16
 # ECU-Soft-Limiter-Erkennung (2026-09-20 im CAN-Log gefunden: Drosselklappe
@@ -630,10 +634,10 @@ class RpmBar(Panel):
         top.add_widget(self.bar_widget)
         self.add_widget(top)
 
-    def update(self, rpm):
+    def update(self, rpm, dt=None):
         self.rpm_value.text = "-" if rpm is None else f"{rpm:.0f}"
         self.rpm_value.color = _rpm_zone_color(rpm)
-        self.bar_widget.update(rpm)
+        self.bar_widget.update(rpm, dt)
 
 
 class _RpmBarCanvas(Widget):
@@ -648,6 +652,7 @@ class _RpmBarCanvas(Widget):
         self.n_segments = n_segments
         self.rpm = 0
         self.lit_n = 0
+        self._glow = {}  # Segment -> aktuelle Nachglimm-Helligkeit (0..RPM_GLOW_START)
         self._zone_colors = [_rpm_zone_color((i / n_segments) * DRIVE_RPM_MAX)
                              for i in range(n_segments)]
         self._colors = []
@@ -658,15 +663,28 @@ class _RpmBarCanvas(Widget):
                 self._rects.append(Rectangle(pos=self.pos, size=(0, 0)))
         self.bind(pos=self._layout, size=self._layout)
 
-    def update(self, rpm):
+    def update(self, rpm, dt=None):
+        dt = 1.0 / DRIVE_REFRESH_HZ if dt is None else dt
         self.rpm = rpm or 0
         lit_frac = max(0.0, min(1.0, self.rpm / DRIVE_RPM_MAX))
         lit_n = round(lit_frac * self.n_segments)
-        if lit_n == self.lit_n:
+        if lit_n == self.lit_n and not self._glow:
             return
-        for i in range(min(lit_n, self.lit_n), max(lit_n, self.lit_n)):
+        for i in list(self._glow):
+            self._glow[i] -= dt / RPM_GLOW_S * RPM_GLOW_START
+        for i in range(lit_n, self.lit_n):       # gerade erloschen
+            self._glow[i] = RPM_GLOW_START
+        for i in range(self.lit_n, lit_n):       # (wieder) an
+            self._glow.pop(i, None)
+            self._colors[i].rgba = self._zone_colors[i]
+        for i, glow in list(self._glow.items()):
             zone_color = self._zone_colors[i]
-            self._colors[i].rgba = zone_color if i < lit_n else _darken(zone_color)
+            dark = _darken(zone_color)
+            if glow <= 0:
+                del self._glow[i]
+                self._colors[i].rgba = dark
+            else:
+                self._colors[i].rgba = tuple(d + (z - d) * glow for d, z in zip(dark, zone_color))
         self.lit_n = lit_n
 
     def _layout(self, *_args):
@@ -923,7 +941,7 @@ class DriveScreen(Screen):
         etc = c.get(OIL_RESPONSE_KEY, "_ThrottlePosition_pct_derived")
         limiter_active = _is_limiter_active(rpm, app, etc)
         self.shiftlights.update(rpm, limiter_active)
-        self.rpm_bar.update(rpm)
+        self.rpm_bar.update(rpm, dt)
 
         speed = c.get(514, "VehicleSpeed")
         self.speed_value.text = "0" if speed is None else f"{speed:.0f}"

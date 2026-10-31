@@ -177,10 +177,34 @@ def test_rpm_bar_only_recolors_changed_segments_and_matches_zones():
     assert tuple(bar._colors[-1].rgba) == dash_gui.RED
     bar.update(None)
     assert bar.lit_n == 0
+    bar.update(None, dt=dash_gui.RPM_GLOW_S)     # nach dem Nachglimmen alles dunkel
     assert all(tuple(c.rgba) == dash_gui._darken(z) for c, z in zip(bar._colors, bar._zone_colors))
     # Geometrie: 60 Segmente fuellen die Breite ohne Ueberlauf
     last = bar._rects[-1]
     assert abs(last.pos[0] + last.size[0] - 600) < 1e-3  # Kivy speichert float32
+
+
+def test_rpm_bar_afterglow_fades_out_after_upshift():
+    """Hochschalten 7000 -> 4500: Segmente dazwischen glimmen nach und sind nach
+    RPM_GLOW_S dunkel; steigt die Drehzahl wieder, leuchten sie sofort voll."""
+    bar = dash_gui._RpmBarCanvas(60)
+    bar.update(7000)
+    bar.update(4500)
+    seg = 40                                     # 5333 rpm: weisse Zone, zwischen 4500 und 7000
+    def brightness():
+        return bar._colors[seg].rgba[0] / dash_gui.TEXT[0]
+    full, dark = 1.0, dash_gui._darken(dash_gui.TEXT)[0] / dash_gui.TEXT[0]
+    assert dark < brightness() < full
+    first = brightness()
+    for _ in range(5):
+        bar.update(4500, dt=0.05)
+    assert dark < brightness() < first           # blendet aus
+    bar.update(4500, dt=dash_gui.RPM_GLOW_S)
+    assert abs(brightness() - dark) < 1e-6 and not bar._glow
+    bar.update(7000)
+    bar.update(4500)
+    bar.update(6000)                             # wieder hoch, mitten im Glimmen
+    assert abs(brightness() - full) < 1e-6
 
 
 def test_led_dot_recolors_without_rebuilding_canvas():
@@ -635,6 +659,7 @@ if __name__ == "__main__":
     test_status_screen_shows_backend_failure_and_hides_sim_button()
     test_rec_timer_uses_monotonic_elapsed_not_wall_clock()
     test_rpm_bar_only_recolors_changed_segments_and_matches_zones()
+    test_rpm_bar_afterglow_fades_out_after_upshift()
     test_led_dot_recolors_without_rebuilding_canvas()
     test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
     test_fuel_card_shows_momentary_consumption_right_of_level()
