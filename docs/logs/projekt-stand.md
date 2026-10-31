@@ -6770,3 +6770,37 @@ verschieden - die CSV hatte Floats beim Schreiben auf 15 signifikante Stellen ge
 
 Offen: Altlogs nach Parquet umwandeln wuerde ~44 GB Platte freigeben (data/can 68 GB, Platte
 90 % voll), loest aber einen Re-Ingest aller CAN-Logs und eine Neurechnung der Modell-Caches aus.
+
+### Nachtrag 31.10. (3): Altlogs nach Parquet umgestellt, CSV geloescht (Nutzerauftrag)
+
+Alle 100 CAN-Logs mit Rohlog neu dekodiert (can_log_parser.py, 3 parallel, 11,7 min) statt
+die CSV umzuwandeln - Parquet hat damit exakte Werte nach aktueller DBC. build_datalake las
+dadurch alle CAN-Logs neu ein (Fingerabdruck: Parquet statt CSV), 16,6 min.
+
+Vergleich Datalake gegen Backup vom 30.10. je (Log, Kanal) - Anzahl, Summe, Min, Max,
+Summe t: 204 Logs / 395 098 973 Messwerte vorher wie nachher; 9363 von 9364 Paaren bis
+1e-9 relativ gleich. Einzige Abweichung: FuelRate_CAN in candump-2026-09-17_084511, Summe
+3e-6 relativ (Anzahl/Min/Max gleich) - abgeleiteter Kanal (Zeitableitung des
+Kraftstoffzaehlers), reagiert auf die jetzt ungerundeten Zeitstempel.
+
+Danach 100 `_decoded.csv` geloescht: data/can 68 -> 24 GB, Platte 91 % -> 86 % (129 GB frei).
+Behalten: `candump-2026-09-20_023215_decoded.csv` und `_031203_decoded.csv` - ohne Rohlog,
+nicht im Datalake, nicht reproduzierbar.
+
+Modell-Caches neu gerechnet (CAN-Logs haben neuen Fingerabdruck): partial_load 99 s,
+drivetrain 318 s, top_speed 87 s, Rest < 1 min. Ergebnisse gegen den Stand davor:
+- clutch_ride, drivetrain, partial_load, shift_time(_best), shift_traction_gap, top_speed,
+  dgm_coverage_gaps: nur Rundungsabweichungen (max 7e-9 relativ).
+- can_traction_circle: ein Radschlupf-Kandidat (candump-2026-09-18_170350, Bremsen) anders
+  gewaehlt - das neue Ereignis liegt mit a_lon = -0,30000000000000004 g genau auf der
+  Schwelle -0,3 g.
+- steering_lateral_model: k [0,020295, 2,66499e-5] -> [0,020299, 2,66665e-5], R2 0,98657 ->
+  0,98657, LOO-RMSE 1,4234 -> 1,4237 deg/s. 426 CAN-Kalibrierpunkte mit Gierraten-Mittel
+  median 0,0026 / max 0,14 deg/s anders: Grenzeffekt - die Kurvenfenster aus den
+  gespeicherten results/can_corner_event_summary_*.json tragen noch die alten, auf 15
+  Stellen gerundeten Zeitstempel; 36 von 40 geprueften Punkten verlieren 1-2 Samples genau
+  auf der Fenstergrenze. Wuerde verschwinden, wenn man can_corner_event_analysis.py fuer die
+  Altlogs neu laufen laesst (nicht gemacht, Wirkung vernachlaessigbar).
+
+Datalake-Backup `data/datalake.duckdb.bak-2026-10-30` bleibt bis zum naechsten
+automatischen Lauf liegen.
