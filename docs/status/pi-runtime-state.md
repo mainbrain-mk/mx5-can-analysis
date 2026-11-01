@@ -6,10 +6,9 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 (siehe unten). Ältere Stände bis 28.09. sind ins Logbuch ausgelagert, siehe `logs/can-bus-status.md`,
 „Pi-Infrastruktur: Lücken zu Hause reproduziert…“ (10.10.2026).
 
-**Stand 2026-10-10, ~23:50** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter, nach dem Stick-Tausch):
-- Deploy: `deployed` = Kopf von Branch `gzip-hintergrund-2026-10-10` (PR #45, noch nicht in `main`), zuletzt `487d19c` (Dash: Sim-Logliste wird laufend nachgelesen). PR #46 offen.
-- `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
-- Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
+**Stand 2026-11-01, ~13:15** (per SSH geprüft, Pi zu Hause ohne CAN-Adapter): Deploy `a11c9b7` (Branch
+`dash-nachglimmen-2026-10-31`, Grillthermometer-Gateway). Neu: Symlink `canlogs/bbq_gateway.py`, `bleak`/`dbus-fast`
+im venv, Autostart-Zeile im Unterbau (identisch mit `scripts/pi-config/autostart`). Ältere Stände: Logbuch.
 
 ## Hardware
 

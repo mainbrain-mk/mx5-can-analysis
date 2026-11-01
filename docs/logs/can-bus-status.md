@@ -5936,3 +5936,10 @@ Wartebildschirm zwei Kacheln „GRILL P1/P2“ (Ist 150 sp, Ziel daneben, Ist gr
 Ohne frische Werte verschwinden sie wieder. Test `test_status_screen_shows_bbq_only_while_thermometer_is_live_and_not_driving`.
 Auf dem Pi grün und mit Fake-Paketen gerendert (`docs/status/images/pi-dashboard-bbq-2026-11-01.png`, Testinstanz
 neben dem echten Dash, daher dort „WARTE AUF BACKEND“). Mit dem echten Thermometer noch nicht getestet.
+
+**Deploy 01.11. ~13:10:** `a11c9b7` per `git push car HEAD:deployed`, Symlink `canlogs/bbq_gateway.py` angelegt,
+labwc-`autostart` im Unterbau per `overlayroot-chroot tee` ersetzt (vorher identisch mit der alten Repo-Kopie,
+jetzt mit der neuen), Gateway per `setsid respawn.sh` ohne Reboot gestartet, Dash per PID neu gestartet.
+Dash zeigt normal „WARTE AUF CAN-BUS“, Gateway sucht (Thermometer noch vom Laptop-Skript belegt).
+Stolperstein: `pkill -f "python3 /home/pi/canlogs/dash_gui.py"` innerhalb eines `ssh '…'`-Befehls trifft auch
+die eigene SSH-Shell (Muster steht in deren Kommandozeile), Exit 255. Dash-PID besser per `pgrep -f '^/home/pi/canlogs/venv'`.
