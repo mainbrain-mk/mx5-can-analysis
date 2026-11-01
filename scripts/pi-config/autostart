@@ -5,6 +5,3 @@
 # respawn.sh startet beide Prozesse nach einem Absturz neu (Ausgabe: /home/pi/canlogs/applogs/<skript>.log).
 DISPLAY=:0 /home/pi/canlogs/respawn.sh can_backend.py &
 DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 MX5_FULLSCREEN=1 /home/pi/canlogs/respawn.sh dash_gui.py &
-
-# Grillthermometer-Gateway (BLE -> TCP 51235), tut nur etwas, solange kein can0 da ist.
-/home/pi/canlogs/respawn.sh bbq_gateway.py &

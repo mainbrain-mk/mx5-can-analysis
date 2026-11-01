@@ -653,28 +653,6 @@ def test_clock_source_ntp_then_rtc_then_unknown():
         open(ntp, "w").close()
         assert dash_gui.clock_source(ntp, rtc) == ("NTP  SYNC", True)
 
-def test_status_screen_shows_bbq_only_while_thermometer_is_live_and_not_driving():
-    """01.11.2026: Grillthermometer vom bbq_gateway.py auf dem Wartebildschirm, nicht waehrend einer Fahrt."""
-    bbq = FakeSnapshotClient()
-    screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None, bbq_client=bbq)
-    waiting = {"values": {}, "can_up": False}
-    screen.refresh(waiting)
-    assert screen.bbq.parent is None  # keine Werte -> keine Kacheln
-
-    for k, v in (("P1", 80), ("P2", 54), ("Ziel1", 75), ("Ziel2", 90)):
-        bbq.set("bbq", k, v)
-    screen.refresh(waiting)
-    assert screen.bbq.parent is screen._extras
-    (_, c1), (_, c2) = screen.bbq.cards
-    assert c1.value_label.text == "80 °C" and tuple(c1.value_label.color) == dash_gui.GREEN  # Ziel erreicht
-    assert c2.value_label.text == "54 °C" and tuple(c2.value_label.color) == dash_gui.TEXT
-    assert c2.side_label.text == "90"
-
-    screen.refresh({"values": {}, "can_up": True, "logging": True})
-    assert screen.bbq.parent is None
-    screen.refresh(waiting)
-    assert screen.bbq.parent is screen._extras
-
 
 if __name__ == "__main__":
     if dash_gui is None:
@@ -712,5 +690,4 @@ if __name__ == "__main__":
     test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165()
     test_metric_card_set_value_applies_color_and_resets_to_dim_on_none()
     test_health_line_shows_what_the_tiles_display()
-    test_status_screen_shows_bbq_only_while_thermometer_is_live_and_not_driving()
     print("ok")

@@ -1,16 +1,14 @@
 argparse-addons==0.12.0
 bitstruct==8.23.0
-bleak==3.0.2
 cantools==44.0.0
 certifi==2026.7.22
 charset-normalizer==3.5.1
 crccheck==1.3.1
-dbus-fast==5.2.0
 docutils==0.23
 filetype==1.2.0
 idna==3.19
-Kivy-Garden==0.1.5
 Kivy==2.3.1
+Kivy-Garden==0.1.5
 packaging==26.3
 py-spy==0.4.2
 Pygments==2.21.0
