@@ -5915,3 +5915,24 @@ Auf dem Pi gerendert und getestet.
 
 **Nachtrag 31.10. (Nutzer: hellgelb statt weiß):** Verbrauchsbalken jetzt `LIGHT_YELLOW = (1, 0,93, 0,55)`,
 vom gelben Tankbalken (`YELLOW = (1, 0,83, 0)`) auf dem Pi-Rendering gut zu unterscheiden.
+
+## 2026-11-01: Pi als WLAN-Gateway für das Grillthermometer (Day_BBQ)
+
+Nutzerwunsch: steckt kein CAN-Adapter (Pi zu Hause), soll der Pi das BLE-Grillthermometer Day_BBQ
+(`F4:5E:AB:92:63:B9`, Notify `fe551582-…`, `<4H` = Ist P1/P2, Ziel P1/P2 in °C) halten und die Werte ins
+WLAN geben. Neues `scripts/bbq_gateway.py`: Verbindungsschleife wie das Handskript, die Live-Zeile geht an
+jeden TCP-Client auf Port 51235 (`nc car.local 51235` sieht aus wie das Handskript). Solange
+`/sys/class/net/can0` existiert, schläft es (30-s-Takt). Start über `respawn.sh` im labwc-`autostart`,
+ins applogs-Log nur Verbindungsereignisse (Temperaturzeilen würden ~7 MB/Tag schreiben). `bleak 3.0.2`
+ins Pi-venv installiert, BlueZ-Zugriff als `pi` klappt ohne `bluetooth`-Gruppe.
+Test 01.11.: BLE-Scan und TCP-Pfad auf dem Pi laufen, Thermometer wurde nicht gefunden, weil das
+Handskript auf dem Laptop die einzige BLE-Verbindung hielt (Gerät wirbt dann nicht).
+
+**Nachtrag 01.11. (Nutzer: Werte aufs Pi-Display, wenn das Thermometer verbunden ist):** `bbq_gateway.py`
+schickt jede Messung zusätzlich per UDP an `127.0.0.1:51236`, im Snapshotformat von `can_backend.py`
+(`values` mit `bbq:P1/P2/Ziel1/Ziel2`, monotone Zeitstempel). Das Dash liest das mit einer zweiten
+`SnapshotClient`-Instanz. Sind die Werte jünger als `BBQ_STALE_S` = 10 s und läuft keine Fahrt, zeigt der
+Wartebildschirm zwei Kacheln „GRILL P1/P2“ (Ist 150 sp, Ziel daneben, Ist grün ab Erreichen des Ziels).
+Ohne frische Werte verschwinden sie wieder. Test `test_status_screen_shows_bbq_only_while_thermometer_is_live_and_not_driving`.
+Auf dem Pi grün und mit Fake-Paketen gerendert (`docs/status/images/pi-dashboard-bbq-2026-11-01.png`, Testinstanz
+neben dem echten Dash, daher dort „WARTE AUF BACKEND“). Mit dem echten Thermometer noch nicht getestet.

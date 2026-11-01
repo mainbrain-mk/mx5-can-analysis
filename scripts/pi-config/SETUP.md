@@ -129,7 +129,7 @@ anzeigen). Neustart von Hand, z.B. nach einem Deploy:
   `receive.denyCurrentBranch=updateInstead`. Der Pi braucht weder Internet noch GitHub-Zugang.
 - Die Dateien, die autostart/`respawn.sh`/`can-logger.service` aufrufen, sind in `canlogs/`
   **Symlinks** ins Repo: `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`,
-  `tpms_poller.py`, `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`
+  `tpms_poller.py`, `uds_did_sweep.py`, `bbq_gateway.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`
   (-> `repo/scripts/`), `respawn.sh` (-> `repo/scripts/pi-config/`), beide HSCAN-DBC
   (-> `repo/data/can/`). Pfade in Units/autostart bleiben dadurch unverändert. Ein neues Skript,
   das direkt aus `canlogs/` aufgerufen wird, braucht einen neuen Symlink.

@@ -56,6 +56,9 @@ CAR_TOP_VIEW_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mx5
 # ist nur eine Annaeherung (siehe scripts/fonts/OFL.txt fuer die Lizenz).
 MX5_LOGO_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "TitilliumWeb-BoldItalic.ttf")
 UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
+# Grillthermometer von bbq_gateway.py (nur ohne can0 aktiv), gleiches Snapshotformat wie can_backend.py.
+BBQ_UDP_PORT = 51236
+BBQ_STALE_S = 10  # keine frischen Werte mehr -> Thermometer weg, Kacheln verschwinden
 # Gegenstueck zu can_backend.py SIM_TRIGGER_PATH - siehe SimController unten.
 SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
 # Ganzes Log gestreamt statt vorab nach /tmp entpackt: /tmp liegt im RAM (overlayroot, 923 MB), ganze
@@ -1187,10 +1190,36 @@ class SimController:
         return logs
 
 
+class BbqRow(BoxLayout):
+    """Grillthermometer-Kacheln auf dem Wartebildschirm (Pi zu Hause, Werte von bbq_gateway.py)."""
+
+    def __init__(self, client, **kwargs):
+        super().__init__(orientation="horizontal", spacing=10, **kwargs)
+        self.client = client
+        self.cards = []
+        for probe in ("1", "2"):
+            card = MetricCard(f"GRILL P{probe}", unit=" °C", side=True)
+            card.value_label.font_size = "150sp"  # vom Grill aus lesbar, die Kacheln sind riesig
+            card.side_label.font_size = "64sp"
+            self.add_widget(card)
+            self.cards.append((probe, card))
+
+    def connected(self):
+        return self.client.get("bbq", "P1", max_age=BBQ_STALE_S) is not None
+
+    def refresh(self):
+        for probe, card in self.cards:
+            ist = self.client.get("bbq", f"P{probe}", max_age=BBQ_STALE_S)
+            ziel = self.client.get("bbq", f"Ziel{probe}", max_age=BBQ_STALE_S)
+            card.set_value(ist, GREEN if ist is not None and ziel and ist >= ziel else TEXT)
+            card.set_side("–" if ziel is None else str(ziel), "Ziel °C")
+
+
 class StatusScreen(Screen):
-    def __init__(self, client, on_start_test, **kwargs):
+    def __init__(self, client, on_start_test, bbq_client=None, **kwargs):
         super().__init__(**kwargs)
         self.client = client
+        self.bbq = None if bbq_client is None else BbqRow(bbq_client)
         root = FloatLayout()
         with root.canvas.before:
             self._bg_color = Color(*BG)
@@ -1322,6 +1351,15 @@ class StatusScreen(Screen):
                 p = self.client.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
                 t = self.client.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
                 self.tpms.set_corner(key, p, t)
+        # Grillthermometer nur ausserhalb einer Fahrt; set_logging_extras_visible() raeumt es beim Start mit ab.
+        if self.bbq is not None:
+            want_bbq = not want_extras and self.bbq.connected()
+            if want_bbq and self.bbq.parent is None:
+                self._extras.add_widget(self.bbq)
+            elif not want_bbq and self.bbq.parent is not None:
+                self._extras.remove_widget(self.bbq)
+            if want_bbq:
+                self.bbq.refresh()
 
         # Auch sichtbar, waehrend eine laufende Simulation den Bus als aktiv
         # meldet (can_up dann per Trigger erzwungen True) - sonst gibt es
@@ -1496,7 +1534,8 @@ class MX5DashApp(App):
         self.sm = ScreenManager(transition=NoTransition())
 
         self.drive_screen = DriveScreen(self.client, name="drive")
-        self.status_screen = StatusScreen(self.client, on_start_test=self.start_test_mode, name="status")
+        self.status_screen = StatusScreen(self.client, on_start_test=self.start_test_mode,
+                                          bbq_client=SnapshotClient(port=BBQ_UDP_PORT), name="status")
         self.testmode_screen = TestModeScreen(self.client, on_finish=self.end_test_mode, name="testmode")
         for s in (self.status_screen, self.drive_screen, self.testmode_screen):
             self.sm.add_widget(s)

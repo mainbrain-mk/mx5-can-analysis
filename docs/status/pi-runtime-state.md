@@ -31,6 +31,7 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 | └ `candump -l -r 16777216 can0` | `session_logger`, KeyState ≠ OFF | Zündung an | `candump-*.log`, `clockstate-*`, `ifstats-*` (minütlich) |
 | └ `tpms_poller.py --interval 120` (TPMS, Öl, Lambda/ETC/Klopfen per OBD/UDS) | dito | Zündung an | landet im candump |
 | `canlogs-pack.timer` → `canlogs-pack.service` (`session_logger.py --pack`) | `timers.target` | 10 min nach dem Boot, dann alle 15 min | Journal |
+| `bbq_gateway.py` (Grillthermometer Day_BBQ per BLE → TCP Port 51235, `nc car.local 51235`, und per UDP 51236 ans Dash, das dann auf dem Wartebildschirm zwei Grill-Kacheln zeigt; wartet, solange `can0` da ist) | labwc-`autostart` → `respawn.sh` | immer, aktiv nur ohne Adapter | `applogs/bbq_gateway.log` (nur Verbindungsereignisse) |
 | `wlan-watchdog.timer` | `timers.target` | alle 15 s | – |
 
 - **Packen:** nur `candump-*.log` und nur, solange kein candump läuft. Fährt man währenddessen los, stoppt
@@ -53,7 +54,7 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 - **Fahrtdaten** (die Pipeline holt sie per `find -maxdepth 1`): `candump-*.log(.gz)`, `clockstate-*.txt`,
   `clockjump-*.txt`, `ifstats-*.txt`.
 - **Symlinks ins Repo:** `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`, `tpms_poller.py`,
-  `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
+  `uds_did_sweep.py`, `bbq_gateway.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
   `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker).
 - `archiv/`: alte Backups (`backup-*`), Vorversionen und Ausgaben bis 10.10. Nichts davon wird im Betrieb gebraucht.
