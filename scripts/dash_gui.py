@@ -749,6 +749,27 @@ class _RpmScaleRow(FloatLayout):
                                    pos_hint={"center_x": frac, "top": 1.0}))
 
 
+# Blinker (Nutzerwunsch 04.11.): 0x09A Turn ist der Lampenzustand selbst, er geht im Takt der Blinker
+# an und aus (0,35 s/0,35 s, 12 Frames/s, Log 2026-09-12_120952) - das Dash spiegelt ihn nur, ohne
+# eigenen Takt. "LR" = Warnblinker/Notbremssignal.
+TURN_CAN_ID, TURN_SIGNAL = 154, "Turn"
+TURN_STALE_S = 0.5
+TURN_YELLOW = (1, 0.72, 0.05)  # Bernstein statt des TPMS-Warngelbs
+# Leuchtflaechen der linken Seite in Pixeln von mx5_top_view.png (784x1326, Nase oben, y nach unten);
+# rechts gespiegelt. Scheinwerfer-Aussenkante, Seitenblinker auf dem Kotfluegel, runde Rueckleuchte.
+CAR_PNG_W, CAR_PNG_H = 784, 1326
+TURN_LAMPS_LEFT = (
+    ("line", ((132, 166), (165, 128), (205, 100), (240, 82)), 9),
+    ("ellipse", (104, 410), (12, 44)),
+    ("ellipse", (241, 1271), (52, 24)),
+)
+
+
+def turn_sides(value):
+    """0x09A Turn (Text oder Rohwert) -> (links an, rechts an)."""
+    return value in ("L", "LR", 1, 3), value in ("R", "LR", 2, 3)
+
+
 class TpmsCarView(Panel):
     """Reifendruck/-temperatur an einer Auto-Draufsicht - PNG-Asset
     (mx5_top_view.png, vom Nutzer als Gemini-Grafik geliefert: weisse
@@ -776,6 +797,23 @@ class TpmsCarView(Panel):
                            mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
                            pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
+        # Blinker ueber der Zeichnung: je Lampe ein breiter, halbdurchsichtiger Schein und ein satter
+        # Kern; ein/aus ueber das Alpha der beiden Color-Objekte je Seite.
+        self._turn_colors = {"L": [], "R": []}
+        self._turn_shapes = []  # (Kivy-Objekt, Art, Daten, Breitenfaktor, Seite)
+        with self._car.canvas.after:
+            for side, mirror in (("L", False), ("R", True)):
+                for glow in (True, False):
+                    color = Color(*TURN_YELLOW, 0)
+                    self._turn_colors[side].append((color, 0.35 if glow else 1.0))
+                    for kind, data, *size in TURN_LAMPS_LEFT:
+                        if mirror:
+                            data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
+                                else (CAR_PNG_W - data[0], data[1])
+                        shape = Line(points=[], width=1, cap="round", joint="round") if kind == "line" \
+                            else Ellipse()
+                        self._turn_shapes.append((shape, kind, data, size[0], 2.2 if glow else 1.0))
+        self._turn_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
         # halign ueber text_size=size erzwungen (sonst zentriert Kivy trotz halign).
@@ -802,6 +840,35 @@ class TpmsCarView(Panel):
             col.add_widget(temp)
             body.add_widget(col)
             self.corner_labels[key] = (val, temp)
+
+    def _place_turn_lamps(self):
+        # Bei jedem set_turn statt per bind(pos=...): das Binding feuerte nur vor dem endgueltigen
+        # Layout, die Lampen lagen dann ~450 px zu tief (Vorschau 04.11.).
+        geometry = (tuple(self._car.center), tuple(self._car.norm_image_size))
+        if geometry == self._turn_geometry:
+            return
+        self._turn_geometry = geometry
+        w, h = self._car.norm_image_size
+        scale = w / CAR_PNG_W
+        x0, y0 = self._car.center_x - w / 2, self._car.center_y - h / 2
+
+        def to_px(x, y):
+            return x0 + x * scale, y0 + (CAR_PNG_H - y) * scale
+
+        for shape, kind, data, size, grow in self._turn_shapes:
+            if kind == "line":
+                shape.points = [c for x, y in data for c in to_px(x, y)]
+                shape.width = max(1.0, size * scale * grow)
+            else:
+                cx, cy = to_px(*data)
+                sw, sh = (max(2.0, d * scale * grow) for d in size)
+                shape.pos, shape.size = (cx - sw / 2, cy - sh / 2), (sw, sh)
+
+    def set_turn(self, left, right):
+        self._place_turn_lamps()
+        for side, on in (("L", left), ("R", right)):
+            for color, alpha in self._turn_colors[side]:
+                color.a = alpha if on else 0.0
 
     def set_corner(self, key, pressure, temp):
         val_label, temp_label = self.corner_labels[key]
@@ -1006,6 +1073,7 @@ class DriveScreen(Screen):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
+        self.tpms.set_turn(*turn_sides(c.get(TURN_CAN_ID, TURN_SIGNAL, max_age=TURN_STALE_S)))
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))

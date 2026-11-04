@@ -258,6 +258,29 @@ def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     assert abs(screen._fuel_smooth - 80.0) < 0.1
 
 
+def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
+    """Nutzerwunsch 04.11.2026: Blinker in der TPMS-Zeichnung gelb. 0x09A Turn ist schon der
+    Lampentakt (an/aus), das Dash spiegelt ihn; veraltet = aus."""
+    assert dash_gui.turn_sides("L") == (True, False)
+    assert dash_gui.turn_sides("R") == (False, True)
+    assert dash_gui.turn_sides("LR") == (True, True)
+    assert dash_gui.turn_sides("Off") == (False, False) and dash_gui.turn_sides(None) == (False, False)
+    assert dash_gui.turn_sides(2) == (False, True)
+
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    alphas = lambda side: [c.a for c, _ in screen.tpms._turn_colors[side]]
+    client.set(154, "Turn", "L")
+    screen.refresh()
+    assert alphas("L") == [0.35, 1.0] and alphas("R") == [0.0, 0.0]
+    client.set(154, "Turn", "Off")                # Dunkelphase
+    screen.refresh()
+    assert alphas("L") == [0.0, 0.0]
+    client.set(154, "Turn", "LR")
+    screen.refresh()
+    assert alphas("L") == alphas("R") == [0.35, 1.0]
+
+
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
@@ -724,6 +747,7 @@ if __name__ == "__main__":
     test_led_dot_recolors_without_rebuilding_canvas()
     test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
     test_fuel_card_shows_momentary_consumption_right_of_level()
+    test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
