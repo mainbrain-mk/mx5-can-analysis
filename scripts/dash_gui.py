@@ -45,6 +45,7 @@ from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.image import Image
+from kivy.core.image import Image as CoreImage
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
@@ -52,6 +53,11 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
 # Neben dem Skript statt in LOG_DIR - ein Asset, kein Laufzeit-/Log-Artefakt.
 CAR_TOP_VIEW_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mx5_top_view.png")
+# Lichtkegel in Draufsicht, mit PhotoCraft erstellt (04.11., Quellen ~/Bilder/PhotoCraft/*.pcraft). realpath:
+# auf dem Pi liegt dash_gui.py als Symlink in canlogs/, die neuen Assets nur im Repo daneben.
+_ASSET_DIR = os.path.dirname(os.path.realpath(__file__))
+BEAM_LOW_PNG = os.path.join(_ASSET_DIR, "headlight_beam_low.png")    # 400x600, Rechtsverkehr-asymmetrisch
+BEAM_HIGH_PNG = os.path.join(_ASSET_DIR, "headlight_beam_high.png")  # 400x900, symmetrisch
 # Titillium Web Bold Italic (Google Fonts, OFL) statt Kivys Standard-Roboto -
 # Nutzer zeigte ein Foto des echten Chrom-Emblems: fett UND kursiv/schraeg,
 # nicht aufrecht. Kein Font trifft das handgezeichnete Original exakt, das
@@ -766,6 +772,33 @@ TURN_LAMPS_LEFT = (
     ("ellipse", (105, 400), (13, 18)),
     ("line", ((161, 1199), (186, 1224), (211, 1245)), 15),
 )
+# Licht und Bremse (Skizze des Nutzers 04.11.): weisser Punkt innen am Scheinwerfer (Tagfahr-/Standlicht),
+# roter Punkt hinten innen (Rueck-/Bremsleuchte); die Kegel beginnen vorn am Scheinwerfer.
+FRONT_LAYERS = (((0.85, 0.9, 1), 0.15, 3.2), ((1, 0.97, 0.9), 0.45, 1.8), ((1, 1, 1), 1.0, 1.0))
+FRONT_LAMPS_LEFT = (("ellipse", (176, 120), (34, 34)),)
+REAR_LAYERS = (((0.8, 0, 0), 0.2, 3.2), ((1, 0.08, 0.05), 0.5, 1.8), ((1, 0.45, 0.4), 1.0, 1.0))
+REAR_LAMPS_LEFT = (("ellipse", (240, 1265), (32, 26)),)
+BEAM_ORIGIN_LEFT = (170, 104)
+# (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
+# Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang; beide enden vor "TPMS".
+BEAMS = {"low": (BEAM_LOW_PNG, 0.27, 1.7, (0.5, 2 / 600)), "high": (BEAM_HIGH_PNG, 0.32, 1.5, (0.5, 2 / 900))}
+HEADLIGHT_SIGNAL = "Headlight"  # 0x09A: 0 Off, 1 Tagfahrlicht, 2 TNS, 3 Abblend, 12 Fern, 9 Lichthupe am Tag
+HEADLIGHT_NAMES = {"Off": 0, "TNS": 2, "TNS_Lo": 3, "Hi": 12}
+BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL = 359, "BrakeSwitch_PCM"  # 0x167, ~50 Hz; 0x43E BrakeLamp nur ~2 Hz
+TAIL_LEVEL = 0.5  # Ruecklicht gedimmt, Bremse voll
+
+
+def light_state(headlight, brake):
+    """-> {Gruppe: Helligkeit 0..1} fuer Front-/Ruecklampen und Kegel aus 0x09A Headlight und Bremsschalter.
+    In den Logs: 1 mittags (Tagfahrlicht), 3 morgens/abends, 12 kurz (Fernlicht), 9 = Lichthupe am Tag."""
+    raw = HEADLIGHT_NAMES.get(headlight, headlight)
+    raw = int(raw) if isinstance(raw, (int, float)) else 0
+    high = bool(raw & 8)
+    low = raw & 3 == 3 or high
+    tail = bool(raw & 2) or high
+    return {"front": 1.0 if raw & 1 or high else (0.5 if raw & 2 else 0.0),
+            "rear": 1.0 if brake else (TAIL_LEVEL if tail else 0.0),
+            "low": 1.0 if low else 0.0, "high": 1.0 if high else 0.0}
 
 
 def turn_sides(value):
@@ -796,27 +829,40 @@ class TpmsCarView(Panel):
         # der 784x1326-PNG auf die kleine Kachelgroesse - Kivys Default-Texturfilter
         # ohne Mipmaps sieht bei einer duennen Linienzeichnung wie dieser sichtbar
         # unruhig/unsauber aus (vom Nutzer 2026-09-20 bemaengelt).
+        # 04.11.: etwas kleiner und tiefer (0.92 -> 0.8), damit die Lichtkegel davor Platz haben.
         self._car = Image(source=CAR_TOP_VIEW_PNG, allow_stretch=True, keep_ratio=True,
-                           mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
-                           pos_hint={"center_x": 0.5, "center_y": 0.5})
+                           mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.8),
+                           pos_hint={"center_x": 0.5, "center_y": 0.4})
         body.add_widget(self._car)
-        # Blinker ueber der Zeichnung: je Lampe drei Schichten (TURN_LAYERS); ein/aus ueber das Alpha
-        # der Color-Objekte je Seite.
-        self._turn_colors = {"L": [], "R": []}
-        self._turn_shapes = []  # (Kivy-Objekt, Art, Daten, Breitenfaktor, Seite)
+        # Leuchten ueber der Zeichnung, Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color-Objekte:
+        # je Lampe drei Schichten (Hof, Schein, Kern). Lichtkegel als Textur hinter den Linien.
+        self._lamp_colors = {}  # Gruppe -> [(Color, volles Alpha)]
+        self._lamp_shapes = []  # (Kivy-Objekt, Art, Daten in PNG-Pixeln, Groesse, Vergroesserung)
+        self._beams = {}        # "low"/"high" -> (Color, [Rectangle links, rechts])
+        with self._car.canvas.before:
+            for name, (path, *_rest) in BEAMS.items():
+                texture = CoreImage(path, mipmap=True).texture
+                color = Color(1, 1, 1, 0)
+                self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
+        groups = (("front", FRONT_LAYERS, FRONT_LAMPS_LEFT, (False, True)),
+                  ("rear", REAR_LAYERS, REAR_LAMPS_LEFT, (False, True)),
+                  ("turn_L", TURN_LAYERS, TURN_LAMPS_LEFT, (False,)),
+                  ("turn_R", TURN_LAYERS, TURN_LAMPS_LEFT, (True,)))
         with self._car.canvas.after:
-            for side, mirror in (("L", False), ("R", True)):
-                for rgb, alpha, grow in TURN_LAYERS:
+            for group, layers, lamps, mirrors in groups:
+                self._lamp_colors[group] = []
+                for rgb, alpha, grow in layers:
                     color = Color(*rgb, 0)
-                    self._turn_colors[side].append((color, alpha))
-                    for kind, data, *size in TURN_LAMPS_LEFT:
-                        if mirror:
-                            data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
-                                else (CAR_PNG_W - data[0], data[1])
-                        shape = Line(points=[], width=1, cap="round", joint="round") if kind == "line" \
-                            else Ellipse()
-                        self._turn_shapes.append((shape, kind, data, size[0], grow))
-        self._turn_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
+                    self._lamp_colors[group].append((color, alpha))
+                    for mirror in mirrors:
+                        for kind, data, size in lamps:
+                            if mirror:
+                                data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
+                                    else (CAR_PNG_W - data[0], data[1])
+                            shape = Line(points=[], width=1, cap="round", joint="round") if kind == "line" \
+                                else Ellipse()
+                            self._lamp_shapes.append((shape, kind, data, size, grow))
+        self._lamp_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
         # halign ueber text_size=size erzwungen (sonst zentriert Kivy trotz halign).
@@ -844,13 +890,13 @@ class TpmsCarView(Panel):
             body.add_widget(col)
             self.corner_labels[key] = (val, temp)
 
-    def _place_turn_lamps(self):
-        # Bei jedem set_turn statt per bind(pos=...): das Binding feuerte nur vor dem endgueltigen
+    def _place_lamps(self):
+        # Bei jedem Setzen statt per bind(pos=...): das Binding feuerte nur vor dem endgueltigen
         # Layout, die Lampen lagen dann ~450 px zu tief (Vorschau 04.11.).
         geometry = (tuple(self._car.center), tuple(self._car.norm_image_size))
-        if geometry == self._turn_geometry:
+        if geometry == self._lamp_geometry:
             return
-        self._turn_geometry = geometry
+        self._lamp_geometry = geometry
         w, h = self._car.norm_image_size
         scale = w / CAR_PNG_W
         x0, y0 = self._car.center_x - w / 2, self._car.center_y - h / 2
@@ -858,7 +904,7 @@ class TpmsCarView(Panel):
         def to_px(x, y):
             return x0 + x * scale, y0 + (CAR_PNG_H - y) * scale
 
-        for shape, kind, data, size, grow in self._turn_shapes:
+        for shape, kind, data, size, grow in self._lamp_shapes:
             if kind == "line":
                 shape.points = [c for x, y in data for c in to_px(x, y)]
                 shape.width = max(1.0, size * scale * grow)
@@ -866,12 +912,29 @@ class TpmsCarView(Panel):
                 cx, cy = to_px(*data)
                 sw, sh = (max(2.0, d * scale * grow) for d in size)
                 shape.pos, shape.size = (cx - sw / 2, cy - sh / 2), (sw, sh)
+        # Kegel: beide Scheinwerfer gleich (Abblendlicht ist nicht spiegelsymmetrisch, sondern fuer
+        # Rechtsverkehr rechts laenger), Laenge relativ zur Autolaenge auf dem Bildschirm.
+        for name, (_path, length, widen, (ox, oy)) in BEAMS.items():
+            rects = self._beams[name][1]
+            tex_w, tex_h = rects[0].texture.size
+            bh = length * h
+            bw = bh * tex_w / tex_h * widen
+            for rect, x in zip(rects, (BEAM_ORIGIN_LEFT[0], CAR_PNG_W - BEAM_ORIGIN_LEFT[0])):
+                px, py = to_px(x, BEAM_ORIGIN_LEFT[1])
+                rect.pos, rect.size = (px - ox * bw, py - oy * bh), (bw, bh)
+
+    def set_lamps(self, levels):
+        """{Gruppe: 0..1} fuer front/rear/turn_L/turn_R/low/high; fehlende Gruppen bleiben."""
+        self._place_lamps()
+        for group, level in levels.items():
+            if group in self._beams:
+                self._beams[group][0].a = level
+            else:
+                for color, alpha in self._lamp_colors[group]:
+                    color.a = alpha * level
 
     def set_turn(self, left, right):
-        self._place_turn_lamps()
-        for side, on in (("L", left), ("R", right)):
-            for color, alpha in self._turn_colors[side]:
-                color.a = alpha if on else 0.0
+        self.set_lamps({"turn_L": 1.0 if left else 0.0, "turn_R": 1.0 if right else 0.0})
 
     def set_corner(self, key, pressure, temp):
         val_label, temp_label = self.corner_labels[key]
@@ -1077,6 +1140,8 @@ class DriveScreen(Screen):
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
         self.tpms.set_turn(*turn_sides(c.get(TURN_CAN_ID, TURN_SIGNAL, max_age=TURN_STALE_S)))
+        self.tpms.set_lamps(light_state(c.get(TURN_CAN_ID, HEADLIGHT_SIGNAL),
+                                        c.get(BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL, max_age=TURN_STALE_S)))
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))

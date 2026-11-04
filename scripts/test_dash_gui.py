@@ -269,7 +269,7 @@ def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
 
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
-    alphas = lambda side: [c.a for c, _ in screen.tpms._turn_colors[side]]
+    alphas = lambda side: [c.a for c, _ in screen.tpms._lamp_colors["turn_" + side]]
     lit = [a for _, a, _ in dash_gui.TURN_LAYERS]
     dark = [0.0] * len(lit)
     client.set(154, "Turn", "L")
@@ -281,6 +281,31 @@ def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
     client.set(154, "Turn", "LR")
     screen.refresh()
     assert alphas("L") == alphas("R") == lit
+
+
+def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
+    """Licht und Bremse in der Autozeichnung (Skizze des Nutzers 04.11.2026). 0x09A Headlight in den
+    Logs: 1 mittags = Tagfahrlicht, TNS_Lo morgens/abends = Abblend, Hi kurz = Fern, 9 = Lichthupe am Tag."""
+    off = dash_gui.light_state("Off", 0)
+    assert off == {"front": 0.0, "rear": 0.0, "low": 0.0, "high": 0.0}
+    assert dash_gui.light_state(1.0, 0) == {"front": 1.0, "rear": 0.0, "low": 0.0, "high": 0.0}   # Tagfahrlicht
+    assert dash_gui.light_state("TNS", 0) == {"front": 0.5, "rear": dash_gui.TAIL_LEVEL, "low": 0.0, "high": 0.0}
+    assert dash_gui.light_state("TNS_Lo", 0) == {"front": 1.0, "rear": dash_gui.TAIL_LEVEL, "low": 1.0, "high": 0.0}
+    assert dash_gui.light_state("Hi", 1)["high"] == 1.0 and dash_gui.light_state("Hi", 1)["rear"] == 1.0
+    assert dash_gui.light_state(9.0, 0)["high"] == 1.0                                       # Lichthupe
+    assert dash_gui.light_state(None, 1) == {"front": 0.0, "rear": 1.0, "low": 0.0, "high": 0.0}
+
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(154, "Headlight", "TNS_Lo")
+    client.set(359, "BrakeSwitch_PCM", 1)
+    screen.refresh()
+    view = screen.tpms
+    assert view._beams["low"][0].a == 1.0 and view._beams["high"][0].a == 0.0
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [a for _, a, _ in dash_gui.REAR_LAYERS]
+    client.set(359, "BrakeSwitch_PCM", 0)
+    screen.refresh()
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [a * dash_gui.TAIL_LEVEL for _, a, _ in dash_gui.REAR_LAYERS]
 
 
 def test_fuel_card_shows_momentary_consumption_right_of_level():
@@ -750,6 +775,7 @@ if __name__ == "__main__":
     test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
     test_fuel_card_shows_momentary_consumption_right_of_level()
     test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm()
+    test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
