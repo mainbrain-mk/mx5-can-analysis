@@ -5982,3 +5982,26 @@ Geber-Ersatzweg in `dash_gui.py`. Neuer Test `test_fuel_sensor_init_zero_after_i
 Offline-Replay derselben drei Logs danach: Volltanken **08:01:54, 3 s nach Zündung an im Stand** (9,6 → 45 l), kein
 Zwischen-Abgleich; gestern Abend Start direkt bei 9,8 l laut Geber. Das 0,0 beim Abschalten (Ende `075453`) fällt so
 ebenfalls weg. Ende `080151`: 42,74 l.
+
+## Tankstopp 04.11.: 36,14 l voll, Voll-bis-Voll 26.10.→04.11. (04.11.2026)
+
+**Angabe (Nutzer):** heute Morgen 36,14 l getankt (voll, wie immer). Zwischen `candump-2026-11-04_075453` (Ende
+07:59) und `_080151` (Start 08:01:51), ODO 172583 km bei beiden. Vor dem Tanken Geber roh ~6,2 → 9,8 l.
+
+**Intervall G 26.10. 15:33 → 04.11. 07:59**, 23 Logs (`26_153332` … `04_075453`), `FuelConsumption_Counter` je Log
+summiert (Lücke > 5 s = kein Zählen, Sprünge > 60/s verworfen; in allen Logs keine Lücke > 1 s, 11 verworfene Frames):
+
+| | Wert |
+|---|---|
+| Zählerschritte geloggt | 166 924 = 33,49 l bei 4985/l (475 km, 7,05 l/100km) |
+| ODO-Sprünge ohne Logger | +1 km (27.→28.10.), +3 km (29.10. 08:35→10:36) ≈ 0,28 l ≈ 1 400 Schritte |
+| Schritte/l | 4619 geloggt, **≈ 4658 mit Lücke** |
+| Rest bei 4985/l | **−2,4 l** (Zähler unter der getankten Menge; bisher je Intervall ≤ 1,0 l) |
+
+- **Tankgeber als Gegenprobe:** 26.10. nach dem Tanken 9,2 + 34,86 = 44,1 l, heute 9,8 + 36,14 = 45,9 l. Heute ging
+  also ~1,8 l mehr in den Tank als am 26.10. (Abschaltstreuung der Zapfpistole und Geber-Unterast ±1 l). Verbrauch
+  laut Geber 44,1 − 9,8 = 34,3 l → 4913/l, d. h. Zähler und 4985/l liegen ~1,5 % auseinander, nicht 7 %.
+- **Kette 16.09.→04.11.** (sechs Intervalle, 180,59 l): **4919/l**, 1,3 % unter 4985. Das liegt an der Grenze der
+  bisherigen Unsicherheit (~1 %); das Ende 04.11. ist laut Geber eher überfüllt, was die Kette nach unten zieht.
+- **Entscheidung (Nutzer, 04.11.):** 4985/l bleibt. Beim nächsten Stopp neu bewerten (dann ist 04.11. innerer Punkt).
+- **Startpunkt nächstes Intervall:** voll ab `candump-2026-11-04_080151`, 172583 km.
