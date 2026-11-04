@@ -779,9 +779,9 @@ LAMP_SPRITES = {
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
 BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
 # (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
-# Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang; beide enden vor "TPMS".
+# Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang.
 BEAMS = {"low": ("headlight_beam_low.png", 0.27, 1.7, (0.5, 2 / 600)),
-         "high": ("headlight_beam_high.png", 0.32, 1.5, (0.5, 2 / 900))}
+         "high": ("headlight_beam_high.png", 0.29, 1.5, (0.5, 2 / 900))}
 HEADLIGHT_SIGNAL = "Headlight"  # 0x09A: 0 Off, 1 Tagfahrlicht, 2 TNS, 3 Abblend, 12 Fern, 9 Lichthupe am Tag
 HEADLIGHT_NAMES = {"Off": 0, "TNS": 2, "TNS_Lo": 3, "Hi": 12}
 BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL = 359, "BrakeSwitch_PCM"  # 0x167, ~50 Hz; 0x43E BrakeLamp nur ~2 Hz
@@ -832,10 +832,10 @@ class TpmsCarView(Panel):
         # der 784x1326-PNG auf die kleine Kachelgroesse - Kivys Default-Texturfilter
         # ohne Mipmaps sieht bei einer duennen Linienzeichnung wie dieser sichtbar
         # unruhig/unsauber aus (vom Nutzer 2026-09-20 bemaengelt).
-        # 04.11.: etwas kleiner und tiefer (0.92 -> 0.8), damit die Lichtkegel davor Platz haben.
+        # Lichtkegel duerfen ueber "TPMS" strahlen (Nutzer 04.11.), das Auto bleibt dafuer gross und mittig.
         self._car = Image(source=CAR_TOP_VIEW_PNG, allow_stretch=True, keep_ratio=True,
-                           mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.8),
-                           pos_hint={"center_x": 0.5, "center_y": 0.4})
+                           mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
+                           pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
         # Leuchten ueber, Kegel unter der Zeichnung; Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color.
         self._lamp_colors = {}  # Gruppe -> [(Color, volles Alpha)]
