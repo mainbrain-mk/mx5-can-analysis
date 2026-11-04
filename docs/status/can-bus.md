@@ -4,15 +4,20 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
-**Status 2026-11-04 — Tankanzeige im Dash aus dem Kraftstoffzähler (im Repo, noch nicht auf dem Pi).**
+**Status 2026-11-04 — Tankanzeige im Dash aus dem Kraftstoffzähler (seit 04.11. auf dem Pi; Init-0 des Gebers nach Zündung an wird seit 04.11. verworfen, Tankstopp 04.11. offline nachgespielt: Volltanken nach 3 s).**
 Die KRAFTSTOFF-Kachel zeigt 100 % = 45 l nach dem Volltanken und 0 % = 9,5 l Rest, dazwischen linear. `can_backend.py`
 zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der Tankgeber erkennt nur noch Tankstopps
 (gesättigt bei niedrigem Stand → 45 l) und Fahrten ohne Pi (Abweichung > 4 l → Geberwert). Der Stand liegt in
 `/home/pi/canlogs/fuel_state.json`. Bisher stand nach dem Tanken ~2,3 l lang 90 %, weil der Geber sättigt.
 Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.).
 
+**Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
+springen die Segmente auf 50 % Helligkeit (Sprung bleibt sichtbar) und blenden in 0,6 s auf die Ruhefarbe aus
+(`RPM_GLOW_START`/`RPM_GLOW_S` in `dash_gui.py`). Gilt für jeden Drehzahlabfall, nicht nur fürs Hochschalten.
+Auf dem Pi, **noch nicht während einer Fahrt gesehen**. Logbuch 31.10.
+
 **Status 2026-10-31 — Momentanverbrauch im Dash (Nutzerwunsch).** KRAFTSTOFF-Kachel zeigt rechts neben dem
-Füllstand den Verbrauch in gleicher Schriftgröße, die Einheit (`l/100km` bzw. `l/h`) klein mittig darunter. `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
+Füllstand den Verbrauch in gleicher Schriftgröße, die Einheit (`l/100km` bzw. `l/h`) klein mittig darunter. Darunter über dem gelben Tankbalken ein hellgelber Verbrauchsbalken 4,0–25 l/100km (im Stand leer). `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
 (Weg, 0,1992 m/Schritt) über 1 s, also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`
 (beides Nutzerwunsch), Anzeige gedeckelt bei 99,9. Seit 31.10. auf dem Pi, **noch nicht live während einer Fahrt gesehen**. Logbuch 31.10.
 

@@ -107,6 +107,11 @@ DRIVE_RPM_MAX = 8000
 DRIVE_RPM_YELLOW = 7000
 DRIVE_RPM_ORANGE = 7400
 DRIVE_RPM_RED = 7500
+# Nachglimmen des Drehzahlbalkens (Nutzerwunsch 31.10., v. a. nach dem Hochschalten): erloschene
+# Segmente springen auf diese Helligkeit (Anteil der Zonenfarbe, Sprung bleibt sichtbar) und blenden
+# in RPM_GLOW_S auf die dunkle Ruhefarbe (DARK_FACTOR).
+RPM_GLOW_START = 0.5
+RPM_GLOW_S = 0.6
 DRIVE_SHIFTLIGHT_MIN = 4000
 DRIVE_SHIFTLIGHT_N = 16
 # ECU-Soft-Limiter-Erkennung (2026-09-20 im CAN-Log gefunden: Drosselklappe
@@ -149,6 +154,7 @@ def _clutch_gear_color(clutch_raw):
 
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
+CONSUMPTION_BAR_L100 = (4.0, 25.0)  # Verbrauchsbalken der KRAFTSTOFF-Kachel: leer .. voll (Nutzerwunsch 31.10.)
 FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
                          # liegt bei ~1-2s, echter Fuellstand aendert sich
                          # ueber Minuten - 8s glaettet das eine, verzoegert
@@ -187,6 +193,7 @@ TEXT = (0.91, 0.92, 0.96, 1)
 TEXT_DIM = (0.4, 0.42, 0.47, 1)
 RED = (1, 0.18, 0.23, 1)
 YELLOW = (1, 0.83, 0, 1)
+LIGHT_YELLOW = (1, 0.93, 0.55, 1)  # Verbrauchsbalken ueber dem (gelben) Tankbalken, Nutzerwunsch 31.10.
 ORANGE = (1, 0.55, 0.1, 1)
 GREEN = (0.18, 0.8, 0.32, 1)
 BLUE = (0.22, 0.53, 0.9, 1)
@@ -262,7 +269,10 @@ def _rpm_zone_color(rpm):
     return TEXT
 
 
-def _darken(color, factor=0.19):
+DARK_FACTOR = 0.19
+
+
+def _darken(color, factor=DARK_FACTOR):
     # Gleicher Faktor, mit dem TEXT (weisse Zone) bisher auf das feste
     # Inaktiv-Grau (0.16, 0.17, 0.2) abgedunkelt wirkte - jetzt auf jede
     # Zonenfarbe angewandt statt nur auf Weiss.
@@ -646,10 +656,10 @@ class RpmBar(Panel):
         top.add_widget(self.bar_widget)
         self.add_widget(top)
 
-    def update(self, rpm):
+    def update(self, rpm, dt=None):
         self.rpm_value.text = "-" if rpm is None else f"{rpm:.0f}"
         self.rpm_value.color = _rpm_zone_color(rpm)
-        self.bar_widget.update(rpm)
+        self.bar_widget.update(rpm, dt)
 
 
 class _RpmBarCanvas(Widget):
@@ -664,6 +674,7 @@ class _RpmBarCanvas(Widget):
         self.n_segments = n_segments
         self.rpm = 0
         self.lit_n = 0
+        self._glow = {}  # Segment -> aktuelle Nachglimm-Helligkeit (DARK_FACTOR..RPM_GLOW_START)
         self._zone_colors = [_rpm_zone_color((i / n_segments) * DRIVE_RPM_MAX)
                              for i in range(n_segments)]
         self._colors = []
@@ -674,15 +685,24 @@ class _RpmBarCanvas(Widget):
                 self._rects.append(Rectangle(pos=self.pos, size=(0, 0)))
         self.bind(pos=self._layout, size=self._layout)
 
-    def update(self, rpm):
+    def update(self, rpm, dt=None):
+        dt = 1.0 / DRIVE_REFRESH_HZ if dt is None else dt
         self.rpm = rpm or 0
         lit_frac = max(0.0, min(1.0, self.rpm / DRIVE_RPM_MAX))
         lit_n = round(lit_frac * self.n_segments)
-        if lit_n == self.lit_n:
+        if lit_n == self.lit_n and not self._glow:
             return
-        for i in range(min(lit_n, self.lit_n), max(lit_n, self.lit_n)):
-            zone_color = self._zone_colors[i]
-            self._colors[i].rgba = zone_color if i < lit_n else _darken(zone_color)
+        for i in list(self._glow):
+            self._glow[i] -= dt / RPM_GLOW_S * (RPM_GLOW_START - DARK_FACTOR)
+        for i in range(lit_n, self.lit_n):       # gerade erloschen
+            self._glow[i] = RPM_GLOW_START
+        for i in range(self.lit_n, lit_n):       # (wieder) an
+            self._glow.pop(i, None)
+            self._colors[i].rgba = self._zone_colors[i]
+        for i, glow in list(self._glow.items()):
+            if glow <= DARK_FACTOR:
+                del self._glow[i]
+            self._colors[i].rgba = _darken(self._zone_colors[i], max(glow, DARK_FACTOR))
         self.lit_n = lit_n
 
     def _layout(self, *_args):
@@ -911,6 +931,9 @@ class DriveScreen(Screen):
         self.iat_card = MetricCard("ANSAUGLUFT", unit="°C")
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
         self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
+        # Momentanverbrauch als zweiter Balken direkt ueber dem Tankbalken (index=1: vor dem letzten Kind)
+        self.consumption_bar = FillBar(color=LIGHT_YELLOW, size_hint_y=None, height=8)
+        self.fuel_card.add_widget(self.consumption_bar, index=1)
         for c in (self.gas_card, self.brake_card, self.lambda_card, self.iat_card,
                   self.load_card, self.fuel_card):
             bottom.add_widget(c)
@@ -939,7 +962,7 @@ class DriveScreen(Screen):
         etc = c.get(OIL_RESPONSE_KEY, "_ThrottlePosition_pct_derived")
         limiter_active = _is_limiter_active(rpm, app, etc)
         self.shiftlights.update(rpm, limiter_active)
-        self.rpm_bar.update(rpm)
+        self.rpm_bar.update(rpm, dt)
 
         speed = c.get(514, "VehicleSpeed")
         self.speed_value.text = "0" if speed is None else f"{speed:.0f}"
@@ -979,7 +1002,8 @@ class DriveScreen(Screen):
             self._fuel_smooth = _fuel_pct_from_liters(fuel_liters)
         else:
             fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
-            fuel_pct = None if fuel_raw is None else _fuel_pct_from_liters(
+            # 0,0 = Init-Artefakt nach Zuendung an (wie FuelEstimator.on_sensor), wuerde die EMA bei 0 % starten
+            fuel_pct = None if fuel_raw is None or fuel_raw <= 0 else _fuel_pct_from_liters(
                 FUEL_SENSOR_L0 + FUEL_SENSOR_L_PER_RAW * fuel_raw)
             if fuel_pct is not None:
                 self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
@@ -995,6 +1019,8 @@ class DriveScreen(Screen):
             self.fuel_card.set_side("")
         else:
             self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
+        lo, hi = CONSUMPTION_BAR_L100
+        self.consumption_bar.frac = 0.0 if l100 is None else max(0.0, min(1.0, (l100 - lo) / (hi - lo)))
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:

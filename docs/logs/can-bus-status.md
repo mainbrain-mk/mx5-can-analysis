@@ -5891,6 +5891,31 @@ gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen wä
 (52 sp, gleiche Höhe), Einheit `l/100km`/`l/h` klein (20 sp, gedimmt) mittig darunter. Auf dem Pi gerendert
 (1920×1080): „100%" neben „99,9" passt mit Abstand; Deckel 99,9 bleibt.
 
+## Drehzahlbalken: Nachglimmen nach dem Hochschalten (31.10.2026)
+
+**Wunsch (Nutzer):** Nach dem Hochschalten soll die Drehzahl im Balken „nachglimmen".
+
+- `_RpmBarCanvas.update(rpm, dt)`: erlöschende Segmente starten bei `RPM_GLOW_START = 0,6` der Zonenfarbe
+  und blenden linear in `RPM_GLOW_S = 0,6 s` auf die dunkle Ruhefarbe; steigt die Drehzahl wieder, leuchten
+  sie sofort voll. Nur die glimmenden Segmente werden je Frame umgefärbt, kein Canvas-Neuaufbau.
+- Bewusst ohne Schalterkennung: jeder Drehzahlabfall glimmt nach. Beim Hochschalten (schneller Abfall) ist das
+  deutlich zu sehen, beim langsamen Gaswegnehmen bleibt nur eine kurze Spur.
+- Auf dem Pi gerendert (7000 → 4500, 0,1 s/0,35 s danach), `test_dash_gui.py` auf dem Pi grün.
+- **Offen:** Wirkung während einer Fahrt; die zwei Konstanten sind die Stellschrauben.
+
+**Nachtrag 31.10. (Nutzer: Ausblenden muss bei 50 % Helligkeit beginnen, damit man den Sprung sieht):**
+`RPM_GLOW_START` ist jetzt ein echter Helligkeitsfaktor (0,5 × Zonenfarbe) statt eines Mischanteils zwischen
+dunkel und voll (0,6 ergab effektiv ~68 %). Ausblenden linear auf `DARK_FACTOR = 0,19` (bisherige Ruhefarbe,
+jetzt als Konstante für `_darken()`). Auf dem Pi gerendert und getestet.
+
+**Nachtrag 31.10. (Nutzer: Balken für den Momentanverbrauch über dem Tankbalken, 4,0–25 l/100km):**
+`CONSUMPTION_BAR_L100 = (4.0, 25.0)` in `dash_gui.py`, weißer `FillBar` (Farbe nicht vorgegeben, weiß wie
+die Verbrauchszahl) direkt über dem gelben Tankbalken, darunter leer, darüber voll. Im Stand (nur l/h) leer.
+Auf dem Pi gerendert und getestet.
+
+**Nachtrag 31.10. (Nutzer: hellgelb statt weiß):** Verbrauchsbalken jetzt `LIGHT_YELLOW = (1, 0,93, 0,55)`,
+vom gelben Tankbalken (`YELLOW = (1, 0,83, 0)`) auf dem Pi-Rendering gut zu unterscheiden.
+
 ## Tankanzeige aus dem Kraftstoffzähler: voll = 100 % = 45 l, 0 % = 9,5 l (04.11.2026)
 
 **Auftrag (Nutzer):** Nach dem Volltanken zeigte die KRAFTSTOFF-Kachel lange ~90 %. Gewünscht: direkt nach dem
@@ -5932,3 +5957,74 @@ Geber damit 94 % statt bisher 90 %.
 - **Noch nicht auf dem Pi.** Beim ersten Start nach dem Deploy gibt es keinen gespeicherten Stand. Er beginnt beim
   Geberwert (gesättigt 42,8 l), ab dem nächsten Volltanken gilt 45 l. Prüfen beim nächsten Tankstopp:
   `grep Tank: applogs/can_backend.log` sollte „Volltanken: … -> 45.0 l“ zeigen, die Kachel 100 %.
+
+**Nachtrag 04.11. (Deploy):** Merge von `main` (Tankanzeige) mit dem Nachglimmen/Verbrauchsbalken als `551bc36` auf
+dem Pi. `test_dash_gui.py` und `test_can_backend.py` dort grün. Vcan-Replay von `candump-2026-11-04_163818`: Backend
+meldet `tank=41.72l` und zählt im Leerlauf herunter (41,65 l nach ~70 s), Kachel zeigt 91 % (= (41,7 − 9,5)/35,5),
+Verbrauchsbalken bei 3,5 l/100km leer. Die Simulation legt kein `fuel_state.json` an (eigener Schätzer, der echte
+hat ohne `can0` keinen Stand). Offen: erste echte Fahrt (Start beim Geberwert) und der nächste Tankstopp (→ 45 l, 100 %).
+
+**Nachtrag 04.11. (Tankstopp heute Morgen offline nachgespielt):** Die Logs `candump-2026-11-03_174347`,
+`…-11-04_075453` und `…-11-04_080151` liefen auf dem Rechner durch `FuelEstimator` (Repo-DBC, Stand über die Logs
+weitergereicht wie auf dem Pi; live lief morgens noch der alte Code). Ablauf: Gestern Abend ~9,8 l (Geber roh 6,2), Fahrt zur Tankstelle
+07:55–07:59 (0,18 l laut Zähler), Zündung nach dem Tanken 08:01:51, Geber sofort 36,2 (gesättigt).
+Ergebnis: **Volltanken erkannt, aber erst 08:04:40 in Fahrt** (60-s-Haltezeit). Davor um 08:02:39 ein
+Zwischen-Abgleich auf 37,9 l (Anzeige 80 %). Bis Logende 43,05 l (2,26 l verbraucht).
+
+**Ursache:** Der Geber meldet direkt nach Zündung an kurz `Fuel_Tank = 0,0` (heute 30 ms, gestern Abend 5,5 s),
+danach den echten Wert. `on_sensor` setzt die Glättung nach einer Lücke > 5 s auf den ersten Rohwert, also auf 0, und
+läuft mit τ 20 s über Minuten zum echten Wert hoch. Unterwegs greift der 3-s-Abgleich im Stand auf einen Zwischenwert.
+Liegt der über 38,8 l, ist die Abweichung zur Sättigung (42,8 l) ≤ 4 l: **das Volltanken würde dann nie erkannt**, die
+Anzeige bliebe bis zum nächsten Tankstopp bei ~83 %. Heute fehlten dazu 0,9 l. Ohne gespeicherten Stand startet der
+Schätzer zudem bei 3,0 l (gestern Abend 80 s lang 0 %), bis der Abgleich in Fahrt greift.
+**Fix (04.11.):** `on_sensor` verwirft Rohwerte ≤ 0 (Init-Artefakt; 0 roh = 3,0 l kommt real nicht vor), ebenso der
+Geber-Ersatzweg in `dash_gui.py`. Neuer Test `test_fuel_sensor_init_zero_after_ignition_is_ignored`, Dash-Test erweitert.
+Offline-Replay derselben drei Logs danach: Volltanken **08:01:54, 3 s nach Zündung an im Stand** (9,6 → 45 l), kein
+Zwischen-Abgleich; gestern Abend Start direkt bei 9,8 l laut Geber. Das 0,0 beim Abschalten (Ende `075453`) fällt so
+ebenfalls weg. Ende `080151`: 42,74 l.
+
+## Tankstopp 04.11.: 36,14 l voll, Voll-bis-Voll 26.10.→04.11. (04.11.2026)
+
+**Angabe (Nutzer):** heute Morgen 36,14 l getankt (voll, wie immer). Zwischen `candump-2026-11-04_075453` (Ende
+07:59) und `_080151` (Start 08:01:51), ODO 172583 km bei beiden. Vor dem Tanken Geber roh ~6,2 → 9,8 l.
+
+**Intervall G 26.10. 15:33 → 04.11. 07:59**, 23 Logs (`26_153332` … `04_075453`), `FuelConsumption_Counter` je Log
+summiert (Lücke > 5 s = kein Zählen, Sprünge > 60/s verworfen; in allen Logs keine Lücke > 1 s, 11 verworfene Frames):
+
+| | Wert |
+|---|---|
+| Zählerschritte geloggt | 166 924 = 33,49 l bei 4985/l (475 km, 7,05 l/100km) |
+| ODO-Sprünge ohne Logger | +1 km (27.→28.10.), +3 km (29.10. 08:35→10:36) ≈ 0,28 l ≈ 1 400 Schritte |
+| Schritte/l | 4619 geloggt, **≈ 4658 mit Lücke** |
+| Rest bei 4985/l | **−2,4 l** (Zähler unter der getankten Menge; bisher je Intervall ≤ 1,0 l) |
+
+- **Tankgeber als Gegenprobe:** 26.10. nach dem Tanken 9,2 + 34,86 = 44,1 l, heute 9,8 + 36,14 = 45,9 l. Heute ging
+  also ~1,8 l mehr in den Tank als am 26.10. (Abschaltstreuung der Zapfpistole und Geber-Unterast ±1 l). Verbrauch
+  laut Geber 44,1 − 9,8 = 34,3 l → 4913/l, d. h. Zähler und 4985/l liegen ~1,5 % auseinander, nicht 7 %.
+- **Kette 16.09.→04.11.** (sechs Intervalle, 180,59 l): **4919/l**, 1,3 % unter 4985. Das liegt an der Grenze der
+  bisherigen Unsicherheit (~1 %); das Ende 04.11. ist laut Geber eher überfüllt, was die Kette nach unten zieht.
+- **Entscheidung (Nutzer, 04.11.):** 4985/l bleibt. Beim nächsten Stopp neu bewerten (dann ist 04.11. innerer Punkt).
+- **Startpunkt nächstes Intervall:** voll ab `candump-2026-11-04_080151`, 172583 km.
+
+## Gegenrechnung 4913/l über die Kette 16.09.→04.11. (04.11.2026)
+
+**Frage (Nutzer):** Wie verhalten sich die Intervalle mit 4913/l (Geber-Steigung aus G) statt 4985/l?
+Fehler = gezählt − getankt; G inklusive ~1 400 Schritte ODO-Lücke.
+
+| Intervall | getankt | 4985/l | 4913/l |
+|---|---|---|---|
+| A 16.→26.09. | 34,40 l | −1,04 | −0,56 |
+| B 26.→27.09. | 18,67 l | +0,82 | +1,10 |
+| F 27.09.→04.10. | 32,28 l | +0,44 | +0,92 |
+| E 04.→10.10. | 24,24 l | −0,68 | −0,33 |
+| D 10.→26.10. | 34,86 l | +0,44 | +0,95 |
+| G 26.10.→04.11. | 36,14 l | −2,37 | −1,88 |
+| **Summe / RMS** | 180,59 l | −2,40 / 1,17 | +0,21 / 1,07 |
+
+- 4913/l schließt die Kette, die Streuung je Intervall bleibt ~±1 l (Zapfpistolen-Abschaltung). Den Ausschlag gibt
+  allein G (laut Geber ~1,8 l Überfüllung am 04.11.).
+- Restmenge laut Zähler Ende `04_075453`: 11,2 l (4985/l) bzw. 10,7 l (4913/l), Geber 9,8 l, aus Tankmenge 8,9 l.
+- Nebenbefund: `run_daily_pipeline.py` rechnet den Tank linear ohne Geber-Sättigung (roh 36,2 → 42,8 l statt 45 l,
+  betrifft `04_080151`, `_152230`, `_163818`, ~2 kg); `can_backend.py` kennt die Sättigung. Nicht geändert.
+- **Entscheidung (Nutzer):** 4985/l bleibt bis zum nächsten Stopp. Dann ist 04.11. innerer Punkt; liegt H wieder
+  deutlich im Minus, spricht das für 4913/l.
