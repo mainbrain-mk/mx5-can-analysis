@@ -11,6 +11,11 @@ zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der
 `/home/pi/canlogs/fuel_state.json`. Bisher stand nach dem Tanken ~2,3 l lang 90 %, weil der Geber sättigt.
 Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.).
 
+**Status 2026-10-31 — Momentanverbrauch im Dash (Nutzerwunsch).** KRAFTSTOFF-Kachel zeigt rechts neben dem
+Füllstand den Verbrauch in gleicher Schriftgröße, die Einheit (`l/100km` bzw. `l/h`) klein mittig darunter. `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
+(Weg, 0,1992 m/Schritt) über 1 s, also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`
+(beides Nutzerwunsch), Anzeige gedeckelt bei 99,9. Seit 31.10. auf dem Pi, **noch nicht live während einer Fahrt gesehen**. Logbuch 31.10.
+
 **Status 2026-10-31 — Dekodierte Logs jetzt als Parquet.** `can_log_parser.py` schreibt `<log>_decoded.parquet`
 (Spalten t/can_id/message/signal/value/value_text; Enum-Namen wie KeyState "ON" in `value_text`, `value` dann NaN)
 statt `_decoded.csv` - ~20x kleiner, Dekodieren+Schreiben ~7x schneller. Seit 31.10. auch alle Altlogs (CSV geloescht;

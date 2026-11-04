@@ -106,6 +106,13 @@ OIL_RESPONSE_ID = 0x7E8
 OIL_DID = 0x1310
 FUEL_TANK_CAN_ID = 158
 COOLANT_TEMP_CAN_ID = 1056
+# 0x420 traegt auch Byte1 Wegzaehler (0,1992 m/Schritt, ODO-kalibriert) und Byte2
+# Kraftstoffzaehler (4985 Schritte/l, Voll-bis-Voll-Kette 16.09.-26.10.), beide 8 Bit
+# umlaufend, 10 Hz - daraus der Momentanverbrauch, unabhaengig vom zu hohen VehicleSpeed.
+TRAVEL_M_PER_STEP = 0.1992
+FUEL_STEPS_PER_L = 4985.0
+CONSUMPTION_WINDOW_S = 1.0   # Nutzerwunsch 31.10.: schneller statt ruhiger (2 s zappelte halb so viel)
+CONSUMPTION_MIN_KMH = 4.0    # darunter zeigt das Dash l/h statt l/100km
 RCM_LATERAL_CAN_ID = 117
 RCM_LONGITUDINAL_CAN_ID = 118
 ABS_CAN_ID = 529
@@ -136,7 +143,7 @@ FUEL_COUNTER_CAN_ID = COOLANT_TEMP_CAN_ID  # 0x420 traegt Kuehlwasser und Krafts
 FUEL_COUNTER_SIGNAL = "FuelConsumption_Counter"
 FUEL_TANK_SIGNAL = "Fuel_Tank"
 FUEL_FULL_L = 45.0                # Mazda-Angabe, bei jeder Voll-Tankung bestaetigt
-FUEL_COUNTS_PER_L = 4985.0        # 0x420 Byte2, umlaufend 8 Bit
+FUEL_COUNTS_PER_L = FUEL_STEPS_PER_L  # 0x420 Byte2 (4985/l), umlaufend 8 Bit
 FUEL_SENSOR_L0 = 3.0              # Geber-Kennlinie: Liter = 3,0 + 1,10 * Fuel_Tank (DBC-Wert)
 FUEL_SENSOR_L_PER_RAW = 1.10
 FUEL_SENSOR_SATURATED_RAW = 36.1  # Saettigung liest 36,2 (Aufloesung 0,2)
@@ -297,6 +304,39 @@ def extract_brake_pct(data):
     return max(0.0, min(100.0, (raw - 156) / 2.56))
 
 
+class ConsumptionMeter:
+    """Momentanverbrauch aus den 0x420-Zaehlern ueber CONSUMPTION_WINDOW_S: (l/100km, l/h),
+    l/100km ist None unter CONSUMPTION_MIN_KMH (Stand) - dann zeigt das Dash l/h."""
+
+    def __init__(self):
+        self._last = None   # (t, weg_roh, kraftstoff_roh)
+        self._hist = []     # (t, weg_summe, kraftstoff_summe)
+
+    def update(self, data, t):
+        dist_raw, fuel_raw = data[1], data[2]
+        if self._last is None or t - self._last[0] > 1.0:
+            self._hist = [(t, 0, 0)]
+        else:
+            d_dist = (dist_raw - self._last[1]) % 256
+            d_fuel = (fuel_raw - self._last[2]) % 256
+            # 10 Hz: max. ~35 Weg-/~9 Kraftstoffschritte je Frame - mehr ist ein Glitch
+            if d_dist > 60 or d_fuel > 20:
+                d_dist = d_fuel = 0
+            _, dist, fuel = self._hist[-1]
+            self._hist.append((t, dist + d_dist, fuel + d_fuel))
+        self._last = (t, dist_raw, fuel_raw)
+        while len(self._hist) > 2 and t - self._hist[1][0] >= CONSUMPTION_WINDOW_S:
+            self._hist.pop(0)
+        t0, dist0, fuel0 = self._hist[0]
+        t1, dist1, fuel1 = self._hist[-1]
+        dist_m = (dist1 - dist0) * TRAVEL_M_PER_STEP
+        if t1 - t0 < 0.5 * CONSUMPTION_WINDOW_S:
+            return None, None
+        litres = (fuel1 - fuel0) / FUEL_STEPS_PER_L
+        l100 = None if dist_m < CONSUMPTION_MIN_KMH / 3.6 * (t1 - t0) else litres / (dist_m / 1e5)
+        return l100, litres / ((t1 - t0) / 3600)
+
+
 def can0_up(channel):
     try:
         with open(f"/sys/class/net/{channel}/operstate") as f:
@@ -378,6 +418,7 @@ class CanBackend:
         self._frame_count = 0
         self.frames_per_sec = 0.0
         self._obd_requests = dict.fromkeys(OBD_REQUEST_IDS, 0)  # seit der letzten Zustandszeile
+        self._consumption = ConsumptionMeter()
         self._logging_since = None       # Wanduhr, nur noch fuer aeltere dash_gui.py-Staende
         self._logging_since_mono = None
         # /proc-Scans sind zwar reines Python (kein fork(), siehe process_running()-
@@ -511,6 +552,10 @@ class CanBackend:
                     if msg.arbitration_id == BRAKE_PCT_CAN_ID and len(msg.data) == 8:
                         self._set(BRAKE_PCT_CAN_ID, "_BrakePedalPercent_derived",
                                    extract_brake_pct(msg.data), now)
+                    elif msg.arbitration_id == COOLANT_TEMP_CAN_ID and len(msg.data) >= 3:
+                        l100, lh = self._consumption.update(msg.data, now)
+                        self._set(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived", l100, now)
+                        self._set(COOLANT_TEMP_CAN_ID, "_FuelRate_lh_derived", lh, now)
                     elif msg.arbitration_id == OIL_RESPONSE_ID:
                         if _uds_decode_response is not None:
                             _, n_bytes, formula = _PCM_PIDS[OIL_DID]
