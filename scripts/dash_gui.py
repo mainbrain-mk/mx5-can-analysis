@@ -158,7 +158,23 @@ CONSUMPTION_BAR_L100 = (4.0, 25.0)  # Verbrauchsbalken der KRAFTSTOFF-Kachel: le
 FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
                          # liegt bei ~1-2s, echter Fuellstand aendert sich
                          # ueber Minuten - 8s glaettet das eine, verzoegert
-                         # das andere kaum sichtbar)
+                         # das andere kaum sichtbar). Nur noch fuer den Geber-
+                         # Ersatzweg, der Zaehlerwert vom Backend ist ruhig.
+# KRAFTSTOFF-Kachel (Nutzerwunsch 04.11.2026): 100 % = 45 l (voll), 0 % = 9,5 l Rest, linear
+# dazwischen. Liter kommen bevorzugt aus can_backend.py ("fuel_liters": Volltanken = 45 l, dann
+# Kraftstoffzaehler 0x420 abgezogen); fehlt der Wert (aeltere Backend-Version/DBC, Zaehler noch
+# nicht gesehen), aus dem Tankgeber mit derselben Kennlinie wie im Backend.
+FUEL_FULL_L = 45.0
+FUEL_ZERO_PCT_L = 9.5
+FUEL_SENSOR_L0 = 3.0       # Liter = 3,0 + 1,10 * Fuel_Tank, siehe can_backend.fuel_sensor_liters
+FUEL_SENSOR_L_PER_RAW = 1.10
+
+
+def _fuel_pct_from_liters(liters):
+    if liters is None:
+        return None
+    pct = 100.0 * (liters - FUEL_ZERO_PCT_L) / (FUEL_FULL_L - FUEL_ZERO_PCT_L)
+    return max(0.0, min(100.0, pct))
 COOLANT_TEMP_CAN_ID = 1056
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274
@@ -980,12 +996,18 @@ class DriveScreen(Screen):
             c.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S))
         self.iat_card.set_value(c.get(IAT_CAN_ID, "IAT_Sensor_No1"))
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
-        fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
-        fuel_pct = None if fuel_raw is None else max(0.0, min(100.0, 2.486 * fuel_raw - 0.02))
-        if fuel_pct is not None:
-            self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
-                self._fuel_smooth
-                + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
+        fuel_liters = snap.get("fuel_liters")
+        if fuel_liters is not None:
+            # Zaehlerwert: schon ruhig, keine Glaettung (sie wuerde nach dem Tanken nur nachlaufen).
+            self._fuel_smooth = _fuel_pct_from_liters(fuel_liters)
+        else:
+            fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
+            fuel_pct = None if fuel_raw is None else _fuel_pct_from_liters(
+                FUEL_SENSOR_L0 + FUEL_SENSOR_L_PER_RAW * fuel_raw)
+            if fuel_pct is not None:
+                self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
+                    self._fuel_smooth
+                    + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
         # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
         # Deckel 99,9: dreistellig wird neben "100%" zu eng
