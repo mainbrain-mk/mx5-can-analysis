@@ -32,6 +32,7 @@ alle langsamen Werte (TPMS, Oel) bis zum naechsten Poll als veraltet verworfen b
 bei einem Rueckwaertssprung nie mehr, und der REC-Timer sprang. CLOCK_MONOTONIC ist
 systemweit, dash_gui.py vergleicht also mit derselben Uhr (Snapshot-Feld "clock").
 """
+import glob
 import json
 import math
 import os
@@ -157,10 +158,57 @@ FUEL_MAX_COUNTS_PER_S = 60.0      # ~43 l/h; groessere Spruenge sind Lesefehler
 FUEL_COUNTER_FRESH_S = 5.0        # ohne Zaehler (alte DBC) kein Literwert -> Dash nimmt den Geber
 FUEL_SAVE_INTERVAL_S = 30.0
 FUEL_STATE_PATH = os.path.join(LOG_DIR, "fuel_state.json")
+# Tankbuch (04.11.2026): je candump-Log Literstand bei Beginn/Ende und Tankstopps, eine JSON-Zeile je
+# Ereignis, nur angehaengt. Die Vcan-Simulation startet mit dem Stand des abgespielten Logs statt mit
+# dem Geber (der ist bis 42,8 l gesaettigt). Alte Logs: scripts/fuel_ledger_backfill.py ("nachberechnet").
+FUEL_LEDGER_PATH = os.path.join(LOG_DIR, "fuel_ledger.jsonl")
 
 
 def fuel_sensor_liters(raw):
     return FUEL_SENSOR_L0 + FUEL_SENSOR_L_PER_RAW * raw
+
+
+def log_key(path):
+    """/home/pi/canlogs/candump-2026-11-04_152230.log.gz -> candump-2026-11-04_152230"""
+    return os.path.basename(path).split(".")[0]
+
+
+def fuel_ledger_append(entry, path=FUEL_LEDGER_PATH, log=print):
+    try:
+        with open(path, "a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())  # keine USV: Strom weg heisst sofort weg
+    except OSError as e:
+        log(f"{time.strftime('%F %T')} Tankbuch nicht geschrieben: {e}")
+
+
+def fuel_ledger_start_liters(log_name, path=FUEL_LEDGER_PATH):
+    """Literstand bei Beginn des Logs laut Tankbuch, None ohne Eintrag. Der erste Live-Eintrag gilt
+    (ein Backend-Neustart in der Fahrt schreibt einen zweiten, mittendrin); ohne ihn der letzte
+    nachberechnete."""
+    key, found, found_live = log_key(log_name), None, False
+    try:
+        with open(path) as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue  # halbe Zeile nach Stromausfall
+                if e.get("log") != key or e.get("event") != "start" or e.get("liters") is None:
+                    continue
+                live = e.get("source") == "live"
+                if not found_live:
+                    found, found_live = float(e["liters"]), live
+    except OSError:
+        return None
+    return found
+
+
+def current_candump_log(log_dir=LOG_DIR):
+    """Das gerade geschriebene Log: ungepackt, juengster Name (seit der RTC stimmen die Namen)."""
+    logs = sorted(glob.glob(os.path.join(log_dir, "candump-*.log")))
+    return log_key(logs[-1]) if logs else None
 
 
 class FuelEstimator:
@@ -168,9 +216,10 @@ class FuelEstimator:
     gegen den Tankgeber. Thread-sicher: Decode-Thread fuettert, Publisher/Prozess-Watch lesen und
     speichern. state_path=None = nichts lesen/schreiben (Vcan-Simulation)."""
 
-    def __init__(self, state_path=None, log=print):
+    def __init__(self, state_path=None, log=print, on_resync=None):
         self.state_path = state_path
         self._log = log
+        self._on_resync = on_resync  # (Volltanken?, Liter vorher, Liter nachher) -> Tankbuch
         self._lock = threading.Lock()
         self.liters = None
         self._counter = None          # (Rohwert, t)
@@ -235,7 +284,7 @@ class FuelEstimator:
         # Die Glaettung startete sonst bei 0 und loeste einen Zwischen-Abgleich aus (Tankstopp 04.11.).
         if not isinstance(raw, (int, float)) or raw <= 0:
             return
-        event = None
+        event = resync = None
         with self._lock:
             if self._sensor is None or now - self._sensor[1] > FUEL_SAMPLE_GAP_S:
                 smooth = raw
@@ -264,11 +313,14 @@ class FuelEstimator:
                         new = FUEL_FULL_L if saturated else sensor_l
                         event = (f"{'Volltanken' if saturated else 'Abgleich mit dem Geber'}: "
                                  f"{self.liters:.1f} -> {new:.1f} l (Geber roh {smooth:.1f})")
+                        resync = (saturated, self.liters, new)
                         self.liters = new
                         self._deviation_since = None
         if event:
             self._log(f"{time.strftime('%F %T')} Tank: {event}")
             self.save(now, force=True)
+        if resync and self._on_resync:
+            self._on_resync(*resync)
 
     def published_liters(self, now=None):
         """Literwert fuers Dash, None solange kein Zaehler laeuft (dann zeigt es den Geber)."""
@@ -404,12 +456,15 @@ def _load_db():
 
 
 class CanBackend:
-    def __init__(self, channel=CAN_CHANNEL, fuel_state_path=FUEL_STATE_PATH):
+    def __init__(self, channel=CAN_CHANNEL, fuel_state_path=FUEL_STATE_PATH, fuel_ledger_path=FUEL_LEDGER_PATH):
         self.channel = channel
         # Echter Tankstand (auf dem Stick gespeichert) und, waehrend der Vcan-Simulation, ein
         # fluechtiger - das abgespielte Log soll den gespeicherten Stand nicht verstellen.
-        self._fuel_real = FuelEstimator(fuel_state_path)
+        self._fuel_real = FuelEstimator(fuel_state_path, on_resync=self._ledger_resync)
         self.fuel = self._fuel_real
+        self.fuel_ledger_path = fuel_ledger_path
+        self._ledger_log = None            # Logname der laufenden echten Fahrt
+        self._ledger_start_pending = False
         self._lock = threading.Lock()
         self._values = {}  # "can_id:signal" -> (value, timestamp)
         self.error = None
@@ -464,11 +519,30 @@ class CanBackend:
                 self._logging_since_mono = time.monotonic()
                 self._logging_since = time.time()
                 self.session_max_speed = 0.0
+                if not os.path.exists(SIM_TRIGGER_PATH):  # die Sim hat ihr eigenes Log und Tankbuch
+                    self._ledger_log = current_candump_log(os.path.dirname(self.fuel_ledger_path))
+                    self._ledger_start_pending = self._ledger_log is not None
+            # Startstand, sobald bekannt: sofort aus fuel_state.json, ohne sie nach dem ersten Geberwert
+            if self._ledger_start_pending and self._fuel_real.liters is not None:
+                self._ledger_start_pending = False
+                self._ledger_write("start", self._fuel_real.liters)
         else:
             if self._logging_since_mono is not None:
                 self._fuel_real.save(force=True)  # Zuendung aus: Stand sofort sichern
+                if self._ledger_log is not None and self._fuel_real.liters is not None:
+                    self._ledger_write("end", self._fuel_real.liters)
             self._logging_since_mono = None
             self._logging_since = None
+            self._ledger_log = None
+            self._ledger_start_pending = False
+
+    def _ledger_write(self, event, liters, **extra):
+        fuel_ledger_append({"log": self._ledger_log, "event": event, "liters": round(liters, 2), **extra,
+                            "time": time.strftime("%F %T"), "source": "live"}, self.fuel_ledger_path)
+
+    def _ledger_resync(self, full, before, after):
+        if self._ledger_log is not None:
+            self._ledger_write("refuel" if full else "resync", after, before=round(before, 2))
 
     def run_process_watch(self):
         # Nur fuer Tests ohne echten can0-Adapter (z.B. vcan0-Replay - dessen
@@ -532,7 +606,19 @@ class CanBackend:
                 time.sleep(2)
                 continue
             self.error = None
-            self.fuel = FuelEstimator(None) if channel.startswith("vcan") else self._fuel_real
+            if channel.startswith("vcan"):
+                # Sim: Startstand des abgespielten Logs (dash_gui.py schreibt seinen Pfad in die Trigger-Datei)
+                self.fuel = FuelEstimator(None)
+                try:
+                    with open(SIM_TRIGGER_PATH) as fh:
+                        sim_log = fh.read().strip()
+                except OSError:
+                    sim_log = ""
+                self.fuel.liters = fuel_ledger_start_liters(sim_log, self.fuel_ledger_path) if sim_log else None
+                print(f"{time.strftime('%F %T')} Sim {log_key(sim_log) or '?'}: Tank laut Tankbuch "
+                      f"{self.fuel.liters if self.fuel.liters is not None else 'unbekannt (Geber)'}", flush=True)
+            else:
+                self.fuel = self._fuel_real
             try:
                 while True:
                     # Laufend pruefen, nicht nur beim (Re-)Connect oben -

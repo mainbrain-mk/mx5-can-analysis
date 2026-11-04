@@ -1192,7 +1192,7 @@ class SimController:
                         ["sudo", "ip", "link", "set", "up", "vcan0"]):
                 subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             with open(SIM_TRIGGER_PATH, "w") as f:  # vor dem Start: Schleifenbedingung
-                f.write("vcan0")
+                f.write(log_path)  # can_backend.py holt damit den Tank-Startstand aus dem Tankbuch
             # Eigene Prozessgruppe: stop() beendet sh, zcat und canplayer zusammen
             self.proc = subprocess.Popen(
                 ["sh", "-c", SIM_LOOP_SH, "sh", SIM_TRIGGER_PATH, log_path],

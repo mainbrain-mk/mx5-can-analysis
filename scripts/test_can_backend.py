@@ -7,6 +7,7 @@ sich ohne Kivy/CAN-Hardware testen - der eigentliche Reconnect-Ablauf
 dem Pi gegen eine echte Vcan-Simulation verifiziert.
 """
 import os
+import tempfile
 import subprocess
 import sys
 import time
@@ -49,7 +50,9 @@ def _backend_without_dbc(candidates=()):
     saved = can_backend.DBC_CANDIDATES
     can_backend.DBC_CANDIDATES = list(candidates)
     try:
-        return can_backend.CanBackend(channel="nonexistent0", fuel_state_path=None)
+        # Tankbuch in ein leeres Temp-Verzeichnis: auf dem Pi laege sonst das echte daneben
+        return can_backend.CanBackend(channel="nonexistent0", fuel_state_path=None,
+                                      fuel_ledger_path=os.path.join(tempfile.mkdtemp(), "fuel_ledger.jsonl"))
     finally:
         can_backend.DBC_CANDIDATES = saved
 
@@ -234,11 +237,61 @@ def test_fuel_state_survives_restart_and_is_saved_on_ignition_off():
         fuel.save(force=True)
         assert abs(can_backend.FuelEstimator(path).liters - (45.0 - 50 / 4985.0)) < 1e-3
 
-        backend = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=path)
+        backend = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=path,
+                                         fuel_ledger_path=os.path.join(d, "fuel_ledger.jsonl"))
         backend._fuel_real.liters = 33.3
         backend._update_logging_edge(True)
         backend._update_logging_edge(False)   # Zuendung aus
         assert abs(can_backend.FuelEstimator(path).liters - 33.3) < 1e-6
+
+
+def test_fuel_ledger_records_drive_and_sim_reads_start_liters():
+    """Tankbuch 04.11.2026: echte Fahrt schreibt Start/Tankstopp/Ende zum laufenden candump-Log; die Sim
+    liest den Startstand. Erster Live-Eintrag gilt (Backend-Neustart in Fahrt), Live vor nachberechnet;
+    waehrend der Sim wird nichts geschrieben."""
+    import json
+    from unittest import mock
+    with tempfile.TemporaryDirectory() as d:
+        ledger = os.path.join(d, "fuel_ledger.jsonl")
+        open(os.path.join(d, "candump-2026-11-05_080000.log.gz"), "w").close()   # gepackt: nicht laufend
+        open(os.path.join(d, "candump-2026-11-05_120000.log"), "w").close()      # laeuft gerade
+        with mock.patch.object(can_backend, "SIM_TRIGGER_PATH", os.path.join(d, "kein_trigger")):
+            backend = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=os.path.join(d, "s.json"),
+                                             fuel_ledger_path=ledger)
+            backend._fuel_real._log = lambda _l: None
+            backend._fuel_real.liters = 20.0
+            backend._update_logging_edge(True)
+            backend._update_logging_edge(True)                 # laufend: kein zweiter Start
+            for i in range(40):
+                backend._fuel_real.on_sensor(36.2, 100.0 + i * 0.1, speed=0.0)
+            backend._update_logging_edge(False)
+
+            restarted = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=os.path.join(d, "s.json"),
+                                               fuel_ledger_path=ledger)
+            restarted._update_logging_edge(True)               # derselbe Log, Stand jetzt 45 l
+
+        with mock.patch.object(can_backend, "SIM_TRIGGER_PATH", ledger):   # Trigger da = Sim laeuft
+            sim = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=None, fuel_ledger_path=ledger)
+            sim._fuel_real.liters = 5.0
+            sim._update_logging_edge(True)
+            sim._update_logging_edge(False)
+
+        with open(ledger) as fh:
+            entries = [json.loads(line) for line in fh]
+        assert [(e["log"], e["event"], e["liters"]) for e in entries] == [
+            ("candump-2026-11-05_120000", "start", 20.0),
+            ("candump-2026-11-05_120000", "refuel", 45.0),
+            ("candump-2026-11-05_120000", "end", 45.0),
+            ("candump-2026-11-05_120000", "start", 45.0)], entries
+        assert entries[1]["before"] == 20.0 and all(e["source"] == "live" for e in entries)
+        assert can_backend.fuel_ledger_start_liters("/x/candump-2026-11-05_120000.log.gz", ledger) == 20.0
+
+        with open(ledger, "a") as fh:
+            fh.write('{"log": "candump-2026-11-01_090000", "event": "start", "liters": 30.0, '
+                     '"source": "nachberechnet"}\n{"log": "candump-2026-11-01_09')   # halbe Zeile (Strom weg)
+        assert can_backend.fuel_ledger_start_liters("candump-2026-11-01_090000.log.gz", ledger) == 30.0
+        assert can_backend.fuel_ledger_start_liters("candump-2026-10-01_090000.log.gz", ledger) is None
+        assert can_backend.fuel_ledger_start_liters("x", os.path.join(d, "fehlt.jsonl")) is None
 
 
 def test_consumption_meter_l100km_with_counter_wrap():
@@ -278,5 +331,6 @@ if __name__ == "__main__":
     test_fuel_counter_glitch_and_gap_are_ignored()
     test_fuel_without_counter_publishes_nothing_so_dash_uses_the_sensor()
     test_fuel_state_survives_restart_and_is_saved_on_ignition_off()
+    test_fuel_ledger_records_drive_and_sim_reads_start_liters()
     test_consumption_meter_l100km_with_counter_wrap()
     print("ok")
