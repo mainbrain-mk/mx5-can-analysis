@@ -156,6 +156,12 @@ def test_fuel_sensor_init_zero_after_ignition_is_ignored():
     fresh.on_sensor(6.2, 5.6, speed=0.0)
     assert abs(fresh.liters - can_backend.fuel_sensor_liters(6.2)) < 1e-9
 
+    # Sim-Start direkt nach dem Tanken (Log 04.11. 080151): gesaettigter Geber = voll, nicht 42,8 l
+    full = can_backend.FuelEstimator(None, log=lambda _l: None)
+    full.on_sensor(0.0, 0.0, speed=None)
+    full.on_sensor(36.2, 0.05, speed=None)
+    assert full.liters == can_backend.FUEL_FULL_L, full.liters
+
 
 def test_fuel_saturated_sensor_does_not_override_counter_near_full():
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None)

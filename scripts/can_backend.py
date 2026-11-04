@@ -247,8 +247,9 @@ class FuelEstimator:
             saturated = smooth >= FUEL_SENSOR_SATURATED_RAW
             sensor_l = min(FUEL_FULL_L, fuel_sensor_liters(smooth))
             if self.liters is None:
-                self.liters = sensor_l
-                event = f"Start ohne gespeicherten Stand: {sensor_l:.1f} l laut Geber"
+                # Gesaettigt = frisch getankt (Nutzer tankt immer voll), nicht 42,8 l = 94 % (Sim 04.11.)
+                self.liters = FUEL_FULL_L if saturated else sensor_l
+                event = f"Start ohne gespeicherten Stand: {self.liters:.1f} l laut Geber"
             else:
                 # Gesaettigt heisst "mindestens 42,8 l" - widerspricht nur einem Stand darunter.
                 off = (sensor_l - self.liters) if (not saturated or self.liters < sensor_l) else 0.0

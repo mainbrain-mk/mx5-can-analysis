@@ -6028,3 +6028,13 @@ Fehler = gezählt − getankt; G inklusive ~1 400 Schritte ODO-Lücke.
   betrifft `04_080151`, `_152230`, `_163818`, ~2 kg); `can_backend.py` kennt die Sättigung. Nicht geändert.
 - **Entscheidung (Nutzer):** 4985/l bleibt bis zum nächsten Stopp. Dann ist 04.11. innerer Punkt; liegt H wieder
   deutlich im Minus, spricht das für 4913/l.
+
+## Vcan-Sim nach dem Tanken zeigte 94 % statt 100 % (04.11.2026)
+
+**Beobachtung (Nutzer):** Sim von `candump-2026-11-04_080151` (direkt nach dem Tankstopp) zeigt 94 % Tank.
+- Ursache: Der Sim-`FuelEstimator` hat keinen gespeicherten Stand (`state_path=None`) und übernimmt beim ersten
+  Geberwert dessen Liter. Der Geber steht ab Sekunde 0 gesättigt auf roh 36,2 → 42,8 l → (42,8 − 9,5)/35,5 = 94 %.
+  Der Volltank-Abgleich auf 45 l greift nur gegen einen *niedrigeren* Stand, den es in der Sim nicht gibt.
+- Fix `can_backend.py`: Start ohne Stand bei gesättigtem Geber = 45 l (Nutzer tankt immer voll). Betrifft im Auto
+  nur den Fall ohne `fuel_state.json`. Test in `test_fuel_sensor_init_zero_after_ignition_is_ignored`.
+- Grenze: Eine Sim mitten aus einer Fahrt mit noch gesättigtem Geber (42,8–45 l) startet jetzt bei 100 % statt 94 %.
