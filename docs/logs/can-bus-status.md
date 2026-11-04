@@ -6156,3 +6156,21 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   Platziert wird jetzt bei jedem `set_turn`, sobald sich die Geometrie ändert.
 - Nebenbefund: `test_sim_loop_replays_whole_log_until_stopped` scheitert auf dem Pi gelegentlich auch mit dem
   unveränderten Stand („Prozessgruppe lebt nach stop() noch“), vermutlich Timing unter Last (laufende Sim).
+
+## Dash: Licht, Bremse und Lichtkegel in der Autozeichnung (04.11.2026)
+
+**Wunsch (Nutzer, mit Skizze):** Licht und Bremslicht in der TPMS-Zeichnung, Lichtschein in Draufsicht (PhotoCraft).
+- Positionen nach der Skizze (Maßstab 0,72 auf `mx5_top_view.png` umgerechnet): weißer Punkt (176, 120) innen am
+  Scheinwerfer, roter Punkt (240, 1265) hinten innen; Blinker unverändert (Skizze davor).
+- `0x09A Headlight` je Log gegen die Tageszeit: `1` nur mittags (Tagfahrlicht), `TNS_Lo` morgens/abends (Abblend),
+  `TNS` kurz beim Umschalten, `Off` bei Zündung an, `Hi` 152 Frames am 02.11. abends (Fernlicht), `9` zweimal am
+  02.11. morgens (Lichthupe zum Tagfahrlicht). Bit 3 = Fernlicht.
+- Bremslicht aus `BrakeSwitch_PCM` (0x167 Bit 19, ~50 Hz, gegen Bremsdruck geprüft). `BrakeLamp` auf 0x43E käme nur
+  mit ~2 Hz (4965 gegen 121563 Frames in `11-04_152230`).
+- Kegel mit PhotoCraft (Lasso mit 22–26 px Weichzeichnung, radialer Verlauf warmweiß → transparent, Gauß 6–7 px):
+  Abblendlicht 400×600 asymmetrisch für Rechtsverkehr (rechts länger), Fernlicht 400×900 symmetrisch. Ebenen in
+  `~/Bilder/PhotoCraft/headlight_beam_{low,high}.pcraft`, PNGs in `scripts/`. Beide Scheinwerfer nutzen denselben
+  (nicht gespiegelten) Kegel. Pfad über `realpath`, weil `dash_gui.py` auf dem Pi ein Symlink in `canlogs/` ist.
+- Zustände: Tagfahrlicht = weißer Punkt; Stand-/Abblendlicht = Punkt + Rücklicht 50 % (+ Abblendkegel); Fernlicht =
+  beide Kegel; Bremse = Rücklicht voll. Blinker laufen über dieselbe Lampengruppen-Logik (`set_lamps`).
+- Auto in der Kachel 0,92 → 0,8 hoch und etwas tiefer, damit die Kegel unter „TPMS“ enden.
