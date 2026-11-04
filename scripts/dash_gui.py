@@ -36,7 +36,7 @@ Config.set("input", "mouse", "mouse,disable_on_activity")
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, Line, Rectangle, RoundedRectangle, Ellipse
+from kivy.graphics import Color, Line, Rectangle, RoundedRectangle, Ellipse, PushMatrix, PopMatrix, Rotate
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.floatlayout import FloatLayout
@@ -782,6 +782,26 @@ BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
 # Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang.
 BEAMS = {"low": ("headlight_beam_low.png", 0.27, 1.7, (0.5, 2 / 600)),
          "high": ("headlight_beam_high.png", 0.29, 1.5, (0.5, 2 / 900))}
+# Mitlenkende Vorderraeder (Nutzerwunsch 04.11.): Reifen 195/50 R16 (64 x 197 Zeichnungspixel bei 0,328 px/mm),
+# Achsen an der breitesten Stelle der Kotfluegel, Spur 1495/1505 mm. Geradeaus liegen sie 26 px unter der
+# Karosseriekante und waeren erst ab ~16 Grad Radeinschlag (~255 Grad Lenkrad) zu sehen. Darum: verdeckter Teil
+# gedaempft "durch" die Karosserie (wie verdeckte Kanten einer technischen Zeichnung), herausragender Teil voll,
+# Einschlag ueberhoeht. Lenkrad 0x082, positiv = links (gegen den Blinker geprueft: L +117..+432, R -99..-185).
+WHEELS = (((146, 285), True), ((637, 285), True), ((145, 1000), False), ((638, 1000), False))  # (Mitte, lenkt?)
+STEER_CAN_ID, STEER_SIGNAL = 130, "Steering_Wheel_Absolute_Angle"
+STEER_RATIO = 15.5      # Lenkuebersetzung ND (Lenkrad- zu Radwinkel), Stellschraube
+STEER_VIS_GAIN = 3.0    # Ueberhoehung in der Zeichnung
+STEER_VIS_MAX = 40.0    # Grad, damit voller Einschlag nicht absurd aussieht
+WHEEL_XRAY_ALPHA = 0.3  # verdeckter Teil
+
+
+def wheel_angle(steering_deg):
+    """Lenkradwinkel (Grad, links positiv) -> angezeigter Radwinkel (Grad, Kivy: gegen den Uhrzeigersinn)."""
+    if not isinstance(steering_deg, (int, float)):
+        return 0.0
+    return max(-STEER_VIS_MAX, min(STEER_VIS_MAX, steering_deg / STEER_RATIO * STEER_VIS_GAIN))
+
+
 HEADLIGHT_SIGNAL = "Headlight"  # 0x09A: 0 Off, 1 Tagfahrlicht, 2 TNS, 3 Abblend, 12 Fern, 9 Lichthupe am Tag
 HEADLIGHT_NAMES = {"Off": 0, "TNS": 2, "TNS_Lo": 3, "Hi": 12}
 BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL = 359, "BrakeSwitch_PCM"  # 0x167, ~50 Hz; 0x43E BrakeLamp nur ~2 Hz
@@ -846,6 +866,19 @@ class TpmsCarView(Panel):
                 texture = CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture
                 color = Color(1, 1, 1, 0)
                 self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
+            # Reifen voll, darueber die Karosserieflaeche in Kachelfarbe (verdeckt sie), darueber gedaempft nochmal
+            tire = CoreImage(os.path.join(LAMP_DIR, "tire.png"), mipmap=True).texture
+            self._wheels = []  # (Rotate, Rectangle, Mitte in Zeichnungspixeln, lenkt?)
+            for xray in (False, True):
+                if xray:
+                    Color(*CARD_BG)
+                    self._body_fill = Rectangle(texture=CoreImage(os.path.join(LAMP_DIR, "body.png")).texture)
+                Color(1, 1, 1, WHEEL_XRAY_ALPHA if xray else 1.0)
+                for center, steers in WHEELS:
+                    PushMatrix()
+                    rotate = Rotate(angle=0, origin=(0, 0))
+                    self._wheels.append((rotate, Rectangle(texture=tire), center, steers))
+                    PopMatrix()
         with self._car.canvas.after:
             for group, (path, corner) in LAMP_SPRITES.items():
                 self._lamp_colors[group] = [(Color(1, 1, 1, 0), 1.0)]
@@ -897,6 +930,13 @@ class TpmsCarView(Panel):
             tw, th = rect.texture.size
             px, py = to_px(left, top + th)  # Kivy: Ursprung unten links
             rect.pos, rect.size = (px, py), (tw * scale, th * scale)
+        self._body_fill.pos, self._body_fill.size = (x0, y0), (w, h)
+        for rotate, rect, center, _steers in self._wheels:
+            cx, cy = to_px(*center)
+            tw, th = rect.texture.size
+            rect.size = (tw * scale, th * scale)
+            rect.pos = (cx - rect.size[0] / 2, cy - rect.size[1] / 2)
+            rotate.origin = (cx, cy)
         # Kegel: beide Scheinwerfer gleich (Abblendlicht ist nicht spiegelsymmetrisch, sondern fuer
         # Rechtsverkehr rechts laenger), Laenge relativ zur Autolaenge auf dem Bildschirm.
         for name, (_path, length, widen, (ox, oy)) in BEAMS.items():
@@ -917,6 +957,13 @@ class TpmsCarView(Panel):
             else:
                 for color, alpha in self._lamp_colors[group]:
                     color.a = alpha * level
+
+    def set_steering(self, steering_deg):
+        self._place_lamps()
+        angle = wheel_angle(steering_deg)
+        for rotate, _rect, _center, steers in self._wheels:
+            if steers:
+                rotate.angle = angle
 
     def set_turn(self, left, right):
         self.set_lamps({"turn_L": 1.0 if left else 0.0, "turn_R": 1.0 if right else 0.0})
@@ -1127,6 +1174,7 @@ class DriveScreen(Screen):
         self.tpms.set_turn(*turn_sides(c.get(TURN_CAN_ID, TURN_SIGNAL, max_age=TURN_STALE_S)))
         self.tpms.set_lamps(light_state(c.get(TURN_CAN_ID, HEADLIGHT_SIGNAL),
                                         c.get(BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL, max_age=TURN_STALE_S)))
+        self.tpms.set_steering(c.get(STEER_CAN_ID, STEER_SIGNAL, max_age=TURN_STALE_S))
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))

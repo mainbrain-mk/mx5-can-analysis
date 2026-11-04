@@ -312,6 +312,24 @@ def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
     assert right_corner[0] > dash_gui.CAR_PNG_W / 2 and right.texture.size[1] > 1000
 
 
+def test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not():
+    """Mitlenkende Vorderraeder (Nutzerwunsch 04.11.2026): Lenkrad links positiv -> Raeder gegen den Uhrzeigersinn,
+    ueberhoeht und begrenzt; ohne Signal geradeaus."""
+    assert dash_gui.wheel_angle(None) == 0.0
+    assert abs(dash_gui.wheel_angle(93.0) - 93.0 / dash_gui.STEER_RATIO * dash_gui.STEER_VIS_GAIN) < 1e-9
+    assert dash_gui.wheel_angle(-480.0) == -dash_gui.STEER_VIS_MAX
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(130, "Steering_Wheel_Absolute_Angle", 155.0)   # 10 Grad Radeinschlag links
+    screen.refresh()
+    angles = [(rot.angle, steers) for rot, _r, _c, steers in screen.tpms._wheels]
+    assert all(abs(a - 30.0) < 1e-6 for a, steers in angles if steers)
+    assert all(a == 0 for a, steers in angles if not steers)
+    client.set(130, "Steering_Wheel_Absolute_Angle", None)
+    screen.refresh()
+    assert all(rot.angle == 0 for rot, _r, _c, _s in screen.tpms._wheels)
+
+
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
@@ -780,6 +798,7 @@ if __name__ == "__main__":
     test_fuel_card_shows_momentary_consumption_right_of_level()
     test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm()
     test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch()
+    test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()

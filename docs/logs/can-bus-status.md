@@ -6195,3 +6195,16 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   der Kante. Jetzt beide Seiten einzeln gemalt: jeder linke Pinselpunkt auf die echte rechte Kontur übertragen (Front/
   Heck gleicher Abstand zur Kante an gespiegeltem x, Flanke gleicher Abstand zur Seitenkontur bei y − 4). Eigenes
   `turn_right.png`, keine Spiegelung mehr in Kivy.
+
+## Dash: mitlenkende Vorderräder in der TPMS-Zeichnung (04.11.2026)
+
+**Wunsch (Nutzer, Variante 2 von 4 Vorschlägen).**
+- Lenkradwinkel `Steering_Wheel_Absolute_Angle` (0x082), Vorzeichen gegen den Blinker geprüft (15 Logs): mit `TURN_SW`
+  L lagen die Lenkwinkel > 60° bei +117 … +432°, mit R bei −99 … −185° → positiv = links. Median 0° (zentriert).
+- Geometrie in Zeichnungspixeln (0,328 px/mm aus 3915 mm Länge): Reifen 195/50 R16 = 64 × 197, Vorderachse y 285
+  (breiteste Stelle der Kotflügel, Spec-Überhang 765 mm ergäbe 275), Hinterachse y 1000, Spur 1495/1505 mm = ±245 px.
+  Geradeaus liegt der Reifen 26 px unter der Karosseriekante; ohne Überhöhung erst ab ~16° Rad (~255° Lenkrad) sichtbar.
+- Darstellung: Reifen voll → Karosseriefläche in Kachelfarbe (`lamps/body.png`, Flood-Fill aus der Zeichnung) →
+  Reifen nochmal mit 30 % („verdeckte Kanten“) → Linienzeichnung. Vorderräder drehen um ihre Mitte mit
+  Lenkrad/15,5 × 3, begrenzt auf ±40°; Hinterräder fest. Reifen- und Karosseriebild mit PIL (PhotoCraft war
+  geschlossen worden; reine Geometrie ohne Lichteffekte).
