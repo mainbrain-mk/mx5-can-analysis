@@ -286,14 +286,15 @@ def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
 def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
     """Licht und Bremse in der Autozeichnung (Skizze des Nutzers 04.11.2026). 0x09A Headlight in den
     Logs: 1 mittags = Tagfahrlicht, TNS_Lo morgens/abends = Abblend, Hi kurz = Fern, 9 = Lichthupe am Tag."""
-    off = dash_gui.light_state("Off", 0)
-    assert off == {"front": 0.0, "rear": 0.0, "low": 0.0, "high": 0.0}
-    assert dash_gui.light_state(1.0, 0) == {"front": 1.0, "rear": 0.0, "low": 0.0, "high": 0.0}   # Tagfahrlicht
-    assert dash_gui.light_state("TNS", 0) == {"front": 0.5, "rear": dash_gui.TAIL_LEVEL, "low": 0.0, "high": 0.0}
-    assert dash_gui.light_state("TNS_Lo", 0) == {"front": 1.0, "rear": dash_gui.TAIL_LEVEL, "low": 1.0, "high": 0.0}
-    assert dash_gui.light_state("Hi", 1)["high"] == 1.0 and dash_gui.light_state("Hi", 1)["rear"] == 1.0
-    assert dash_gui.light_state(9.0, 0)["high"] == 1.0                                       # Lichthupe
-    assert dash_gui.light_state(None, 1) == {"front": 0.0, "rear": 1.0, "low": 0.0, "high": 0.0}
+    pos, tail = dash_gui.POSITION_LEVEL, dash_gui.TAIL_LEVEL
+    state = lambda *a: dash_gui.light_state(*a)
+    assert state("Off", 0) == {"front": 0.0, "drl": 0.0, "rear": 0.0, "low": 0.0, "high": 0.0}
+    assert state(1.0, 0) == {"front": 0.0, "drl": 1.0, "rear": 0.0, "low": 0.0, "high": 0.0}       # Tagfahrlicht
+    assert state("TNS", 0) == {"front": 0.0, "drl": pos, "rear": tail, "low": 0.0, "high": 0.0}   # Standlicht
+    assert state("TNS_Lo", 0) == {"front": 1.0, "drl": pos, "rear": tail, "low": 1.0, "high": 0.0}
+    assert state("Hi", 1) == {"front": 1.0, "drl": pos, "rear": 1.0, "low": 1.0, "high": 1.0}
+    assert state(9.0, 0)["high"] == 1.0 and state(9.0, 0)["drl"] == 1.0                     # Lichthupe am Tag
+    assert state(None, 1) == {"front": 0.0, "drl": 0.0, "rear": 1.0, "low": 0.0, "high": 0.0}
 
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)

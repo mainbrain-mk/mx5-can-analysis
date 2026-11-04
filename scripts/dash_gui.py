@@ -772,10 +772,13 @@ TURN_LAMPS_LEFT = (
     ("ellipse", (105, 400), (13, 18)),
     ("line", ((161, 1199), (186, 1224), (211, 1245)), 15),
 )
-# Licht und Bremse (Skizze des Nutzers 04.11.): weisser Punkt innen am Scheinwerfer (Tagfahr-/Standlicht),
-# roter Punkt hinten innen (Rueck-/Bremsleuchte); die Kegel beginnen vorn am Scheinwerfer.
+# Licht und Bremse (Skizzen des Nutzers 04.11.): weisser Punkt im Scheinwerfer (Abblend/Fern), kleiner
+# Punkt innen daneben (Tagfahrlicht, als Standlicht gedimmt), roter Punkt hinten innen (Rueck-/Bremsleuchte);
+# die Kegel beginnen vorn am Scheinwerfer.
 FRONT_LAYERS = (((0.85, 0.9, 1), 0.15, 3.2), ((1, 0.97, 0.9), 0.45, 1.8), ((1, 1, 1), 1.0, 1.0))
 FRONT_LAMPS_LEFT = (("ellipse", (176, 120), (34, 34)),)
+DRL_LAMPS_LEFT = (("ellipse", (209, 107), (18, 18)),)
+POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
 REAR_LAYERS = (((0.8, 0, 0), 0.2, 3.2), ((1, 0.08, 0.05), 0.5, 1.8), ((1, 0.45, 0.4), 1.0, 1.0))
 REAR_LAMPS_LEFT = (("ellipse", (240, 1265), (32, 26)),)
 BEAM_ORIGIN_LEFT = (170, 104)
@@ -789,14 +792,17 @@ TAIL_LEVEL = 0.5  # Ruecklicht gedimmt, Bremse voll
 
 
 def light_state(headlight, brake):
-    """-> {Gruppe: Helligkeit 0..1} fuer Front-/Ruecklampen und Kegel aus 0x09A Headlight und Bremsschalter.
-    In den Logs: 1 mittags (Tagfahrlicht), 3 morgens/abends, 12 kurz (Fernlicht), 9 = Lichthupe am Tag."""
+    """-> {Gruppe: Helligkeit 0..1} fuer Scheinwerfer, Tagfahrlicht, Ruecklampen und Kegel aus 0x09A
+    Headlight und Bremsschalter. In den Logs: 1 mittags (Tagfahrlicht), 3 morgens/abends, 12 kurz (Fernlicht),
+    9 = Lichthupe am Tag."""
     raw = HEADLIGHT_NAMES.get(headlight, headlight)
     raw = int(raw) if isinstance(raw, (int, float)) else 0
     high = bool(raw & 8)
     low = raw & 3 == 3 or high
     tail = bool(raw & 2) or high
-    return {"front": 1.0 if raw & 1 or high else (0.5 if raw & 2 else 0.0),
+    drl = raw == 1 or (raw & 1 and not raw & 2)  # 1 und 9 (Lichthupe am Tag)
+    return {"front": 1.0 if low else 0.0,
+            "drl": 1.0 if drl else (POSITION_LEVEL if tail else 0.0),
             "rear": 1.0 if brake else (TAIL_LEVEL if tail else 0.0),
             "low": 1.0 if low else 0.0, "high": 1.0 if high else 0.0}
 
@@ -845,6 +851,7 @@ class TpmsCarView(Panel):
                 color = Color(1, 1, 1, 0)
                 self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
         groups = (("front", FRONT_LAYERS, FRONT_LAMPS_LEFT, (False, True)),
+                  ("drl", FRONT_LAYERS, DRL_LAMPS_LEFT, (False, True)),
                   ("rear", REAR_LAYERS, REAR_LAMPS_LEFT, (False, True)),
                   ("turn_L", TURN_LAYERS, TURN_LAMPS_LEFT, (False,)),
                   ("turn_R", TURN_LAYERS, TURN_LAMPS_LEFT, (True,)))
@@ -924,7 +931,7 @@ class TpmsCarView(Panel):
                 rect.pos, rect.size = (px - ox * bw, py - oy * bh), (bw, bh)
 
     def set_lamps(self, levels):
-        """{Gruppe: 0..1} fuer front/rear/turn_L/turn_R/low/high; fehlende Gruppen bleiben."""
+        """{Gruppe: 0..1} fuer front/drl/rear/turn_L/turn_R/low/high; fehlende Gruppen bleiben."""
         self._place_lamps()
         for group, level in levels.items():
             if group in self._beams:

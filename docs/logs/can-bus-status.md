@@ -6174,3 +6174,6 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
 - Zustände: Tagfahrlicht = weißer Punkt; Stand-/Abblendlicht = Punkt + Rücklicht 50 % (+ Abblendkegel); Fernlicht =
   beide Kegel; Bremse = Rücklicht voll. Blinker laufen über dieselbe Lampengruppen-Logik (`set_lamps`).
 - Auto in der Kachel 0,92 → 0,8 hoch und etwas tiefer, damit die Kegel unter „TPMS“ enden.
+- Nachtrag (zweite Skizze): Tagfahrlicht ist ein eigener kleiner Punkt (209, 107) innen neben dem Scheinwerfer.
+  `1`/`9` = nur dieser Punkt; Stand-/Abblend-/Fernlicht = Punkt gedimmt (Positionslicht), Scheinwerferpunkt (176, 120)
+  nur bei Abblend/Fern.
