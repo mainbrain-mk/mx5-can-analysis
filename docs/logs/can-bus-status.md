@@ -6218,3 +6218,18 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   Einzelne Pulse ohne nennenswerten Schlupf (0,3 km/h, 0,02–0,1 s am 17.09. und 04.11.) eher Stabilitätsregelung.
 - Dash: Bei Eingriff leuchten die Hinterräder in der TPMS-Zeichnung orange (`lamps/tcs.png`, PIL), 1 s gehalten
   (`TCS_HOLD_S`), weil viele Eingriffe nur 0,02–0,1 s dauern.
+
+## Radzuordnung 0x215 und Schlupf ohne Regeleingriff (04.11.2026)
+
+- **`WheelSpeed_1-4` (0x215) = VL, VR, HL, HR**, aus der Kurvengeometrie (20 Logs, |Lenkrad| > 150°, 12–40 km/h):
+  in Linkskurven 2 und 4 (rechts außen) +9,1/+6,5 %, 1 und 3 −7,1/−8,5 %; in Rechtskurven spiegelbildlich; auf jeder
+  Seite das Vorderrad weiter außen (größerer Bogen). Bisher nur angenommen (`can_traction_circle.py`: „nicht zugeordnet“).
+- Hinterachse/Vorderachse geradeaus (|Lenkrad| < 15°, v > 40): 1,0001–1,0029 je Log (Median 1,001), also < 0,3 km/h
+  bei 100 km/h; fester Faktor genügt.
+- Schlupf = Hinterachse − 1,001 · Vorderachse > 3 km/h für ≥ 0,3 s bei v_vorn > 10 km/h: **44 Ereignisse, 15 mit
+  TCS-Eingriff (±0,5 s), 29 ohne.** Mit Eingriff: Median 6,8 km/h, Lenkrad bis 168°, 0,8 s. Ohne: 5,0 km/h, 49°,
+  0,4 s. Größte ohne Eingriff: Anfahren (vorn 6 km/h, hinten bis 31 km/h; 28.10., 02.11., 15.09.) und Volllast-Züge
+  um 57 km/h (01.10., 02.11., bis 19 km/h), Bremsdruck < 4 bar, Moment 75–90 %. Nicht geprüft: 13 km/h bei 412° Lenkrad
+  (28.10.), einzelne > 20 km/h-Spitzen könnten Einkuppeln beim Schalten sein.
+- Dash: Schlupf ohne Eingriff → Hinterräder gelb (`lamps/slip.png`), Eingriff → orange hat Vorrang; je 1 s gehalten.
+  `can_backend.py` lässt 0x215 jetzt durch.

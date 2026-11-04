@@ -351,6 +351,28 @@ def test_traction_control_lights_rear_wheels_and_holds_short_pulses():
         assert tcs() == 0.0
 
 
+def test_rear_slip_without_intervention_lights_yellow_after_0_3_s_and_tcs_wins():
+    """Schlupf ohne Eingriff (Nutzerwunsch 04.11.2026): Hinterachse > 3 km/h vor der Vorderachse fuer 0,3 s -> gelb;
+    kuerzer, langsamer als 10 km/h oder mit Eingriff (orange) nicht."""
+    from unittest import mock
+    assert dash_gui.rear_slip_kmh([50, 50, 56, 56]) > 5.9
+    assert dash_gui.rear_slip_kmh([5, 6, 30, 30]) is None          # unter 10 km/h vorn: kein Urteil
+    assert dash_gui.rear_slip_kmh([50, None, 56, 56]) is None
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    lamps = lambda: (screen.tpms._lamp_colors["slip"][0][0].a, screen.tpms._lamp_colors["tcs"][0][0].a)
+    for i, v in enumerate((50, 50, 56, 56), start=1):
+        client.set(533, f"WheelSpeed_{i}", v)
+    for t, expect in ((10.0, (0.0, 0.0)), (10.2, (0.0, 0.0)), (10.31, (1.0, 0.0))):
+        with mock.patch.object(dash_gui.time, "monotonic", return_value=t):
+            screen.refresh()
+            assert lamps() == expect, (t, lamps())
+    client.set(529, "TCS_Active_maybe", 1)
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=10.4):
+        screen.refresh()
+        assert lamps() == (0.0, 1.0)
+
+
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
@@ -821,6 +843,7 @@ if __name__ == "__main__":
     test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch()
     test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not()
     test_traction_control_lights_rear_wheels_and_holds_short_pulses()
+    test_rear_slip_without_intervention_lights_yellow_after_0_3_s_and_tcs_wins()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()

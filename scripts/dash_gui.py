@@ -776,11 +776,31 @@ LAMP_SPRITES = {
     "turn_L": ("turn_left.png", (36, 33)),
     "turn_R": ("turn_right.png", (529, 30)),
     "tcs": ("tcs.png", (73, 862)),  # Schein um die Hinterraeder bei Traktionseingriff
+    "slip": ("slip.png", (73, 862)),  # dasselbe gelb: Schlupf ohne Eingriff
 }
 # Traktionskontrolle (Nutzerwunsch 04.11.): 0x211 Bit 40 TCS_Active_maybe, seit 26.09. bekannt, bis 04.11. 53 Eingriffe
 # (0,02-1,6 s, meist 5-9 km/h Hinterachs-Vorsprung). Kurze Pulse werden gehalten, sonst sieht man sie nicht.
 TCS_CAN_ID, TCS_SIGNAL = ABS_CAN_ID, "TCS_Active_maybe"
 TCS_HOLD_S = 1.0
+# Schlupf ohne Eingriff (Nutzerwunsch 04.11.): Hinterachse > SLIP_MIN_KMH vor der Vorderachse fuer SLIP_MIN_S, gelb
+# statt orange. 0x215: 1 = VL, 2 = VR, 3 = HL, 4 = HR (aus der Kurvengeometrie: links aussen schneller, vorn mehr
+# als hinten). Hinten/vorn geradeaus 1,0001-1,0029 in allen Logs, darum fester Faktor statt Lernen. In den Logs
+# 29 solcher Ereignisse ohne Eingriff (meist Anfahren/Volllast geradeaus), 15 mit.
+WHEEL_SPEED_CAN_ID = 533
+SLIP_REAR_FRONT_RATIO = 1.001
+SLIP_MIN_KMH = 3.0
+SLIP_MIN_VF_KMH = 10.0
+SLIP_MIN_S = 0.3
+
+
+def rear_slip_kmh(wheels):
+    """[VL, VR, HL, HR] km/h -> Vorsprung der Hinterachse in km/h, None ohne vollstaendige Werte."""
+    if len(wheels) != 4 or not all(isinstance(w, (int, float)) for w in wheels):
+        return None
+    vf = (wheels[0] + wheels[1]) / 2
+    if vf < SLIP_MIN_VF_KMH:
+        return None
+    return (wheels[2] + wheels[3]) / 2 - SLIP_REAR_FRONT_RATIO * vf
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
 BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
 # (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
@@ -1043,6 +1063,8 @@ class DriveScreen(Screen):
         self.session_max_speed = 0.0
         self._fuel_smooth = None
         self._tcs_until = 0.0  # time.monotonic(), bis wann der Traktionseingriff angezeigt bleibt
+        self._slip_since = None  # Beginn des laufenden Schlupfs
+        self._slip_until = 0.0
         self._status_bar_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
@@ -1184,7 +1206,15 @@ class DriveScreen(Screen):
         now = time.monotonic()
         if c.get(TCS_CAN_ID, TCS_SIGNAL, max_age=TURN_STALE_S) == 1:
             self._tcs_until = now + TCS_HOLD_S
-        self.tpms.set_lamps({"tcs": 1.0 if now < self._tcs_until else 0.0})
+        slip = rear_slip_kmh([c.get(WHEEL_SPEED_CAN_ID, f"WheelSpeed_{i}", max_age=TURN_STALE_S) for i in (1, 2, 3, 4)])
+        if slip is not None and slip > SLIP_MIN_KMH:
+            self._slip_since = now if self._slip_since is None else self._slip_since
+            if now - self._slip_since >= SLIP_MIN_S:
+                self._slip_until = now + TCS_HOLD_S
+        else:
+            self._slip_since = None
+        tcs = now < self._tcs_until  # Eingriff geht vor: orange statt gelb
+        self.tpms.set_lamps({"tcs": 1.0 if tcs else 0.0, "slip": 1.0 if not tcs and now < self._slip_until else 0.0})
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))

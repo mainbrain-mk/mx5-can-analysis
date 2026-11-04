@@ -117,6 +117,7 @@ CONSUMPTION_MIN_KMH = 4.0    # darunter zeigt das Dash l/h statt l/100km
 RCM_LATERAL_CAN_ID = 117
 RCM_LONGITUDINAL_CAN_ID = 118
 ABS_CAN_ID = 529
+WHEEL_SPEED_CAN_ID = 533  # 0x215 WheelSpeed_1-4 (VL, VR, HL, HR) fuer die Schlupfanzeige im Dash
 IAT_CAN_ID = 1274  # BO_ 1274 HS_PCM, Signal IAT_Sensor_No1
 LOAD_CAN_ID = 359   # BO_ 359 HS_PCM, Signal ActualEnginePercentTorque
 DCDC_CAN_ID = 138   # BO_ 138 HS_DCDC, Signal DCDC_Voltage (Bordnetzspannung, ersetzt PID 0x42)
@@ -380,6 +381,7 @@ NEEDED_CAN_IDS = sorted({
     RCM_LATERAL_CAN_ID,
     RCM_LONGITUDINAL_CAN_ID,
     ABS_CAN_ID,
+    WHEEL_SPEED_CAN_ID,
     IAT_CAN_ID,
     LOAD_CAN_ID,
     DCDC_CAN_ID,
