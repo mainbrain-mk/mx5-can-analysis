@@ -5890,3 +5890,45 @@ gestartet, laufen ohne Traceback (Pi ohne can0, keine Fahrt). Offen: Ablesen wä
 **Nachtrag 31.10. (Designentscheidung Nutzer):** Verbrauchswert in derselben Schriftgröße wie der Füllstand
 (52 sp, gleiche Höhe), Einheit `l/100km`/`l/h` klein (20 sp, gedimmt) mittig darunter. Auf dem Pi gerendert
 (1920×1080): „100%" neben „99,9" passt mit Abstand; Deckel 99,9 bleibt.
+
+## Tankanzeige aus dem Kraftstoffzähler: voll = 100 % = 45 l, 0 % = 9,5 l (04.11.2026)
+
+**Auftrag (Nutzer):** Nach dem Volltanken zeigte die KRAFTSTOFF-Kachel lange ~90 %. Gewünscht: direkt nach dem
+Volltanken 100 % (= 45 l), danach nach verbrauchter Menge herunterzählen, 0 % bei 9,5 l Rest.
+
+**Ursache der 90 %:** Die Kachel rechnete `2,486 · Fuel_Tank`. Der Geber sättigt bei 36,2 (Kennlinie 3,0 + 1,10 · roh
+= 42,8 l), die ersten ~2,3 l nach dem Tanken sind unsichtbar (Abschnitt „Kraftstoff absolut…“ 26.09.). 2,486 · 36,2 = 90 %.
+
+**Umsetzung (`can_backend.py`, Klasse `FuelEstimator`):**
+- **Zähler:** `FuelConsumption_Counter` (0x420 Byte2, 8 Bit umlaufend, 4985 Schritte/l, Voll-bis-Voll-Kette ~1 %).
+  Jeder Zuwachs mod 256 wird vom Literstand abgezogen. Sprünge über 60 Schritte/s (~43 l/h) gelten als Lesefehler,
+  nach einer Lücke über 5 s setzt der Zähler nur neu auf.
+- **Abgleich mit dem Geber** (geglättet, τ 20 s): Weicht er um mehr als 4 l ab, gilt nach 3 s im Stand
+  (v < 2 km/h oder Tempo noch unbekannt) bzw. 60 s in Fahrt der Geber. Steht der Geber dabei in der Sättigung, gilt das als **Volltanken
+  → 45 l**. Gesättigt heißt „mindestens 42,8 l“, das widerspricht nur einem Stand unter 38,8 l. Damit sind
+  abgedeckt: Volltanken (Sättigung, Stand vorher niedrig), Teilbetankung > 4 l (Geberwert) und Fahrten ohne Pi
+  (Geber tiefer als der Stand).
+- **Persistenz:** `/home/pi/canlogs/fuel_state.json` (Stick, also nicht im RAM-Overlay), atomar per `os.replace`.
+  Speichern alle 30 s bei Änderung, sofort nach Volltanken/Abgleich und bei Zündung aus. Ohne Datei startet der
+  Stand beim Geberwert.
+- **Vcan-Simulation:** eigener, flüchtiger Schätzer ohne Datei. Ein abgespieltes Log verstellt den gespeicherten
+  Stand nicht.
+- Snapshot-Feld `fuel_liters`, aber nur, solange Zählerframes kommen (≤ 5 s alt). Die Zustandszeile in
+  `applogs/can_backend.log` zeigt `tank=…l`, Volltanken/Abgleiche stehen dort als eigene Zeile `Tank: …`.
+
+**Dash (`dash_gui.py`):** Prozent = 100 · (Liter − 9,5) / (45 − 9,5), auf 0–100 begrenzt. Der Zählerwert wird ohne
+Glättung angezeigt (die EMA hätte nach dem Tanken nur nachgezogen). Fehlt `fuel_liters` (älteres Backend, DBC
+ohne Zähler, erste Frames), gilt der Geber über dieselbe Kennlinie mit der bisherigen EMA (τ 8 s). Gesättigt zeigt der
+Geber damit 94 % statt bisher 90 %.
+
+**Grenzen:**
+- Teilbetankungen unter 4 l erkennt der Abgleich nicht.
+- Zählerschritte gehen verloren, solange das Backend nicht läuft und der Motor schon läuft (Neustart in Fahrt:
+  wenige ml).
+- Gegen echte Logs nicht nachgespielt: die Session hatte keine Rohlogs/Datalake. Geprüft per Unit-Tests
+  (`test_can_backend.py`: Volltanken → 45 l, Abzählen über den 8-Bit-Umlauf, Sättigung nahe voll, Schwappen in Fahrt,
+  Fahrt ohne Pi, Lesefehler/Lücken, Persistenz/Zündung aus; `test_dash_gui.py`: 45 l → 100 %, 9,5 l → 0 %,
+  Ersatzweg) und DBC-Dekodierung von 0x420/0x09E mit cantools.
+- **Noch nicht auf dem Pi.** Beim ersten Start nach dem Deploy gibt es keinen gespeicherten Stand. Er beginnt beim
+  Geberwert (gesättigt 42,8 l), ab dem nächsten Volltanken gilt 45 l. Prüfen beim nächsten Tankstopp:
+  `grep Tank: applogs/can_backend.log` sollte „Volltanken: … -> 45.0 l“ zeigen, die Kachel 100 %.

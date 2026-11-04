@@ -350,3 +350,6 @@ die streckenbezogenen Themen.
   nichtlineare FLI→Liter-Kurve rekonstruierbar, v.a. der Bereich nahe leer
   und 30–70 % fehlen noch. Siehe "Tankstand-Kalibrierung: FLI-Sensor liest
   nichtlinear, unterschaetzt v.a. nahe voll (03.09.2026)".
+- Überholt seit 26.09./26.10.: Liter ≈ 3,0 + 1,10 · `Fuel_Tank` (gesättigt ab 42,8 l) und der
+  Kraftstoffzähler 0x420 (4985 Schritte/l), siehe `status/can-open-fields.md`. Das Dash zeigt seit
+  04.11. Zähler-Liter (voll = 45 l = 100 %, 9,5 l = 0 %), siehe `status/can-bus.md`.
