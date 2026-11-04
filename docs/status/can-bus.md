@@ -4,7 +4,7 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
-**Status 2026-11-04 — Tankanzeige im Dash aus dem Kraftstoffzähler (im Repo, noch nicht auf dem Pi).**
+**Status 2026-11-04 — Tankanzeige im Dash aus dem Kraftstoffzähler (seit 04.11. auf dem Pi, noch nicht an einem Tankstopp gesehen).**
 Die KRAFTSTOFF-Kachel zeigt 100 % = 45 l nach dem Volltanken und 0 % = 9,5 l Rest, dazwischen linear. `can_backend.py`
 zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der Tankgeber erkennt nur noch Tankstopps
 (gesättigt bei niedrigem Stand → 45 l) und Fahrten ohne Pi (Abweichung > 4 l → Geberwert). Der Stand liegt in

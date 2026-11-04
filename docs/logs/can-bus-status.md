@@ -5957,3 +5957,9 @@ Geber damit 94 % statt bisher 90 %.
 - **Noch nicht auf dem Pi.** Beim ersten Start nach dem Deploy gibt es keinen gespeicherten Stand. Er beginnt beim
   Geberwert (gesättigt 42,8 l), ab dem nächsten Volltanken gilt 45 l. Prüfen beim nächsten Tankstopp:
   `grep Tank: applogs/can_backend.log` sollte „Volltanken: … -> 45.0 l“ zeigen, die Kachel 100 %.
+
+**Nachtrag 04.11. (Deploy):** Merge von `main` (Tankanzeige) mit dem Nachglimmen/Verbrauchsbalken als `551bc36` auf
+dem Pi. `test_dash_gui.py` und `test_can_backend.py` dort grün. Vcan-Replay von `candump-2026-11-04_163818`: Backend
+meldet `tank=41.72l` und zählt im Leerlauf herunter (41,65 l nach ~70 s), Kachel zeigt 91 % (= (41,7 − 9,5)/35,5),
+Verbrauchsbalken bei 3,5 l/100km leer. Die Simulation legt kein `fuel_state.json` an (eigener Schätzer, der echte
+hat ohne `can0` keinen Stand). Offen: erste echte Fahrt (Start beim Geberwert) und der nächste Tankstopp (→ 45 l, 100 %).
