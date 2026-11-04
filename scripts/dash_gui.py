@@ -775,7 +775,12 @@ LAMP_SPRITES = {
     "rear": ("rear.png", (129, 1227)),
     "turn_L": ("turn_left.png", (36, 33)),
     "turn_R": ("turn_right.png", (529, 30)),
+    "tcs": ("tcs.png", (73, 862)),  # Schein um die Hinterraeder bei Traktionseingriff
 }
+# Traktionskontrolle (Nutzerwunsch 04.11.): 0x211 Bit 40 TCS_Active_maybe, seit 26.09. bekannt, bis 04.11. 53 Eingriffe
+# (0,02-1,6 s, meist 5-9 km/h Hinterachs-Vorsprung). Kurze Pulse werden gehalten, sonst sieht man sie nicht.
+TCS_CAN_ID, TCS_SIGNAL = ABS_CAN_ID, "TCS_Active_maybe"
+TCS_HOLD_S = 1.0
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
 BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
 # (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
@@ -1037,6 +1042,7 @@ class DriveScreen(Screen):
         self.client = client
         self.session_max_speed = 0.0
         self._fuel_smooth = None
+        self._tcs_until = 0.0  # time.monotonic(), bis wann der Traktionseingriff angezeigt bleibt
         self._status_bar_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
@@ -1175,6 +1181,10 @@ class DriveScreen(Screen):
         self.tpms.set_lamps(light_state(c.get(TURN_CAN_ID, HEADLIGHT_SIGNAL),
                                         c.get(BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL, max_age=TURN_STALE_S)))
         self.tpms.set_steering(c.get(STEER_CAN_ID, STEER_SIGNAL, max_age=TURN_STALE_S))
+        now = time.monotonic()
+        if c.get(TCS_CAN_ID, TCS_SIGNAL, max_age=TURN_STALE_S) == 1:
+            self._tcs_until = now + TCS_HOLD_S
+        self.tpms.set_lamps({"tcs": 1.0 if now < self._tcs_until else 0.0})
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))

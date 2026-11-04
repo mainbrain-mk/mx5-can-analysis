@@ -330,6 +330,27 @@ def test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not():
     assert all(rot.angle == 0 for rot, _r, _c, _s in screen.tpms._wheels)
 
 
+def test_traction_control_lights_rear_wheels_and_holds_short_pulses():
+    """Traktionseingriff (0x211 Bit 40) laesst die Hinterraeder leuchten; 0,02-s-Pulse bleiben TCS_HOLD_S stehen."""
+    from unittest import mock
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    tcs = lambda: screen.tpms._lamp_colors["tcs"][0][0].a
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0):
+        screen.refresh()
+        assert tcs() == 0.0
+        client.set(529, "TCS_Active_maybe", 1)
+        screen.refresh()
+        assert tcs() == 1.0
+        client.set(529, "TCS_Active_maybe", 0)
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0 + dash_gui.TCS_HOLD_S - 0.1):
+        screen.refresh()
+        assert tcs() == 1.0
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0 + dash_gui.TCS_HOLD_S + 0.1):
+        screen.refresh()
+        assert tcs() == 0.0
+
+
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
@@ -799,6 +820,7 @@ if __name__ == "__main__":
     test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm()
     test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch()
     test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not()
+    test_traction_control_lights_rear_wheels_and_holds_short_pulses()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()

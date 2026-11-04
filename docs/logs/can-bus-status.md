@@ -6208,3 +6208,13 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   Reifen nochmal mit 30 % („verdeckte Kanten“) → Linienzeichnung. Vorderräder drehen um ihre Mitte mit
   Lenkrad/15,5 × 3, begrenzt auf ±40°; Hinterräder fest. Reifen- und Karosseriebild mit PIL (PhotoCraft war
   geschlossen worden; reine Geometrie ohne Lichteffekte).
+
+## Traktionseingriffe: Stand über alle Logs, Anzeige im Dash (04.11.2026)
+
+- `TCS_Active_maybe` (0x211 Bit 40) in allen Logs: **53 Episoden** (0,02–1,6 s), seit den Winterreifen (01.10.)
+  deutlich häufiger (26.09.: 6). Bei den meisten liegt die Hinterachse 5–9 km/h vor der Vorderachse (max. 17,5 km/h
+  am 16.09.). Umgekehrt war nur gut ein Viertel aller 0,1-s-Schritte mit > 4 km/h Hinterachs-Vorsprung (v > 10 km/h)
+  mit Eingriff: Geradeaus-Schlupf wird toleriert, eingegriffen wird bei Schlupf plus Querdynamik (wie 26.09. gefunden).
+  Einzelne Pulse ohne nennenswerten Schlupf (0,3 km/h, 0,02–0,1 s am 17.09. und 04.11.) eher Stabilitätsregelung.
+- Dash: Bei Eingriff leuchten die Hinterräder in der TPMS-Zeichnung orange (`lamps/tcs.png`, PIL), 1 s gehalten
+  (`TCS_HOLD_S`), weil viele Eingriffe nur 0,02–0,1 s dauern.
