@@ -11,7 +11,8 @@ zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der
 `/home/pi/canlogs/fuel_state.json`. Bisher stand nach dem Tanken ~2,3 l lang 90 %, weil der Geber sättigt.
 Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.). Seit 04.11. abends führt das Backend ein Tankbuch
 (`canlogs/fuel_ledger.jsonl`, Liter je Log bei Start/Ende, Tankstopps); die Vcan-Simulation startet damit beim echten
-Stand des Logs. Logbuch: „Tankbuch…“ (04.11.).
+Stand des Logs. Der Geber gleicht nur noch bei Zündung an ab (Median der ersten 3 s), in Fahrt nie: getankt wird
+immer mit Zündung aus. Logbuch: „Tankbuch…“ und „Geber-Abgleich nur bei Zündung an“ (04.11.).
 
 **Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
 springen die Segmente auf 50 % Helligkeit (Sprung bleibt sichtbar) und blenden in 0,6 s auf die Ruhefarbe aus

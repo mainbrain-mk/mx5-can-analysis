@@ -6068,3 +6068,22 @@ vom selben Abend (gesättigter Geber = 45 l) stimmt nur für das erste Log nach 
 eher Steigung/Schwappen als echte Sprünge; der Live-Schätzer macht dasselbe. Die Logs vor dem 16.09. haben den
 Zähler, der Startwert 11.09. (25 l) ist aber nur ein Geberwert. Läuft eine Sim in Schleife, startet die zweite
 Runde beim Endstand der ersten, nicht beim Tankbuch-Start.
+
+## Geber-Abgleich nur bei Zündung an, Tankstopp zwischen zwei Logs (04.11.2026)
+
+**Hinweis (Nutzer):** Getankt wird immer mit Motor/Zündung aus, also immer zwischen zwei Logs.
+- Geprüft an allen 7 Tankstopps (16.09.–04.11.): Der Geber steht im ersten Log danach ab der ersten Sekunde auf
+  36,2 (gesättigt). Ein Abgleich in Fahrt ist also nie ein Tankstopp. Bisher (Halten 60 s in Fahrt) löste er bei
+  Steigung/Schwappen hin und her aus (27.10., 30.10., 31.10.) und am 04.10. kam das Volltanken erst 42 min nach
+  Logbeginn, weil der Nutzer nach 2 s losfuhr und der Abgleich nicht gesättigt landete (12,3 → 40,9 l).
+- `FuelEstimator`: Geber nur im Startfenster `FUEL_START_WINDOW_S` = 3 s ab dem ersten Wert nach `start_session()`
+  (Backend: Logging-Beginn = Zündung an; ein frischer Schätzer hat das Fenster offen). Entscheidung über den Median,
+  Schwelle wie bisher 4 l, gesättigt = 45 l. Glättung (τ 20 s), Haltezeiten und Tempo-Parameter entfallen.
+- Tankbuch: `refuel` steht vor `start`, `start` ist der Stand nach dem Abgleich (nach dem Tanken 45 l). Kurze Logs
+  ohne Geberwert bekommen den Stand vom Logbeginn.
+- Nachberechnung neu (228 Einträge, auf dem Pi ersetzt, keine Live-Zeilen vorhanden): `04_080151` Start 45,0,
+  `04_152230` 42,74, `10-04_110018` 45,0. In Fahrt keine Abgleiche mehr; bei Zündung an noch fünf (17.09. drei,
+  26.09. zwei, je 4–8 l, tiefer Tank bzw. No-RTC-Tag).
+- **Gegenprobe Zapfsäule** (Stand vor dem Tanken + getankt, soll 45): 26.09. 45,3; 27.09. 44,9; 04.10. 44,5;
+  10.10. 46,1; 26.10. 47,8; 04.11. 47,7 l. Die letzten beiden Intervalle zählen ~2,8 l zu wenig Verbrauch (passt zur
+  4913-statt-4985-Frage und zur ODO-Lücke in G); unter der 4-l-Schwelle, der Volltank setzt es zurück.
