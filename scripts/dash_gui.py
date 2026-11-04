@@ -758,13 +758,13 @@ TURN_STALE_S = 0.5
 # Hof. (Farbe, Alpha, Vergroesserung) von aussen nach innen.
 TURN_LAYERS = (((1, 0.55, 0.0), 0.15, 3.6), ((1, 0.72, 0.05), 0.4, 2.0), ((1, 0.88, 0.45), 1.0, 1.0))
 # Leuchtflaechen der linken Seite in Pixeln von mx5_top_view.png (784x1326, Nase oben, y nach unten);
-# rechts gespiegelt. Abgeglichen mit den Fotos: Streifen unten im Scheinwerfer (aussen am hellsten),
-# Seitenblinker auf dem Kotfluegel hinter dem Vorderrad, schraeger Streifen unten innen an der Rueckleuchte.
+# rechts gespiegelt. Nach der Skizze des Nutzers (04.11.): runder Punkt aussen vorn am Scheinwerfer,
+# kleiner Seitenblinker auf dem Kotfluegel, schraeger Streifen aussen an der Heckecke.
 CAR_PNG_W, CAR_PNG_H = 784, 1326
 TURN_LAMPS_LEFT = (
-    ("line", ((132, 166), (165, 128), (205, 100), (240, 82)), 9),
-    ("ellipse", (104, 408), (11, 40)),
-    ("line", ((220, 1258), (241, 1267), (260, 1273)), 13),
+    ("ellipse", (142, 141), (30, 30)),
+    ("ellipse", (105, 400), (13, 18)),
+    ("line", ((161, 1199), (186, 1224), (211, 1245)), 15),
 )
 
 
