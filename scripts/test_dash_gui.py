@@ -307,9 +307,9 @@ def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
     client.set(359, "BrakeSwitch_PCM", 0)
     screen.refresh()
     assert [c.a for c, _ in view._lamp_colors["rear"]] == [dash_gui.TAIL_LEVEL]
-    # rechter Blinker = gespiegeltes linkes Bild, an der gespiegelten Stelle
-    (left, _, _), (right, _, mirror) = view._lamp_rects[3], view._lamp_rects[4]
-    assert mirror and right.tex_coords[0] == 1 and left.texture.size == right.texture.size
+    # rechter Blinker als eigenes Bild an der echten rechten Kontur (Zeichnung nicht symmetrisch)
+    (left, _), (right, right_corner) = view._lamp_rects[3], view._lamp_rects[4]
+    assert right_corner[0] > dash_gui.CAR_PNG_W / 2 and right.texture.size[1] > 1000
 
 
 def test_fuel_card_shows_momentary_consumption_right_of_level():

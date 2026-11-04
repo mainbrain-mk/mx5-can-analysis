@@ -763,17 +763,18 @@ TURN_STALE_S = 0.5
 # (Hinweis des Nutzers 04.11.): von oben sieht man nur die Oberkante des Glases als leuchtenden Saum an der
 # Karosseriekante und den Lichtschein, der in Abstrahlrichtung vor/hinter/neben das Auto faellt - nie auf
 # Haube oder Kofferraum (Schein in PhotoCraft per Auswahl "aussen" auf die Flaeche ausserhalb der Karosserie
-# begrenzt). Gruppe -> (Datei, linke obere Ecke in Zeichnungspixeln, gespiegelt?). Projektor, Lichtleiter
-# (Tagfahrlicht) und Ruecklicht sind beidseitig gemalt, die Blinker nur links und werden rechts gespiegelt.
+# begrenzt). Gruppe -> (Datei, linke obere Ecke in Zeichnungspixeln). Beide Seiten einzeln gemalt, nicht
+# gespiegelt: die Zeichnung ist nicht symmetrisch (rechts Front 2-4 px hoeher, Seitenblinker-Oval 4 px hoeher),
+# gespiegelt sass der rechte Blinker neben der Kante (Nutzer 04.11.).
 CAR_PNG_W, CAR_PNG_H = 784, 1326
 # Gemalt auf einer Leinwand mit 60 px Rand, damit der Schein vor Nase und Heck nicht abgeschnitten ist; die Ecke
 # darf darum negativ sein.
 LAMP_SPRITES = {
-    "front": ("front.png", (63, -35), False),
-    "drl": ("drl.png", (148, -13), False),
-    "rear": ("rear.png", (129, 1227), False),
-    "turn_L": ("turn_left.png", (36, 33), False),
-    "turn_R": ("turn_left.png", (36, 33), True),
+    "front": ("front.png", (63, -37)),
+    "drl": ("drl.png", (148, -15)),
+    "rear": ("rear.png", (129, 1227)),
+    "turn_L": ("turn_left.png", (36, 33)),
+    "turn_R": ("turn_right.png", (529, 30)),
 }
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
 BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
@@ -838,7 +839,7 @@ class TpmsCarView(Panel):
         body.add_widget(self._car)
         # Leuchten ueber, Kegel unter der Zeichnung; Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color.
         self._lamp_colors = {}  # Gruppe -> [(Color, volles Alpha)]
-        self._lamp_rects = []   # (Rectangle, linke obere Ecke in Zeichnungspixeln, gespiegelt?)
+        self._lamp_rects = []   # (Rectangle, linke obere Ecke in Zeichnungspixeln)
         self._beams = {}        # "low"/"high" -> (Color, [Rectangle links, rechts])
         with self._car.canvas.before:
             for name, (path, *_rest) in BEAMS.items():
@@ -846,12 +847,10 @@ class TpmsCarView(Panel):
                 color = Color(1, 1, 1, 0)
                 self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
         with self._car.canvas.after:
-            for group, (path, corner, mirror) in LAMP_SPRITES.items():
+            for group, (path, corner) in LAMP_SPRITES.items():
                 self._lamp_colors[group] = [(Color(1, 1, 1, 0), 1.0)]
                 rect = Rectangle(texture=CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture)
-                if mirror:  # nur u spiegeln - Bildtexturen sind in Kivy schon vertikal gedreht
-                    rect.tex_coords = [1 - c if i % 2 == 0 else c for i, c in enumerate(rect.tex_coords)]
-                self._lamp_rects.append((rect, corner, mirror))
+                self._lamp_rects.append((rect, corner))
         self._lamp_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
@@ -894,10 +893,8 @@ class TpmsCarView(Panel):
         def to_px(x, y):
             return x0 + x * scale, y0 + (CAR_PNG_H - y) * scale
 
-        for rect, (left, top), mirror in self._lamp_rects:
+        for rect, (left, top) in self._lamp_rects:
             tw, th = rect.texture.size
-            if mirror:
-                left = CAR_PNG_W - left - tw
             px, py = to_px(left, top + th)  # Kivy: Ursprung unten links
             rect.pos, rect.size = (px, py), (tw * scale, th * scale)
         # Kegel: beide Scheinwerfer gleich (Abblendlicht ist nicht spiegelsymmetrisch, sondern fuer

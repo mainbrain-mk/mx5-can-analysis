@@ -6189,3 +6189,9 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   abgeschnitten wird. Blinker nur links gemalt, rechts in Kivy gespiegelt (nur u der `tex_coords` umdrehen, Kivy-
   Bildtexturen sind schon vertikal gedreht). Kegel-Ursprung an die Frontkante (176, 80) verlegt.
   PhotoCraft-Fallstrick: `doc_select`/`index` gehen im GUI-Modus nicht, Dokument per `document.activate` wechseln.
+- Nachtrag (Nutzer: rechter Front-/Seitenblinker sitzen nicht perfekt): Die Zeichnung ist nicht symmetrisch, rechts
+  liegt die Frontkontur an der Blinkerecke ~4 px höher (Projektor/Lichtleiter 1–3 px, Heck 0–2 px), das rechte
+  Seitenblinker-Oval beginnt 4 px höher (Linienpixel y 382 statt 386). Gespiegelt saß der rechte Blinker darum neben
+  der Kante. Jetzt beide Seiten einzeln gemalt: jeder linke Pinselpunkt auf die echte rechte Kontur übertragen (Front/
+  Heck gleicher Abstand zur Kante an gespiegeltem x, Flanke gleicher Abstand zur Seitenkontur bei y − 4). Eigenes
+  `turn_right.png`, keine Spiegelung mehr in Kivy.
