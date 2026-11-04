@@ -12,7 +12,9 @@ zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der
 Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.). Seit 04.11. abends führt das Backend ein Tankbuch
 (`canlogs/fuel_ledger.jsonl`, Liter je Log bei Start/Ende, Tankstopps); die Vcan-Simulation startet damit beim echten
 Stand des Logs. Der Geber gleicht nur noch bei Zündung an ab (Median der ersten 3 s), in Fahrt nie: getankt wird
-immer mit Zündung aus. Logbuch: „Tankbuch…“ und „Geber-Abgleich nur bei Zündung an“ (04.11.).
+immer mit Zündung aus (Schwelle 5 l). Zweiter Anker: Sinkt der Geber nach dem Volltanken erstmals knapp aus der
+Sättigung, gilt 42,6 l; das korrigiert die Füllstreuung von ±1 l. Logbuch: „Tankbuch…“, „Geber-Abgleich nur bei
+Zündung an“, „Sättigungsende als zweiter Anker“ (04.11.).
 
 **Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
 springen die Segmente auf 50 % Helligkeit (Sprung bleibt sichtbar) und blenden in 0,6 s auf die Ruhefarbe aus

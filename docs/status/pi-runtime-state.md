@@ -58,7 +58,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
   `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker), `fuel_state.json` (Tankinhalt in Litern für die KRAFTSTOFF-Kachel, schreibt
-  `can_backend.py`; seit 04.11. 20:00 aktiv, angelegt mit 40,37 l aus dem Tankbuch. Löschen = Neustart beim Geberwert),
+  `can_backend.py`; seit 04.11. aktiv, zuletzt 20:32 von Hand auf 41,42 l gesetzt (Tankbuch mit Sättigungsanker),
+  `await_desat` = Volltanken gesehen, Sättigungsende steht aus. Löschen = Neustart beim Geberwert),
   `fuel_ledger.jsonl` (Tankbuch, nur angehängt: je Log Liter bei Start/Ende, Tankstopps und Abgleiche; schreibt
   `can_backend.py` bei jeder echten Fahrt, die Vcan-Simulation startet mit dem `start`-Stand des abgespielten Logs.
   Die Logs bis 04.11. 16:38 sind mit `scripts/fuel_ledger_backfill.py` nachberechnet, `source: nachberechnet`).

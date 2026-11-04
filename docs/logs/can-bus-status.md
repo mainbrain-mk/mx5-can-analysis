@@ -6126,3 +6126,19 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   Reichweite, im Alltag nicht zu merken.
 - Möglicher Ausbau (nicht umgesetzt): Den Moment, in dem der Geber die Sättigung verlässt, als zweiten Anker
   (~42,6 l) nutzen; korrigiert die Füllstreuung nach ~1,5–3,5 l Verbrauch.
+
+## Sättigungsende als zweiter Anker, Startabgleich ab 5 l (04.11.2026)
+
+**Umsetzung des Befunds „Wie voll war voll?“ (Nutzerwunsch: in `fuel_state.json` einbauen).**
+- `FuelEstimator`: Nach dem Volltanken `await_desat`. Liegt der Median der letzten 120 s (≥ 96 s Daten) zwischen roh
+  33,9 und 35,9, gilt `FUEL_DESAT_L` = 42,6 l (= 3,0 + 1,10 · 36,0). Tiefer zählt nicht (Schwappen/Steigung). Ist der
+  Zähler schon > 2,5 l darunter, wird das Warten aufgegeben; eine Korrektur > 2,5 l wird verworfen.
+- `await_desat` steht in `fuel_state.json` und im Tankbuch-`start` (das Sättigungsende kommt oft erst im nächsten
+  Log, 04.11. nach 3,45 l in `_152230`); die Sim übernimmt es. Tankbuch-Ereignis `anchor`.
+- `FUEL_RESYNC_L` 4 → 5 l: Mit Anker lag 29.10. `_103615` 4,1 l unter dem Geber und 30.10. `_162447` 4,7 l darüber,
+  beides Parken am Hang. Mit 5 l verschwinden auch die Hin-und-zurück-Paare 17.09. und 26.09.; 6 l ändert nichts mehr.
+  Übrig: 17.09. `_084511` −7,7 l (No-RTC-Tag, evtl. Fahrt ohne Pi).
+- Nachberechnung (230 Einträge, auf dem Pi ersetzt). Anker je Tankstopp: 26.09. +0,2, 27.09. −0,4, 04.10. +0,6,
+  10.10. +0,1, 26.10. −0,9, 04.11. +1,1 l (16.09.: Geber sprang über Nacht unter das Band, aufgegeben).
+- **`fuel_state.json` auf dem Pi: 41,42 l** (vorher 40,37), `await_desat` false, Backend neu gestartet. Die Sim von
+  `_152230` startet mit 42,74 l und springt nach ~1,2 l auf 42,6 l, wie es live gewesen wäre.
