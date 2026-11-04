@@ -6142,3 +6142,17 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   10.10. +0,1, 26.10. −0,9, 04.11. +1,1 l (16.09.: Geber sprang über Nacht unter das Band, aufgegeben).
 - **`fuel_state.json` auf dem Pi: 41,42 l** (vorher 40,37), `await_desat` false, Backend neu gestartet. Die Sim von
   `_152230` startet mit 42,74 l und springt nach ~1,2 l auf 42,6 l, wie es live gewesen wäre.
+
+## Dash: Blinker in der TPMS-Autozeichnung (04.11.2026)
+
+**Wunsch (Nutzer):** Blinker in der Autozeichnung der TPMS-Kachel gelb blinken lassen.
+- Quelle `Turn` auf 0x09A (0 Off, 1 L, 2 R, 3 LR): Das ist der Lampenzustand selbst, er geht im Blinktakt an und
+  aus (Log `09-12_120952`: 0,35 s an / 0,35 s aus, 12 Frames/s). Das Dash spiegelt ihn ohne eigenen Takt, Warnblinker
+  und Notbremssignal (LR) leuchten beidseitig. Älter als 0,5 s = aus. 0x09A lief schon durch den Backend-Filter.
+- Leuchtflächen in Pixeln der `mx5_top_view.png` (linke Seite, rechts gespiegelt): Scheinwerfer-Außenkante,
+  Seitenblinker auf dem vorderen Kotflügel (Oval bei y≈410), runde Rückleuchte; je ein breiter Schein (35 %) und ein
+  satter Kern in Bernstein.
+- Fallstrick: `bind(pos=…)` am Bild feuerte nur vor dem endgültigen Layout, die Lampen lagen ~450 px zu tief.
+  Platziert wird jetzt bei jedem `set_turn`, sobald sich die Geometrie ändert.
+- Nebenbefund: `test_sim_loop_replays_whole_log_until_stopped` scheitert auf dem Pi gelegentlich auch mit dem
+  unveränderten Stand („Prozessgruppe lebt nach stop() noch“), vermutlich Timing unter Last (laufende Sim).
