@@ -6005,3 +6005,26 @@ summiert (Lücke > 5 s = kein Zählen, Sprünge > 60/s verworfen; in allen Logs 
   bisherigen Unsicherheit (~1 %); das Ende 04.11. ist laut Geber eher überfüllt, was die Kette nach unten zieht.
 - **Entscheidung (Nutzer, 04.11.):** 4985/l bleibt. Beim nächsten Stopp neu bewerten (dann ist 04.11. innerer Punkt).
 - **Startpunkt nächstes Intervall:** voll ab `candump-2026-11-04_080151`, 172583 km.
+
+## Gegenrechnung 4913/l über die Kette 16.09.→04.11. (04.11.2026)
+
+**Frage (Nutzer):** Wie verhalten sich die Intervalle mit 4913/l (Geber-Steigung aus G) statt 4985/l?
+Fehler = gezählt − getankt; G inklusive ~1 400 Schritte ODO-Lücke.
+
+| Intervall | getankt | 4985/l | 4913/l |
+|---|---|---|---|
+| A 16.→26.09. | 34,40 l | −1,04 | −0,56 |
+| B 26.→27.09. | 18,67 l | +0,82 | +1,10 |
+| F 27.09.→04.10. | 32,28 l | +0,44 | +0,92 |
+| E 04.→10.10. | 24,24 l | −0,68 | −0,33 |
+| D 10.→26.10. | 34,86 l | +0,44 | +0,95 |
+| G 26.10.→04.11. | 36,14 l | −2,37 | −1,88 |
+| **Summe / RMS** | 180,59 l | −2,40 / 1,17 | +0,21 / 1,07 |
+
+- 4913/l schließt die Kette, die Streuung je Intervall bleibt ~±1 l (Zapfpistolen-Abschaltung). Den Ausschlag gibt
+  allein G (laut Geber ~1,8 l Überfüllung am 04.11.).
+- Restmenge laut Zähler Ende `04_075453`: 11,2 l (4985/l) bzw. 10,7 l (4913/l), Geber 9,8 l, aus Tankmenge 8,9 l.
+- Nebenbefund: `run_daily_pipeline.py` rechnet den Tank linear ohne Geber-Sättigung (roh 36,2 → 42,8 l statt 45 l,
+  betrifft `04_080151`, `_152230`, `_163818`, ~2 kg); `can_backend.py` kennt die Sättigung. Nicht geändert.
+- **Entscheidung (Nutzer):** 4985/l bleibt bis zum nächsten Stopp. Dann ist 04.11. innerer Punkt; liegt H wieder
+  deutlich im Minus, spricht das für 4913/l.
