@@ -99,10 +99,34 @@ def test_health_line_reports_value_ages_and_resets_obd_request_counts():
     assert "7DF=0" in backend.health_line(now)   # Zaehler je Zeile zurueckgesetzt
 
 
+def test_consumption_meter_l100km_with_counter_wrap():
+    """72 km/h (20 m/s) bei 8 l/100km = 1,6 ml/s: beide 8-Bit-Zaehler laufen dabei ueber."""
+    meter = can_backend.ConsumptionMeter()
+    steps_per_s_dist = 20.0 / can_backend.TRAVEL_M_PER_STEP
+    steps_per_s_fuel = 8.0 / 1e5 * 20.0 * can_backend.FUEL_STEPS_PER_L
+    for i in range(100):
+        t = i * 0.1
+        data = bytes([0, int(steps_per_s_dist * t) % 256, int(steps_per_s_fuel * t) % 256])
+        l100, lh = meter.update(data, t)
+        if i < 5:
+            assert l100 is None and lh is None   # Fenster noch nicht halb voll
+    assert abs(l100 - 8.0) < 0.5, l100
+    assert abs(lh - 5.76) < 0.4, lh               # 8 l/100km * 72 km/h
+    # Stand mit Leerlauf (~0,8 l/h): kein l/100km, aber l/h
+    fuel = data[2]
+    for i in range(100, 160):
+        fuel_now = (fuel + int(0.8 / 3600 * can_backend.FUEL_STEPS_PER_L * (i - 100) * 0.1)) % 256
+        l100, lh = meter.update(bytes([0, data[1], fuel_now]), i * 0.1)
+    assert l100 is None
+    assert 0.5 < lh < 1.1, lh
+    # Luecke > 1 s (Bus weg): neu anfangen, nicht ueber die Luecke differenzieren
+    assert meter.update(bytes([0, 200, 200]), 20.0) == (None, None)
+
 if __name__ == "__main__":
     test_kill_processes_terminates_matching_process()
     test_kill_processes_ignores_non_matching()
     test_new_logging_session_resets_vmax_and_starts_monotonic_timer()
     test_snapshot_values_are_stamped_on_the_monotonic_clock()
     test_health_line_reports_value_ages_and_resets_obd_request_counts()
+    test_consumption_meter_l100km_with_counter_wrap()
     print("ok")

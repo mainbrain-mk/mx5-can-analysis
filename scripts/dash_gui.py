@@ -419,7 +419,8 @@ class MetricCard(Panel):
     Nachfolger der Ribbon-Zellen (Oel/Kuehlwasser/Tank) UND der unteren
     Kennzahlen-Reihe (Gas/Bremse/Lambda/...) aus der Design-Vorlage."""
 
-    def __init__(self, title, unit="", bar_color=None, bar_max=100, value_fmt="{:.0f}", **kwargs):
+    def __init__(self, title, unit="", bar_color=None, bar_max=100, value_fmt="{:.0f}", side=False,
+                 **kwargs):
         super().__init__(padding=(14, 10), spacing=2, **kwargs)
         self.unit = unit
         self.bar_max = bar_max
@@ -431,7 +432,38 @@ class MetricCard(Panel):
                                   halign="left", valign="middle")
         self.value_label.bind(size=lambda w, s: setattr(w, "text_size", s))
         self.add_widget(self.title_label)
-        self.add_widget(self.value_label)
+        # Optionaler Zweitwert rechtsbuendig in der Wertzeile (KRAFTSTOFF: Momentanverbrauch)
+        self.side_label = None
+        if side:
+            row = BoxLayout(orientation="horizontal")
+            row.add_widget(self.value_label)
+            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter. Oben ein Platzhalter
+            # in Einheitenhoehe, damit der Zweitwert (Spalte mittig verankert) auf derselben Hoehe
+            # steht wie der Hauptwert. Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
+            self.side_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
+                                    size_hint_y=None, height=0)
+            self.side_unit_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
+                                         size_hint_y=None, height=0)
+            pad = Widget(size_hint_y=None, height=0)
+            col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(0, 0))
+            for w in (pad, self.side_label, self.side_unit_label):
+                col.add_widget(w)
+            anchor = AnchorLayout(anchor_x="right", anchor_y="center", size_hint_x=None, width=0)
+            anchor.add_widget(col)
+
+            def fit(*_args):
+                value_w, value_h = self.side_label.texture_size
+                unit_w, unit_h = self.side_unit_label.texture_size
+                self.side_label.height = value_h
+                self.side_unit_label.height = pad.height = unit_h
+                col.size = (max(value_w, unit_w), value_h + 2 * unit_h)
+                anchor.width = col.width
+            self.side_label.bind(texture_size=fit)
+            self.side_unit_label.bind(texture_size=fit)
+            row.add_widget(anchor)
+            self.add_widget(row)
+        else:
+            self.add_widget(self.value_label)
         self.bar = None
         if bar_color is not None:
             self.bar = FillBar(color=bar_color, size_hint_y=None, height=8)
@@ -448,6 +480,10 @@ class MetricCard(Panel):
         self.value_label.color = color
         if self.bar is not None:
             self.bar.frac = max(0.0, min(1.0, value / self.bar_max))
+
+    def set_side(self, text, unit=""):
+        self.side_label.text = text
+        self.side_unit_label.text = unit
 
 
 class FillBar(Widget):
@@ -858,7 +894,7 @@ class DriveScreen(Screen):
         self.lambda_card = MetricCard("LAMBDA", value_fmt="{:.2f}")
         self.iat_card = MetricCard("ANSAUGLUFT", unit="°C")
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
-        self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW)
+        self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
         for c in (self.gas_card, self.brake_card, self.lambda_card, self.iat_card,
                   self.load_card, self.fuel_card):
             bottom.add_widget(c)
@@ -928,6 +964,15 @@ class DriveScreen(Screen):
                 self._fuel_smooth
                 + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
+        # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
+        # Deckel 99,9: dreistellig wird neben "100%" zu eng
+        l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")
+        lh = c.get(COOLANT_TEMP_CAN_ID, "_FuelRate_lh_derived")
+        value, unit = (l100, "l/100km") if l100 is not None else (lh, "l/h")
+        if value is None:
+            self.fuel_card.set_side("")
+        else:
+            self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:
