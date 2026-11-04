@@ -106,3 +106,19 @@ if __name__ == "__main__":
     test_snapshot_values_are_stamped_on_the_monotonic_clock()
     test_health_line_reports_value_ages_and_resets_obd_request_counts()
     print("ok")
+
+
+def test_fuel_counter_is_summed_across_wraps_and_resyncs_after_gaps():
+    """0x420 Byte2 laeuft bei 256 um; das Backend liefert eine monotone Summe. Nach einer
+    Frame-Luecke (Zuendung aus/an, CAN-Einbruch) wird nur neu aufgesetzt."""
+    backend = _backend_without_dbc()
+    key = f"{can_backend.FUEL_COUNTER_CAN_ID}:{can_backend.FUEL_COUNTER_TOTAL_SIGNAL}"
+    t = 1000.0
+    for raw in (250, 254, 3, 10):           # Umlauf 254 -> 3 = 5 Schritte
+        backend._update_fuel_counter(raw, t)
+        t += 0.1
+    assert backend.snapshot()["values"][key][0] == 16
+    backend._update_fuel_counter(200, t + can_backend.FUEL_COUNTER_MAX_GAP_S + 1)  # Luecke
+    assert backend.snapshot()["values"][key][0] == 16
+    backend._update_fuel_counter(201, t + can_backend.FUEL_COUNTER_MAX_GAP_S + 1.1)
+    assert backend.snapshot()["values"][key][0] == 17

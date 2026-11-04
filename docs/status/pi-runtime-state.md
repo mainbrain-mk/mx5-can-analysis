@@ -42,6 +42,10 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   daneben gewählte Log (Standard: neuestes) komplett und in Schleife ab und zeigt den Fahrbildschirm. Die Liste
   wird alle 2 s neu eingelesen; gerade gepackte Logs erscheinen also ohne Dash-Neustart. Gestreamt
   per `zcat | canplayer -s 5`, nichts landet in `/tmp`. Beenden über „SIMULATION BEENDEN“ in dessen Fußzeile.
+- **Tankanzeige** (`KRAFTSTOFF`, im Repo seit 04.11.2026, **noch nicht deployt**): 100 % = 45 l, 0 % = 9,5 l
+  (nutzbare Menge). Nach dem Volltanken zeigt sie 100 %. Solange der Schwimmer am Anschlag steht (~93 %), zieht der
+  Kraftstoffzähler 0x420 ab, darunter führt der Geber nach. Den Stand merkt sie sich in `fuel_gauge_state.json`
+  auf dem Stick, die Vcan-Simulation fasst ihn nicht an. Logbuch 04.11. „Dash: Tankanzeige…“.
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
   `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
   Adapters, im Auto genügt `sudo systemctl restart can-logger`.
@@ -55,7 +59,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 - **Symlinks ins Repo:** `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`, `tpms_poller.py`,
   `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
-  `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker).
+  `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker), `fuel_gauge_state.json`
+  (Tankstand der Dash-Anzeige, ab dem Deploy vom 04.11.).
 - `archiv/`: alte Backups (`backup-*`), Vorversionen und Ausgaben bis 10.10. Nichts davon wird im Betrieb gebraucht.
 
 ## Deploy-Stand = Git auf dem Pi

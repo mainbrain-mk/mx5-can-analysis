@@ -153,6 +153,24 @@ FUEL_SMOOTH_TAU_S = 8.0  # Zeitkonstante gg. Tankschwappen (Slosh-Periode
                          # liegt bei ~1-2s, echter Fuellstand aendert sich
                          # ueber Minuten - 8s glaettet das eine, verzoegert
                          # das andere kaum sichtbar)
+# Tankanzeige (04.11.2026, Nutzerwunsch): 100 % = voll (45 l laut Mazda), 0 % = 9,5 l Rest, ab da ist
+# Schluss (die 45 l sind nicht ganz nutzbar). Liter aus dem Geber: 3,0 + 1,10 * Fuel_Tank (Kennlinie
+# 26.09., docs/status/can-open-fields.md "Tankinhalt in Litern"). Der Geber saettigt nach dem Volltanken
+# bei 36,2 (= 90 % der alten Formel) und ist fuer die ersten ~2,3 l blind; solange rechnet die Anzeige
+# mit dem Kraftstoffzaehler 0x420 (4985 Schritte/l) von 45 l abwaerts. Siehe FuelGauge.
+FUEL_TANK_FULL_L = 45.0
+FUEL_TANK_EMPTY_L = 9.5
+FUEL_L_AT_RAW0 = 3.0
+FUEL_L_PER_RAW = 1.10
+FUEL_RAW_SATURATED = 36.0  # geglaettet darueber = Schwimmer steht am Anschlag (36,2)
+FUEL_COUNTS_PER_L = 4985.0
+FUEL_COUNTER_CAN_ID = 1056
+FUEL_COUNTER_TOTAL_SIGNAL = "_FuelCounter_total_derived"  # aufsummiert in can_backend.py
+FUEL_FLOAT_TAU_S = 120.0   # wie schnell der (ungesaettigte) Geber den Zaehlerstand nachfuehrt
+FUEL_RESYNC_L = 4.0        # Fahrtbeginn: weicht der Geber so weit ab, wurde nachgetankt
+FUEL_STATE_PATH = os.path.join(LOG_DIR, "fuel_gauge_state.json")
+FUEL_SAVE_DELTA_L = 0.05   # Zustand schreiben, sobald sich der Inhalt so weit geaendert hat ...
+FUEL_SAVE_MAX_S = 60.0     # ... oder spaetestens nach dieser Zeit
 COOLANT_TEMP_CAN_ID = 1056
 ABS_CAN_ID = 529
 IAT_CAN_ID = 1274
@@ -227,6 +245,116 @@ def _ema_alpha(dt, tau):
     stimmt; dt ist nach oben begrenzt, ein einzelner Haenger springt nicht durch."""
     dt = min(max(dt, 0.0), 1.0)
     return 1.0 - math.exp(-dt / tau)
+
+
+def _fuel_liters_from_raw(raw):
+    return FUEL_L_AT_RAW0 + FUEL_L_PER_RAW * raw
+
+
+def fuel_percent(liters):
+    """Anzeige-% der nutzbaren Menge: 45 l -> 100 %, 9,5 l -> 0 %."""
+    if liters is None:
+        return None
+    pct = 100.0 * (liters - FUEL_TANK_EMPTY_L) / (FUEL_TANK_FULL_L - FUEL_TANK_EMPTY_L)
+    return max(0.0, min(100.0, pct))
+
+
+class FuelGauge:
+    """Tankinhalt in Litern aus Geber + Kraftstoffzaehler (kein Kivy, testbar).
+
+    - Der Zaehler (Liter seit dem letzten Frame) zieht den Inhalt laufend ab.
+    - Ist der Geber nicht gesaettigt, fuehrt er den Inhalt mit FUEL_FLOAT_TAU_S nach
+      (Geber = absolute Lage, Zaehler = glatter Verlauf, Schwappen faellt heraus).
+    - Ist der Geber gesaettigt (Schwimmer am Anschlag, ~90 %), sagt er nur "mindestens
+      _fuel_liters_from_raw(FUEL_RAW_SATURATED)"; dann zaehlt allein der Verbrauch.
+    - Volltanken: Fahrtbeginn mit gesaettigtem Geber, obwohl er am Ende der letzten Fahrt nicht
+      gesaettigt war (oder ohne gespeicherten Zustand) -> 45 l. Wird bei noch gesaettigtem
+      Geber nachgetankt (< ~2,3 l verbraucht), ist das nicht erkennbar; die Anzeige laeuft dann
+      mit dem alten Stand weiter (hoechstens ~6 % zu wenig).
+    - Der Zustand ueberlebt Neustarts des Pi (state_path); in der Vcan-Simulation wird er weder
+      gelesen noch geschrieben (state_path=None), sonst verbraucht ein abgespieltes Log echten Sprit.
+    """
+
+    def __init__(self, state_path=None):
+        self.state_path = state_path
+        self.liters = None
+        self.saturated = None
+        self._stored = None        # (liters, saturated) vom Ende der letzten Fahrt
+        self._counter_last = None
+        self._saved = None         # (liters, monotonic) des letzten Schreibens
+        self.start_drive(state_path)
+
+    def start_drive(self, state_path=FUEL_STATE_PATH):
+        """Neue Fahrt: gespeicherten Stand laden (state_path=None: Simulation, frisch)."""
+        self.state_path = state_path
+        self._stored = self._load() if state_path else None
+        self.liters = None
+        self.saturated = None
+        self._counter_last = None
+
+    def _load(self):
+        try:
+            with open(self.state_path) as f:
+                d = json.load(f)
+            return float(d["liters"]), bool(d["saturated"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def save(self, now=None):
+        if not self.state_path or self.liters is None:
+            return
+        now = time.monotonic() if now is None else now
+        tmp = self.state_path + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                json.dump({"liters": round(self.liters, 3), "saturated": bool(self.saturated),
+                           "wall_time": time.time()}, f)
+            os.replace(tmp, self.state_path)  # atomar: Strom weg mitten im Schreiben laesst den alten Stand
+        except OSError:
+            return
+        self._saved = (self.liters, now)
+
+    def _first_reading(self, float_l, saturated):
+        stored = self._stored
+        if saturated:
+            if stored is None or not stored[1]:
+                return FUEL_TANK_FULL_L  # Volltanken (oder erster Start mit vollem Tank)
+            return max(stored[0], _fuel_liters_from_raw(FUEL_RAW_SATURATED))
+        if stored is None or abs(float_l - stored[0]) > FUEL_RESYNC_L:
+            return float_l  # erster Start oder teilweise nachgetankt
+        return stored[0]
+
+    def update(self, raw_smooth, counter_total, dt, now=None):
+        """raw_smooth: geglaetteter Fuel_Tank (None = kein Wert), counter_total: aufsummierte
+        Zaehlerschritte aus can_backend.py (None = kein Wert). Gibt Liter oder None zurueck."""
+        used_l = 0.0
+        if counter_total is not None:
+            if self._counter_last is not None and counter_total >= self._counter_last:
+                used_l = (counter_total - self._counter_last) / FUEL_COUNTS_PER_L
+            self._counter_last = counter_total  # kleiner = Backend neu gestartet, neu aufsetzen
+        if raw_smooth is None:
+            if self.liters is not None:
+                self.liters = max(0.0, self.liters - used_l)
+            return self.liters
+
+        float_l = _fuel_liters_from_raw(raw_smooth)
+        saturated = raw_smooth > FUEL_RAW_SATURATED
+        if self.liters is None:
+            self.liters = self._first_reading(float_l, saturated)
+        else:
+            self.liters -= used_l
+            if saturated:
+                self.liters = max(self.liters, _fuel_liters_from_raw(FUEL_RAW_SATURATED))
+            else:
+                self.liters += _ema_alpha(dt, FUEL_FLOAT_TAU_S) * (float_l - self.liters)
+        self.liters = max(0.0, min(FUEL_TANK_FULL_L, self.liters))
+        self.saturated = saturated
+
+        now = time.monotonic() if now is None else now
+        if (self._saved is None or abs(self.liters - self._saved[0]) >= FUEL_SAVE_DELTA_L
+                or now - self._saved[1] >= FUEL_SAVE_MAX_S):
+            self.save(now)
+        return self.liters
 
 
 def _blink_on(t=None, hz=LIMITER_BLINK_HZ):
@@ -781,6 +909,7 @@ class DriveScreen(Screen):
         self.client = client
         self.session_max_speed = 0.0
         self._fuel_smooth = None
+        self.fuel_gauge = FuelGauge()  # ohne Pfad: echter Zustand erst mit on_pre_enter
         self._status_bar_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
@@ -875,7 +1004,13 @@ class DriveScreen(Screen):
         # starten - sonst kroch die Anzeige nach dem Tanken ~20 s lang vom alten
         # Fuellstand hoch, weil der Filter noch den Wert von vor dem Tankstopp hielt.
         self._fuel_smooth = None
+        # Neue Fahrt: Tankstand vom Stick laden (ueberlebt Pi-Neustarts), in der Vcan-Simulation
+        # frisch und ohne Speichern.
+        self.fuel_gauge.start_drive(None if os.path.exists(SIM_TRIGGER_PATH) else FUEL_STATE_PATH)
         self._status_bar_due = 0.0
+
+    def on_leave(self, *_args):
+        self.fuel_gauge.save()
 
     def refresh(self, dt=None):
         """dt = Sekunden seit dem letzten Aufruf (kommt von Kivys Clock); ohne dt
@@ -921,13 +1056,16 @@ class DriveScreen(Screen):
             c.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S))
         self.iat_card.set_value(c.get(IAT_CAN_ID, "IAT_Sensor_No1"))
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
+        # Glaettung auf dem Geber-Rohwert (Schwappen), Liter/Prozent rechnet FuelGauge.
         fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
-        fuel_pct = None if fuel_raw is None else max(0.0, min(100.0, 2.486 * fuel_raw - 0.02))
-        if fuel_pct is not None:
-            self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (
+        if fuel_raw is not None:
+            self._fuel_smooth = fuel_raw if self._fuel_smooth is None else (
                 self._fuel_smooth
-                + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
-        self.fuel_card.set_value(self._fuel_smooth)
+                + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_raw - self._fuel_smooth))
+        liters = self.fuel_gauge.update(
+            None if fuel_raw is None else self._fuel_smooth,
+            c.get(FUEL_COUNTER_CAN_ID, FUEL_COUNTER_TOTAL_SIGNAL), dt)
+        self.fuel_card.set_value(fuel_percent(liters))
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:

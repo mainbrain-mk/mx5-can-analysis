@@ -105,6 +105,15 @@ OIL_RESPONSE_ID = 0x7E8
 OIL_DID = 0x1310
 FUEL_TANK_CAN_ID = 158
 COOLANT_TEMP_CAN_ID = 1056
+# Kraftstoffzaehler 0x420 Byte2 (FuelConsumption_Counter, 8 Bit, umlaufend; 4985 Schritte je Liter,
+# docs/logs/can-bus-status.md "Kalibrierung 4985/l"). Das Backend sieht jeden Frame und summiert die
+# Schritte hier auf, das Dash sieht nur Snapshots und koennte Umlaeufe verpassen. Ab einer Frame-Luecke
+# von FUEL_COUNTER_MAX_GAP_S ist der Umlauf nicht mehr eindeutig (Zuendungswechsel, CAN-Einbruch nach
+# i-stop): dann nur neu aufsetzen statt eine beliebige Differenz mod 256 zu zaehlen.
+FUEL_COUNTER_CAN_ID = 1056
+FUEL_COUNTER_SIGNAL = "FuelConsumption_Counter"
+FUEL_COUNTER_TOTAL_SIGNAL = "_FuelCounter_total_derived"
+FUEL_COUNTER_MAX_GAP_S = 3.0
 RCM_LATERAL_CAN_ID = 117
 RCM_LONGITUDINAL_CAN_ID = 118
 ABS_CAN_ID = 529
@@ -233,10 +242,22 @@ class CanBackend:
         # Arbeit - werden deshalb nur 1x/s in run_process_watch() aktualisiert statt
         # bei jedem snapshot()-Aufruf neu erhoben.
         self._proc_state = {"can_up": False, "logging": False, "session_logger_running": False}
+        self._fuel_counter_last = None   # (Rohwert, Zeitstempel) des letzten 0x420-Frames
+        self._fuel_counter_total = 0     # Schritte seit Prozessstart, nie umlaufend
 
     def _set(self, can_id, signal, value, ts):
         with self._lock:
             self._values[f"{can_id}:{signal}"] = (value, ts)
+
+    def _update_fuel_counter(self, raw, ts):
+        """Summiert den umlaufenden 8-Bit-Zaehler zu einer monotonen Schrittzahl auf
+        (Snapshot-Signal FUEL_COUNTER_TOTAL_SIGNAL)."""
+        raw = int(raw)
+        last = self._fuel_counter_last
+        if last is not None and ts - last[1] <= FUEL_COUNTER_MAX_GAP_S:
+            self._fuel_counter_total += (raw - last[0]) % 256
+        self._fuel_counter_last = (raw, ts)
+        self._set(FUEL_COUNTER_CAN_ID, FUEL_COUNTER_TOTAL_SIGNAL, self._fuel_counter_total, ts)
 
     def snapshot(self):
         with self._lock:
@@ -375,6 +396,9 @@ class CanBackend:
                         if decoded is not None:
                             for sig, val in decoded.items():
                                 self._set(msg.arbitration_id, sig, val, now)
+                            if (msg.arbitration_id == FUEL_COUNTER_CAN_ID
+                                    and isinstance(decoded.get(FUEL_COUNTER_SIGNAL), (int, float))):
+                                self._update_fuel_counter(decoded[FUEL_COUNTER_SIGNAL], now)
                             if msg.arbitration_id == 514 and "VehicleSpeed" in decoded:
                                 speed = decoded["VehicleSpeed"]
                                 if isinstance(speed, (int, float)) and speed > self.session_max_speed:

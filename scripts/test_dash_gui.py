@@ -195,27 +195,127 @@ def test_led_dot_recolors_without_rebuilding_canvas():
 
 def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     """Gleiche Zeitkonstante bei 30 Hz und bei eingebrochenen 10 Hz; neue Fahrt
-    (Drive-Screen erscheint) startet ohne den Fuellstand von vor dem Tanken."""
+    (Drive-Screen erscheint) startet ohne den Fuellstand von vor dem Tanken.
+    _fuel_smooth ist der geglaettete Geber-Rohwert (Fuel_Tank), nicht mehr Prozent."""
     def run(hz, seconds, raw_after):
         client = FakeSnapshotClient()
         screen = dash_gui.DriveScreen(client)
-        client.set(158, "Fuel_Tank", (20.0 + 0.02) / 2.486)
+        client.set(158, "Fuel_Tank", 10.0)
         screen.refresh(1 / hz)
         client.set(158, "Fuel_Tank", raw_after)
         for _ in range(int(seconds * hz)):
             screen.refresh(1 / hz)
         return screen
 
-    raw80 = (80.0 + 0.02) / 2.486
-    fast = run(30, 8, raw80)._fuel_smooth
-    slow = run(10, 8, raw80)._fuel_smooth
-    assert abs(fast - slow) < 0.5, (fast, slow)
-    assert 55 < fast < 62  # nach 1 tau ~63 % des Sprungs 20 -> 80
+    fast = run(30, 8, 30.0)._fuel_smooth
+    slow = run(10, 8, 30.0)._fuel_smooth
+    assert abs(fast - slow) < 0.2, (fast, slow)
+    assert 22 < fast < 24  # nach 1 tau ~63 % des Sprungs 10 -> 30
 
-    screen = run(30, 1, raw80)
-    screen.on_pre_enter()
-    screen.refresh()
-    assert abs(screen._fuel_smooth - 80.0) < 0.1
+    screen = run(30, 1, 30.0)
+    with tempfile.TemporaryDirectory() as tmp:
+        old_path = dash_gui.FUEL_STATE_PATH
+        dash_gui.FUEL_STATE_PATH = os.path.join(tmp, "fuel.json")
+        try:
+            screen.on_pre_enter()
+            screen.refresh()
+        finally:
+            dash_gui.FUEL_STATE_PATH = old_path
+    assert abs(screen._fuel_smooth - 30.0) < 0.01
+
+
+def _fuel_raw_for_liters(liters):
+    return (liters - dash_gui.FUEL_L_AT_RAW0) / dash_gui.FUEL_L_PER_RAW
+
+
+def test_fuel_percent_uses_9_5_l_as_empty_and_45_l_as_full():
+    pct = dash_gui.fuel_percent
+    assert pct(45.0) == 100.0
+    assert pct(9.5) == 0.0
+    assert pct(8.0) == 0.0                     # Rest unter 9,5 l ist nicht nutzbar
+    assert abs(pct(27.25) - 50.0) < 1e-9       # Mitte der nutzbaren 35,5 l
+    assert pct(None) is None
+
+
+def test_fuel_gauge_full_tank_shows_100_and_counts_down_while_float_is_saturated():
+    """Nach dem Volltanken steht der Schwimmer am Anschlag (roh 36,2 ~ 90 %): Anzeige 100 %,
+    der Kraftstoffzaehler zieht ab, der gesaettigte Geber haelt sie nicht fest."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "fuel.json")
+        gauge = dash_gui.FuelGauge()
+        gauge.start_drive(path)
+        counts_per_l = dash_gui.FUEL_COUNTS_PER_L
+        assert gauge.update(36.2, 1000, 0.1, now=0.0) == 45.0
+        assert dash_gui.fuel_percent(gauge.liters) == 100.0
+
+        liters = gauge.update(36.2, 1000 + int(1.0 * counts_per_l), 0.1, now=1.0)
+        assert abs(liters - 44.0) < 0.01
+        # Mehr verbraucht als der Anschlag erlaubt, Geber noch gesaettigt: nicht unter dessen Untergrenze
+        liters = gauge.update(36.2, 1000 + int(5.0 * counts_per_l), 0.1, now=2.0)
+        assert abs(liters - dash_gui._fuel_liters_from_raw(dash_gui.FUEL_RAW_SATURATED)) < 0.01
+
+
+def test_fuel_gauge_below_saturation_follows_float_slowly_and_counter_directly():
+    gauge = dash_gui.FuelGauge()
+    raw20 = _fuel_raw_for_liters(20.0)
+    assert abs(gauge.update(raw20, 0, 0.1, now=0.0) - 20.0) < 1e-6   # ohne Zustand: Geber
+    # Zaehler: 0,5 l verbraucht -> sofort 19,5 l, der Geber (noch 20 l) zieht nur langsam
+    liters = gauge.update(raw20, int(0.5 * dash_gui.FUEL_COUNTS_PER_L), 0.1, now=0.1)
+    assert 19.49 < liters < 19.52, liters
+    # Schwappen (Geber kurz 5 l daneben) bewegt die Anzeige kaum
+    liters = gauge.update(_fuel_raw_for_liters(25.0), int(0.5 * dash_gui.FUEL_COUNTS_PER_L), 1.0,
+                          now=1.1)
+    assert liters < 19.6, liters
+    # Ueber Minuten setzt sich der Geber durch
+    for i in range(600):
+        liters = gauge.update(_fuel_raw_for_liters(18.0), int(0.5 * dash_gui.FUEL_COUNTS_PER_L),
+                              1.0, now=2.0 + i)
+    assert abs(liters - 18.0) < 0.1, liters
+
+
+def test_fuel_gauge_state_survives_restart_and_detects_refuel():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "fuel.json")
+        counts_per_l = dash_gui.FUEL_COUNTS_PER_L
+
+        gauge = dash_gui.FuelGauge()
+        gauge.start_drive(path)
+        gauge.update(36.2, 0, 0.1, now=0.0)                          # voll getankt
+        gauge.update(36.2, int(1.5 * counts_per_l), 0.1, now=100.0)  # 1,5 l, Schwimmer noch oben
+        gauge.save()
+
+        # Pi-Neustart, Schwimmer weiter am Anschlag: kein Volltanken, 43,5 l bleiben
+        gauge = dash_gui.FuelGauge()
+        gauge.start_drive(path)
+        assert abs(gauge.update(36.2, 7, 0.1, now=0.0) - 43.5) < 0.01
+
+        # Tank leergefahren auf ~15 l, dann voll getankt: wieder 45 l
+        raw15 = _fuel_raw_for_liters(15.0)
+        gauge = dash_gui.FuelGauge()
+        gauge.start_drive(path)
+        gauge.update(raw15, 0, 0.1, now=0.0)                         # Geber weicht > 4 l ab: Geber gilt
+        gauge.save()
+        assert abs(gauge.liters - 15.0) < 0.01
+        gauge = dash_gui.FuelGauge()
+        gauge.start_drive(path)
+        assert gauge.update(36.2, 0, 0.1, now=0.0) == 45.0
+
+        # Simulation: weder lesen noch schreiben
+        before = open(path).read()
+        gauge.start_drive(None)
+        assert abs(gauge.update(raw15, 0, 0.1, now=0.0) - 15.0) < 0.01
+        gauge.update(raw15, int(2 * counts_per_l), 0.1, now=500.0)
+        assert open(path).read() == before
+
+
+def test_fuel_gauge_backend_restart_does_not_count_negative_or_huge_jumps():
+    gauge = dash_gui.FuelGauge()
+    raw20 = _fuel_raw_for_liters(20.0)
+    gauge.update(raw20, 50000, 0.1, now=0.0)
+    liters = gauge.update(raw20, 10, 0.1, now=0.1)    # Backend neu: Summe beginnt bei 0
+    assert abs(liters - 20.0) < 0.01
+    liters = gauge.update(raw20, 10 + int(dash_gui.FUEL_COUNTS_PER_L), 0.1, now=0.2)
+    assert abs(liters - 19.0) < 0.01
 
 
 class RecordingClient(FakeSnapshotClient):
@@ -239,7 +339,8 @@ def test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists():
     dash_gui.LiveGrid(client).refresh()
     assert len(client.requested) > 30
 
-    derived = {"_BrakePedalPercent_derived", "_OilTemp_derived"} | {
+    derived = {"_BrakePedalPercent_derived", "_OilTemp_derived",
+               can_backend.FUEL_COUNTER_TOTAL_SIGNAL} | {
         f"_{name}_derived" for name, _, _ in can_backend._OBD1_PIDS.values()}
     # Repo: ../data/can/, auf dem Pi liegt die DBC neben den Skripten in LOG_DIR.
     here = os.path.dirname(os.path.abspath(__file__))
@@ -447,38 +548,47 @@ def test_gear_display_turns_baby_blue_when_clutch_not_closed():
 
 def test_fuel_gauge_smooths_out_tank_slosh():
     """Tankschwappen zeigt sich als schnelles Rauschen um den echten
-    Fuellstand - der EMA-Filter (FUEL_SMOOTH_TAU_S, tau=8s) soll die
-    Schwankung deutlich daempfen, aber einem echten Stufenwechsel (Tanken)
-    binnen weniger Sekunden folgen."""
+    Fuellstand - der EMA-Filter (FUEL_SMOOTH_TAU_S, tau=8s) auf dem Geber-Rohwert
+    soll die Schwankung deutlich daempfen, aber einem echten Stufenwechsel binnen
+    weniger Sekunden folgen."""
     import math
 
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
 
-    # Fuel_Tank ist der Rohwert vor der 2.486x-0.02-Umrechnung - Mittelwert
-    # hier so gewaehlt, dass fuel_pct um 50% herum schwankt.
-    base_raw = (50.0 + 0.02) / 2.486
+    base_raw = 18.0
     readings = []
+    raw_values = []
     for i in range(240):  # 8s bei 30Hz
         noisy_raw = base_raw + 4.0 * math.sin(i * 1.3)  # schnelles Schwappen
         client.set(158, "Fuel_Tank", noisy_raw)
         screen.refresh()
         readings.append(screen._fuel_smooth)
+        raw_values.append(noisy_raw)
 
-    raw_values = [max(0.0, min(100.0, 2.486 * (base_raw + 4.0 * math.sin(i * 1.3)) - 0.02))
-                  for i in range(240)]
     tail_raw = raw_values[-60:]
     tail_smoothed = readings[-60:]
     raw_spread = max(tail_raw) - min(tail_raw)
     smoothed_spread = max(tail_smoothed) - min(tail_smoothed)
     assert smoothed_spread < raw_spread * 0.5, (smoothed_spread, raw_spread)
 
-    # Ein echter Sprung (z.B. Tanken) muss trotzdem durchkommen, nicht auf
-    # ewig weggeglaettet werden.
-    client.set(158, "Fuel_Tank", (90.0 + 0.02) / 2.486)
+    # Ein echter Sprung muss trotzdem durchkommen, nicht auf ewig weggeglaettet werden.
+    client.set(158, "Fuel_Tank", 33.0)
     for _ in range(720):  # weitere 24s (~3 Tau, ~95% Annaeherung)
         screen.refresh()
-    assert screen._fuel_smooth > 80.0, screen._fuel_smooth
+    assert screen._fuel_smooth > 31.0, screen._fuel_smooth
+
+
+def test_drive_screen_fuel_card_shows_100_percent_after_refuel():
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(158, "Fuel_Tank", 36.2)
+    client.set(1056, dash_gui.FUEL_COUNTER_TOTAL_SIGNAL, 0)
+    screen.refresh()
+    assert screen.fuel_card.value_label.text.startswith("100"), screen.fuel_card.value_label.text
+    client.set(1056, dash_gui.FUEL_COUNTER_TOTAL_SIGNAL, int(1.776 * dash_gui.FUEL_COUNTS_PER_L))
+    screen.refresh()   # 1,78 l = 5 % der nutzbaren 35,5 l, Geber steht noch am Anschlag
+    assert screen.fuel_card.value_label.text.startswith("95"), screen.fuel_card.value_label.text
 
 
 def test_shiftlight_colors_cover_the_narrow_orange_zone():

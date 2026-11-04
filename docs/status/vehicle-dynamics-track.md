@@ -350,3 +350,7 @@ die streckenbezogenen Themen.
   nichtlineare FLI→Liter-Kurve rekonstruierbar, v.a. der Bereich nahe leer
   und 30–70 % fehlen noch. Siehe "Tankstand-Kalibrierung: FLI-Sensor liest
   nichtlinear, unterschaetzt v.a. nahe voll (03.09.2026)".
+- **Aktuelle Kennlinie und Dash-Anzeige:** Liter ≈ 3,0 + 1,10 · `Fuel_Tank`, Anschlag bei
+  roh 36,2 ([`can-open-fields.md`](can-open-fields.md) „Tankinhalt in Litern“). Das Dash zeigt
+  seit 04.11.2026 die nutzbare Menge, 45 l = 100 % und 9,5 l = 0 %. Am Geberanschlag rechnet es
+  mit dem Kraftstoffzähler weiter (`logs/can-bus-status.md`, „Dash: Tankanzeige…“).

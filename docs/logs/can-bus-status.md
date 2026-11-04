@@ -5856,3 +5856,45 @@ Zapfpistole hebt sich an jedem inneren Stopp auf und wirkt nur an den Enden 16.0
   (1 ct/l ≈ 0,15 l ≈ 0,1 %). Die 4960/l von vorhin sind damit überholt.
 - Umgesetzt: `FUEL_COUNTS_PER_G = 4985/745`, `SCHEMA_VERSIONS["can"]` 11 → 12, DBC-Kommentar, Status-Docs,
   Skill-Referenz. `FuelRate_CAN` liegt jetzt 3,0 % unter dem alten Stand mit 4834/l.
+
+## Dash: Tankanzeige 100 % nach dem Volltanken, Zählerphase am Geberanschlag, 0 % = 9,5 l (04.11.2026)
+
+**Auftrag (Nutzer):** Nach dem Volltanken soll das Dash 100 % zeigen. Solange der Schwimmer bei „90 %“ steht,
+soll die Abnahme aus dem laufenden Verbrauch kommen. Nutzbar ist nicht der ganze Tank (45 l), bei 9,5 l
+Restmenge ist Schluss.
+
+**Bisher:** `KRAFTSTOFF` = 2,486 · `Fuel_Tank` − 0,02 (alte FLI-Formel ohne Sockel). Am Anschlag (roh 36,2) stand
+die Anzeige also für die ersten ~2,3 l auf 90 %, unten zeigte sie 0 % schon bei ~8 l.
+
+**Neu (`dash_gui.FuelGauge`, Kachel weiter in %):**
+- **Skala:** % = (Liter − 9,5) / (45 − 9,5) · 100, auf 0–100 begrenzt. 45 l = 100 %, 9,5 l = 0 %, 27,25 l = 50 %.
+- **Liter aus dem Geber:** 3,0 + 1,10 · roh (Kennlinie 26.09.), geglättet wie bisher mit τ = 8 s, aber jetzt
+  auf dem Rohwert statt auf Prozent. Gesättigt heißt geglättet > 36,0, das sind mindestens 42,6 l (93 %).
+- **Kraftstoffzähler:** `can_backend.py` summiert 0x420 Byte2 über alle Frames zu einer Schrittzahl auf
+  (`1056:_FuelCounter_total_derived`, Umlauf bei 256). Nach einer Frame-Lücke > 3 s setzt es nur neu auf,
+  denn nach Zündungswechsel oder CAN-Einbruch (i-stop, 16.10.) ist der Umlauf nicht eindeutig. Das Dash rechnet
+  mit 4985 Schritten/l. So gehen keine Umläufe verloren, obwohl das Dash nur Snapshots sieht.
+- **Ablauf:** Der Zähler zieht den Inhalt laufend ab. Ist der Geber nicht gesättigt, führt er den Inhalt mit
+  τ = 120 s nach: Der Geber gibt die absolute Lage, der Zähler den glatten Verlauf, kurzes Schwappen fällt
+  heraus. Ist der Geber gesättigt, zählt nur der Verbrauch. Der Geber gilt dann nur als Untergrenze (42,6 l).
+  Nach dem Volltanken läuft die Anzeige so von 100 % bis ~93 % mit dem Zähler und dann mit dem Geber weiter.
+- **Volltanken erkennen:** Fahrtbeginn mit gesättigtem Geber, obwohl er am Ende der letzten Fahrt nicht gesättigt
+  war (oder kein gespeicherter Stand) → 45 l. Fahrtbeginn mit ungesättigtem Geber, der > 4 l vom gespeicherten
+  Stand abweicht → teilweise getankt, der Geber gilt.
+- **Stand über Neustarts:** `/home/pi/canlogs/fuel_gauge_state.json` (Liter, gesättigt ja/nein). Geschrieben
+  wird je 0,05 l Änderung, spätestens nach 60 s und beim Verlassen des Fahrbildschirms, atomar über `.tmp` +
+  `os.replace`. Die Pipeline holt nur `candump-*` usw., die Datei stört sie nicht. In der Vcan-Simulation wird
+  der Stand weder gelesen noch geschrieben, sonst „verbraucht“ ein abgespieltes Log echten Sprit.
+
+**Grenzen:**
+- Tankt man nach, solange der Geber noch gesättigt ist (< ~2,3 l verbraucht), ist das nicht erkennbar. Die Anzeige
+  läuft dann mit dem alten Stand weiter, höchstens ~6 % zu tief.
+- Fahrten ohne laufendes Dash zählen nicht, der Geber holt das unterhalb des Anschlags mit τ = 120 s nach.
+  Am Anschlag ist der Fehler höchstens ~2,3 l.
+- Die Frame-Rate von 0x420 habe ich nicht gegen ein Log geprüft (lokal keine Rohdaten). Bei ≥ 1 Hz und ≤ 70
+  Schritten/s (≈ 10 g/s, Volllast) bleibt die Differenz je Frame eindeutig unter 256.
+
+**Tests:** `test_dash_gui.py` (Skala, Zählerphase am Anschlag, Nachführung durch den Geber, Neustart/Volltanken/
+Simulation, Backend-Neustart, Kachel 100 % → 95 %) und `test_can_backend.py` (Umlauf, Neuaufsetzen nach Lücke),
+41 grün. `test_sim_loop_replays_whole_log_until_stopped` scheitert in der Cloud-Umgebung auch ohne die Änderung.
+Noch nicht auf dem Pi deployt. `status_gui.py` (Fallback) rechnet unverändert mit der alten Formel.
