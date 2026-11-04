@@ -754,14 +754,17 @@ class _RpmScaleRow(FloatLayout):
 # eigenen Takt. "LR" = Warnblinker/Notbremssignal.
 TURN_CAN_ID, TURN_SIGNAL = 154, "Turn"
 TURN_STALE_S = 0.5
-TURN_YELLOW = (1, 0.72, 0.05)  # Bernstein statt des TPMS-Warngelbs
+# Wie auf den Fotos des Nutzers (04.11.): heller, fast weisser Kern, Bernstein-Schein, weiter oranger
+# Hof. (Farbe, Alpha, Vergroesserung) von aussen nach innen.
+TURN_LAYERS = (((1, 0.55, 0.0), 0.15, 3.6), ((1, 0.72, 0.05), 0.4, 2.0), ((1, 0.88, 0.45), 1.0, 1.0))
 # Leuchtflaechen der linken Seite in Pixeln von mx5_top_view.png (784x1326, Nase oben, y nach unten);
-# rechts gespiegelt. Scheinwerfer-Aussenkante, Seitenblinker auf dem Kotfluegel, runde Rueckleuchte.
+# rechts gespiegelt. Abgeglichen mit den Fotos: Streifen unten im Scheinwerfer (aussen am hellsten),
+# Seitenblinker auf dem Kotfluegel hinter dem Vorderrad, schraeger Streifen unten innen an der Rueckleuchte.
 CAR_PNG_W, CAR_PNG_H = 784, 1326
 TURN_LAMPS_LEFT = (
     ("line", ((132, 166), (165, 128), (205, 100), (240, 82)), 9),
-    ("ellipse", (104, 410), (12, 44)),
-    ("ellipse", (241, 1271), (52, 24)),
+    ("ellipse", (104, 408), (11, 40)),
+    ("line", ((220, 1258), (241, 1267), (260, 1273)), 13),
 )
 
 
@@ -797,22 +800,22 @@ class TpmsCarView(Panel):
                            mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
                            pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
-        # Blinker ueber der Zeichnung: je Lampe ein breiter, halbdurchsichtiger Schein und ein satter
-        # Kern; ein/aus ueber das Alpha der beiden Color-Objekte je Seite.
+        # Blinker ueber der Zeichnung: je Lampe drei Schichten (TURN_LAYERS); ein/aus ueber das Alpha
+        # der Color-Objekte je Seite.
         self._turn_colors = {"L": [], "R": []}
         self._turn_shapes = []  # (Kivy-Objekt, Art, Daten, Breitenfaktor, Seite)
         with self._car.canvas.after:
             for side, mirror in (("L", False), ("R", True)):
-                for glow in (True, False):
-                    color = Color(*TURN_YELLOW, 0)
-                    self._turn_colors[side].append((color, 0.35 if glow else 1.0))
+                for rgb, alpha, grow in TURN_LAYERS:
+                    color = Color(*rgb, 0)
+                    self._turn_colors[side].append((color, alpha))
                     for kind, data, *size in TURN_LAMPS_LEFT:
                         if mirror:
                             data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
                                 else (CAR_PNG_W - data[0], data[1])
                         shape = Line(points=[], width=1, cap="round", joint="round") if kind == "line" \
                             else Ellipse()
-                        self._turn_shapes.append((shape, kind, data, size[0], 2.2 if glow else 1.0))
+                        self._turn_shapes.append((shape, kind, data, size[0], grow))
         self._turn_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,

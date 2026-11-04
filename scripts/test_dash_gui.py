@@ -270,15 +270,17 @@ def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
     alphas = lambda side: [c.a for c, _ in screen.tpms._turn_colors[side]]
+    lit = [a for _, a, _ in dash_gui.TURN_LAYERS]
+    dark = [0.0] * len(lit)
     client.set(154, "Turn", "L")
     screen.refresh()
-    assert alphas("L") == [0.35, 1.0] and alphas("R") == [0.0, 0.0]
+    assert alphas("L") == lit and alphas("R") == dark
     client.set(154, "Turn", "Off")                # Dunkelphase
     screen.refresh()
-    assert alphas("L") == [0.0, 0.0]
+    assert alphas("L") == dark
     client.set(154, "Turn", "LR")
     screen.refresh()
-    assert alphas("L") == alphas("R") == [0.35, 1.0]
+    assert alphas("L") == alphas("R") == lit
 
 
 def test_fuel_card_shows_momentary_consumption_right_of_level():
