@@ -768,19 +768,22 @@ TURN_LAYERS = (((1, 0.55, 0.0), 0.15, 3.6), ((1, 0.72, 0.05), 0.4, 2.0), ((1, 0.
 # kleiner Seitenblinker auf dem Kotfluegel, schraeger Streifen aussen an der Heckecke.
 CAR_PNG_W, CAR_PNG_H = 784, 1326
 TURN_LAMPS_LEFT = (
-    ("ellipse", (142, 141), (30, 30)),
+    ("line", ((150, 127), (141, 137), (137, 152)), 11),  # Bernstein-Klammer am aeusseren Scheinwerferende
     ("ellipse", (105, 400), (13, 18)),
     ("line", ((161, 1199), (186, 1224), (211, 1245)), 15),
 )
 # Licht und Bremse (Skizzen des Nutzers 04.11.): weisser Punkt im Scheinwerfer (Abblend/Fern), kleiner
 # Punkt innen daneben (Tagfahrlicht, als Standlicht gedimmt), roter Punkt hinten innen (Rueck-/Bremsleuchte);
 # die Kegel beginnen vorn am Scheinwerfer.
-FRONT_LAYERS = (((0.85, 0.9, 1), 0.15, 3.2), ((1, 0.97, 0.9), 0.45, 1.8), ((1, 1, 1), 1.0, 1.0))
-FRONT_LAMPS_LEFT = (("ellipse", (176, 120), (34, 34)),)
-DRL_LAMPS_LEFT = (("ellipse", (209, 107), (18, 18)),)
+# Nach dem Detailfoto des Nutzers (04.11.): grosse Projektorlinse mit breitem, kuehl-weissem Schein; Tagfahrlicht
+# als LED-Lichtleiter innen (durch den Punkt der Skizze); Ruecklicht als Leuchtring mit dunkler Mitte.
+FRONT_LAYERS = (((0.75, 0.85, 1), 0.18, 3.6), ((0.95, 0.97, 1), 0.5, 1.8), ((1, 1, 1), 1.0, 1.0))
+DRL_LAYERS = (((0.8, 0.88, 1), 0.15, 3.0), ((0.92, 0.96, 1), 0.5, 1.8), ((1, 1, 1), 1.0, 1.0))
+FRONT_LAMPS_LEFT = (("ellipse", (176, 120), (36, 36)),)
+DRL_LAMPS_LEFT = (("line", ((238, 87), (209, 106), (194, 115)), 8),)
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
-REAR_LAYERS = (((0.8, 0, 0), 0.2, 3.2), ((1, 0.08, 0.05), 0.5, 1.8), ((1, 0.45, 0.4), 1.0, 1.0))
-REAR_LAMPS_LEFT = (("ellipse", (240, 1265), (32, 26)),)
+REAR_LAYERS = (((0.85, 0, 0), 0.22, 3.0), ((1, 0.1, 0.05), 0.55, 1.8), ((1, 0.42, 0.25), 1.0, 1.0))
+REAR_LAMPS_LEFT = (("ring", (240, 1265), (46, 36, 7)),)  # (Breite, Hoehe, Strichstaerke)
 BEAM_ORIGIN_LEFT = (170, 104)
 # (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
 # Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang; beide enden vor "TPMS".
@@ -851,7 +854,7 @@ class TpmsCarView(Panel):
                 color = Color(1, 1, 1, 0)
                 self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
         groups = (("front", FRONT_LAYERS, FRONT_LAMPS_LEFT, (False, True)),
-                  ("drl", FRONT_LAYERS, DRL_LAMPS_LEFT, (False, True)),
+                  ("drl", DRL_LAYERS, DRL_LAMPS_LEFT, (False, True)),
                   ("rear", REAR_LAYERS, REAR_LAMPS_LEFT, (False, True)),
                   ("turn_L", TURN_LAYERS, TURN_LAMPS_LEFT, (False,)),
                   ("turn_R", TURN_LAYERS, TURN_LAMPS_LEFT, (True,)))
@@ -866,8 +869,8 @@ class TpmsCarView(Panel):
                             if mirror:
                                 data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
                                     else (CAR_PNG_W - data[0], data[1])
-                            shape = Line(points=[], width=1, cap="round", joint="round") if kind == "line" \
-                                else Ellipse()
+                            shape = Ellipse() if kind == "ellipse" else \
+                                Line(points=[], width=1, cap="round", joint="round")
                             self._lamp_shapes.append((shape, kind, data, size, grow))
         self._lamp_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
@@ -915,6 +918,11 @@ class TpmsCarView(Panel):
             if kind == "line":
                 shape.points = [c for x, y in data for c in to_px(x, y)]
                 shape.width = max(1.0, size * scale * grow)
+            elif kind == "ring":  # Leuchtring: Durchmesser fest, der Schein waechst nur in der Strichstaerke
+                cx, cy = to_px(*data)
+                rw, rh, stroke = (d * scale for d in size)
+                shape.ellipse = (cx - rw / 2, cy - rh / 2, rw, rh)
+                shape.width = max(1.0, stroke * grow)
             else:
                 cx, cy = to_px(*data)
                 sw, sh = (max(2.0, d * scale * grow) for d in size)

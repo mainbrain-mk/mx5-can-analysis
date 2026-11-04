@@ -6177,3 +6177,7 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
 - Nachtrag (zweite Skizze): Tagfahrlicht ist ein eigener kleiner Punkt (209, 107) innen neben dem Scheinwerfer.
   `1`/`9` = nur dieser Punkt; Stand-/Abblend-/Fernlicht = Punkt gedimmt (Positionslicht), Scheinwerferpunkt (176, 120)
   nur bei Abblend/Fern.
+- Nachtrag (Detailfoto Front/Heck): Tagfahrlicht als LED-Lichtleiter-Streifen innen (durch den Skizzenpunkt), kühles
+  Weiß; Projektorlinse als großer heller Kreis mit bläulich-weißem Schein; Blinker vorn als Bernstein-Klammer am
+  äußeren Scheinwerferende; Rücklicht als roter Leuchtring mit dunkler Mitte (neue Form `ring`: Durchmesser fest,
+  der Schein wächst nur in der Strichstärke).
