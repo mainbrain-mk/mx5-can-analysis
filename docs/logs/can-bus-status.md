@@ -6181,3 +6181,11 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   Weiß; Projektorlinse als großer heller Kreis mit bläulich-weißem Schein; Blinker vorn als Bernstein-Klammer am
   äußeren Scheinwerferende; Rücklicht als roter Leuchtring mit dunkler Mitte (neue Form `ring`: Durchmesser fest,
   der Schein wächst nur in der Strichstärke).
+- Nachtrag (Vogelperspektive, Hinweis des Nutzers): Von oben sieht man weder die runde Projektorlinse noch den
+  Leuchtring. Leuchten jetzt als PhotoCraft-Overlays (`scripts/lamps/`, Ebenen `~/Bilder/PhotoCraft/top_*.pcraft`):
+  leuchtender Glassaum genau auf der Außenkontur (per Flood-Fill aus der Zeichnung bestimmt) und Lichtschein nur
+  außerhalb der Karosserie in Abstrahlrichtung (PhotoCraft-Auswahl „aussen“ per Zauberstab aus der Zeichnung,
+  `select.loadSelection` über Dokumente hinweg). Leinwand mit 60 px Rand, damit der Schein vor Nase/Heck nicht
+  abgeschnitten wird. Blinker nur links gemalt, rechts in Kivy gespiegelt (nur u der `tex_coords` umdrehen, Kivy-
+  Bildtexturen sind schon vertikal gedreht). Kegel-Ursprung an die Frontkante (176, 80) verlegt.
+  PhotoCraft-Fallstrick: `doc_select`/`index` gehen im GUI-Modus nicht, Dokument per `document.activate` wechseln.

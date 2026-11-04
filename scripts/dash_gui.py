@@ -53,11 +53,10 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
 # Neben dem Skript statt in LOG_DIR - ein Asset, kein Laufzeit-/Log-Artefakt.
 CAR_TOP_VIEW_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mx5_top_view.png")
-# Lichtkegel in Draufsicht, mit PhotoCraft erstellt (04.11., Quellen ~/Bilder/PhotoCraft/*.pcraft). realpath:
-# auf dem Pi liegt dash_gui.py als Symlink in canlogs/, die neuen Assets nur im Repo daneben.
-_ASSET_DIR = os.path.dirname(os.path.realpath(__file__))
-BEAM_LOW_PNG = os.path.join(_ASSET_DIR, "headlight_beam_low.png")    # 400x600, Rechtsverkehr-asymmetrisch
-BEAM_HIGH_PNG = os.path.join(_ASSET_DIR, "headlight_beam_high.png")  # 400x900, symmetrisch
+# Leuchten und Lichtkegel in Draufsicht, mit PhotoCraft gemalt (04.11., Ebenen in ~/Bilder/PhotoCraft/
+# top_*.pcraft und headlight_beam_*.pcraft). realpath: auf dem Pi liegt dash_gui.py als Symlink in canlogs/,
+# die Assets nur im Repo daneben.
+LAMP_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lamps")
 # Titillium Web Bold Italic (Google Fonts, OFL) statt Kivys Standard-Roboto -
 # Nutzer zeigte ein Foto des echten Chrom-Emblems: fett UND kursiv/schraeg,
 # nicht aufrecht. Kein Font trifft das handgezeichnete Original exakt, das
@@ -760,34 +759,28 @@ class _RpmScaleRow(FloatLayout):
 # eigenen Takt. "LR" = Warnblinker/Notbremssignal.
 TURN_CAN_ID, TURN_SIGNAL = 154, "Turn"
 TURN_STALE_S = 0.5
-# Wie auf den Fotos des Nutzers (04.11.): heller, fast weisser Kern, Bernstein-Schein, weiter oranger
-# Hof. (Farbe, Alpha, Vergroesserung) von aussen nach innen.
-TURN_LAYERS = (((1, 0.55, 0.0), 0.15, 3.6), ((1, 0.72, 0.05), 0.4, 2.0), ((1, 0.88, 0.45), 1.0, 1.0))
-# Leuchtflaechen der linken Seite in Pixeln von mx5_top_view.png (784x1326, Nase oben, y nach unten);
-# rechts gespiegelt. Nach der Skizze des Nutzers (04.11.): runder Punkt aussen vorn am Scheinwerfer,
-# kleiner Seitenblinker auf dem Kotfluegel, schraeger Streifen aussen an der Heckecke.
+# Leuchten als Bild-Overlays auf der Zeichnung (784x1326, Nase oben, y nach unten). Aus Vogelperspektive
+# (Hinweis des Nutzers 04.11.): von oben sieht man nur die Oberkante des Glases als leuchtenden Saum an der
+# Karosseriekante und den Lichtschein, der in Abstrahlrichtung vor/hinter/neben das Auto faellt - nie auf
+# Haube oder Kofferraum (Schein in PhotoCraft per Auswahl "aussen" auf die Flaeche ausserhalb der Karosserie
+# begrenzt). Gruppe -> (Datei, linke obere Ecke in Zeichnungspixeln, gespiegelt?). Projektor, Lichtleiter
+# (Tagfahrlicht) und Ruecklicht sind beidseitig gemalt, die Blinker nur links und werden rechts gespiegelt.
 CAR_PNG_W, CAR_PNG_H = 784, 1326
-TURN_LAMPS_LEFT = (
-    ("line", ((150, 127), (141, 137), (137, 152)), 11),  # Bernstein-Klammer am aeusseren Scheinwerferende
-    ("ellipse", (105, 400), (13, 18)),
-    ("line", ((161, 1199), (186, 1224), (211, 1245)), 15),
-)
-# Licht und Bremse (Skizzen des Nutzers 04.11.): weisser Punkt im Scheinwerfer (Abblend/Fern), kleiner
-# Punkt innen daneben (Tagfahrlicht, als Standlicht gedimmt), roter Punkt hinten innen (Rueck-/Bremsleuchte);
-# die Kegel beginnen vorn am Scheinwerfer.
-# Nach dem Detailfoto des Nutzers (04.11.): grosse Projektorlinse mit breitem, kuehl-weissem Schein; Tagfahrlicht
-# als LED-Lichtleiter innen (durch den Punkt der Skizze); Ruecklicht als Leuchtring mit dunkler Mitte.
-FRONT_LAYERS = (((0.75, 0.85, 1), 0.18, 3.6), ((0.95, 0.97, 1), 0.5, 1.8), ((1, 1, 1), 1.0, 1.0))
-DRL_LAYERS = (((0.8, 0.88, 1), 0.15, 3.0), ((0.92, 0.96, 1), 0.5, 1.8), ((1, 1, 1), 1.0, 1.0))
-FRONT_LAMPS_LEFT = (("ellipse", (176, 120), (36, 36)),)
-DRL_LAMPS_LEFT = (("line", ((238, 87), (209, 106), (194, 115)), 8),)
+# Gemalt auf einer Leinwand mit 60 px Rand, damit der Schein vor Nase und Heck nicht abgeschnitten ist; die Ecke
+# darf darum negativ sein.
+LAMP_SPRITES = {
+    "front": ("front.png", (63, -35), False),
+    "drl": ("drl.png", (148, -13), False),
+    "rear": ("rear.png", (129, 1227), False),
+    "turn_L": ("turn_left.png", (36, 33), False),
+    "turn_R": ("turn_left.png", (36, 33), True),
+}
 POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
-REAR_LAYERS = (((0.85, 0, 0), 0.22, 3.0), ((1, 0.1, 0.05), 0.55, 1.8), ((1, 0.42, 0.25), 1.0, 1.0))
-REAR_LAMPS_LEFT = (("ring", (240, 1265), (46, 36, 7)),)  # (Breite, Hoehe, Strichstaerke)
-BEAM_ORIGIN_LEFT = (170, 104)
+BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
 # (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
 # Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang; beide enden vor "TPMS".
-BEAMS = {"low": (BEAM_LOW_PNG, 0.27, 1.7, (0.5, 2 / 600)), "high": (BEAM_HIGH_PNG, 0.32, 1.5, (0.5, 2 / 900))}
+BEAMS = {"low": ("headlight_beam_low.png", 0.27, 1.7, (0.5, 2 / 600)),
+         "high": ("headlight_beam_high.png", 0.32, 1.5, (0.5, 2 / 900))}
 HEADLIGHT_SIGNAL = "Headlight"  # 0x09A: 0 Off, 1 Tagfahrlicht, 2 TNS, 3 Abblend, 12 Fern, 9 Lichthupe am Tag
 HEADLIGHT_NAMES = {"Off": 0, "TNS": 2, "TNS_Lo": 3, "Hi": 12}
 BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL = 359, "BrakeSwitch_PCM"  # 0x167, ~50 Hz; 0x43E BrakeLamp nur ~2 Hz
@@ -843,35 +836,22 @@ class TpmsCarView(Panel):
                            mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.8),
                            pos_hint={"center_x": 0.5, "center_y": 0.4})
         body.add_widget(self._car)
-        # Leuchten ueber der Zeichnung, Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color-Objekte:
-        # je Lampe drei Schichten (Hof, Schein, Kern). Lichtkegel als Textur hinter den Linien.
+        # Leuchten ueber, Kegel unter der Zeichnung; Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color.
         self._lamp_colors = {}  # Gruppe -> [(Color, volles Alpha)]
-        self._lamp_shapes = []  # (Kivy-Objekt, Art, Daten in PNG-Pixeln, Groesse, Vergroesserung)
+        self._lamp_rects = []   # (Rectangle, linke obere Ecke in Zeichnungspixeln, gespiegelt?)
         self._beams = {}        # "low"/"high" -> (Color, [Rectangle links, rechts])
         with self._car.canvas.before:
             for name, (path, *_rest) in BEAMS.items():
-                texture = CoreImage(path, mipmap=True).texture
+                texture = CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture
                 color = Color(1, 1, 1, 0)
                 self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
-        groups = (("front", FRONT_LAYERS, FRONT_LAMPS_LEFT, (False, True)),
-                  ("drl", DRL_LAYERS, DRL_LAMPS_LEFT, (False, True)),
-                  ("rear", REAR_LAYERS, REAR_LAMPS_LEFT, (False, True)),
-                  ("turn_L", TURN_LAYERS, TURN_LAMPS_LEFT, (False,)),
-                  ("turn_R", TURN_LAYERS, TURN_LAMPS_LEFT, (True,)))
         with self._car.canvas.after:
-            for group, layers, lamps, mirrors in groups:
-                self._lamp_colors[group] = []
-                for rgb, alpha, grow in layers:
-                    color = Color(*rgb, 0)
-                    self._lamp_colors[group].append((color, alpha))
-                    for mirror in mirrors:
-                        for kind, data, size in lamps:
-                            if mirror:
-                                data = tuple((CAR_PNG_W - x, y) for x, y in data) if kind == "line" \
-                                    else (CAR_PNG_W - data[0], data[1])
-                            shape = Ellipse() if kind == "ellipse" else \
-                                Line(points=[], width=1, cap="round", joint="round")
-                            self._lamp_shapes.append((shape, kind, data, size, grow))
+            for group, (path, corner, mirror) in LAMP_SPRITES.items():
+                self._lamp_colors[group] = [(Color(1, 1, 1, 0), 1.0)]
+                rect = Rectangle(texture=CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture)
+                if mirror:  # nur u spiegeln - Bildtexturen sind in Kivy schon vertikal gedreht
+                    rect.tex_coords = [1 - c if i % 2 == 0 else c for i, c in enumerate(rect.tex_coords)]
+                self._lamp_rects.append((rect, corner, mirror))
         self._lamp_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
@@ -914,19 +894,12 @@ class TpmsCarView(Panel):
         def to_px(x, y):
             return x0 + x * scale, y0 + (CAR_PNG_H - y) * scale
 
-        for shape, kind, data, size, grow in self._lamp_shapes:
-            if kind == "line":
-                shape.points = [c for x, y in data for c in to_px(x, y)]
-                shape.width = max(1.0, size * scale * grow)
-            elif kind == "ring":  # Leuchtring: Durchmesser fest, der Schein waechst nur in der Strichstaerke
-                cx, cy = to_px(*data)
-                rw, rh, stroke = (d * scale for d in size)
-                shape.ellipse = (cx - rw / 2, cy - rh / 2, rw, rh)
-                shape.width = max(1.0, stroke * grow)
-            else:
-                cx, cy = to_px(*data)
-                sw, sh = (max(2.0, d * scale * grow) for d in size)
-                shape.pos, shape.size = (cx - sw / 2, cy - sh / 2), (sw, sh)
+        for rect, (left, top), mirror in self._lamp_rects:
+            tw, th = rect.texture.size
+            if mirror:
+                left = CAR_PNG_W - left - tw
+            px, py = to_px(left, top + th)  # Kivy: Ursprung unten links
+            rect.pos, rect.size = (px, py), (tw * scale, th * scale)
         # Kegel: beide Scheinwerfer gleich (Abblendlicht ist nicht spiegelsymmetrisch, sondern fuer
         # Rechtsverkehr rechts laenger), Laenge relativ zur Autolaenge auf dem Bildschirm.
         for name, (_path, length, widen, (ox, oy)) in BEAMS.items():

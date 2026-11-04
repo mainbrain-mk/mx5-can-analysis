@@ -270,7 +270,7 @@ def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
     alphas = lambda side: [c.a for c, _ in screen.tpms._lamp_colors["turn_" + side]]
-    lit = [a for _, a, _ in dash_gui.TURN_LAYERS]
+    lit = [1.0]
     dark = [0.0] * len(lit)
     client.set(154, "Turn", "L")
     screen.refresh()
@@ -303,10 +303,13 @@ def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
     screen.refresh()
     view = screen.tpms
     assert view._beams["low"][0].a == 1.0 and view._beams["high"][0].a == 0.0
-    assert [c.a for c, _ in view._lamp_colors["rear"]] == [a for _, a, _ in dash_gui.REAR_LAYERS]
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [1.0]
     client.set(359, "BrakeSwitch_PCM", 0)
     screen.refresh()
-    assert [c.a for c, _ in view._lamp_colors["rear"]] == [a * dash_gui.TAIL_LEVEL for _, a, _ in dash_gui.REAR_LAYERS]
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [dash_gui.TAIL_LEVEL]
+    # rechter Blinker = gespiegeltes linkes Bild, an der gespiegelten Stelle
+    (left, _, _), (right, _, mirror) = view._lamp_rects[3], view._lamp_rects[4]
+    assert mirror and right.tex_coords[0] == 1 and left.texture.size == right.texture.size
 
 
 def test_fuel_card_shows_momentary_consumption_right_of_level():
