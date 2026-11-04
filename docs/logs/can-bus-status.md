@@ -6103,3 +6103,26 @@ wenig zählt? `C001_ODO` je Log (Anfang/Ende) und Zähler-Lücken > 5 s innerhal
   Skalenfrage 4913/4985 (1,5 % ≈ 0,5 l). Beim nächsten Stopp neu bewerten (siehe „Gegenrechnung 4913/l“).
 - Tankbuch/Schätzer ziehen ODO-Lücken bisher nicht ab: Eine Fahrt ohne Pi unter ~4 l bleibt unsichtbar, bis zum
   nächsten Volltanken.
+
+## Wie voll war „voll“? Verbrauch bis der Geber die Sättigung verlässt (04.11.2026)
+
+**Frage (Nutzer):** 47,7 l Tankinhalt (Stand vor dem Tanken + getankt) wären unmöglich bzw. müssten in der Reichweite
+auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) unter roh 35,9 fällt (≈ 42,6 l).
+
+| Tankstopp | Liter bis Sättigung verlassen | ⇒ Inhalt nach dem Tanken |
+|---|---|---|
+| 26.09. | 2,61 | ~45,2 l |
+| 27.09. | 1,97 | ~44,6 l |
+| 04.10. | 2,95 | ~45,6 l |
+| 10.10. | 2,50 | ~45,1 l |
+| **26.10.** | **1,52** | **~44,1 l** |
+| **04.11.** | **3,45** | **~46,1 l** |
+
+- Der Tank war nie bei 48 l. „Voll“ streut ±1 l (Abschalten der Zapfpistole, Einfüllstutzen); 26.10. knapp, 04.11.
+  reichlich. Deckt sich mit dem Geber vor dem Tanken (26.10. 9,2 + 34,86 = 44,1 l; 04.11. 9,8 + 36,14 = 45,9 l).
+- Intervall G damit: Start ~44,1, Ende ~9,8 → ~34,3 l verbraucht; Zähler 33,42 + ODO-Lücke 0,3 = 33,7 l. Rest
+  ~0,6 l (1,7 %) = die Skalenfrage 4913/4985. Die 47,7 l kamen aus dem festen 45-l-Anker an beiden Enden.
+- Pro Tankfüllung je km: G 479 km/36,14 l = 7,54 l/100 km (Säule) gegen 7,04 (Zähler); ±1 l Füllung sind ~15 km
+  Reichweite, im Alltag nicht zu merken.
+- Möglicher Ausbau (nicht umgesetzt): Den Moment, in dem der Geber die Sättigung verlässt, als zweiten Anker
+  (~42,6 l) nutzen; korrigiert die Füllstreuung nach ~1,5–3,5 l Verbrauch.
