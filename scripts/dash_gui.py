@@ -466,9 +466,9 @@ class MetricCard(Panel):
         self.side_label = None
         if side:
             row = BoxLayout(orientation="horizontal")
-            # Unter dem Hauptwert eine kleine Zeile (KRAFTSTOFF: Liter, Nutzerwunsch 04.11.), so hoch
-            # wie die Einheit unter dem Zweitwert - beide Werte stehen dadurch auf gleicher Hoehe.
-            self.sub_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
+            # Unter dem Hauptwert eine zweite Zeile gleicher Groesse (KRAFTSTOFF: Liter, Nutzerwunsch
+            # 04.11.); die Einheit des Zweitwerts steht mittig auf ihrer Hoehe.
+            self.sub_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
                                    size_hint_y=None, height=0, halign="left")
             self.sub_label.bind(width=lambda w, width: setattr(w, "text_size", (width, None)))
             self.value_label.size_hint_y = None
@@ -491,12 +491,13 @@ class MetricCard(Panel):
             anchor.add_widget(col)
 
             def fit(*_args):
-                value_w, value_h = self.side_label.texture_size
+                value_w, side_h = self.side_label.texture_size
                 unit_w, unit_h = self.side_unit_label.texture_size
-                line_h = max(unit_h, self.sub_label.texture_size[1])  # eine Zeile darf leer sein
-                self.side_label.height = value_h
-                self.value_label.height = self.value_label.texture_size[1]
-                main.height = self.value_label.height + line_h
+                # Je Zeile die hoehere Seite, eine Seite darf leer sein - so stehen beide Zeilen links und rechts gleich
+                value_h = max(side_h, self.value_label.texture_size[1])
+                line_h = max(unit_h, self.sub_label.texture_size[1])
+                self.side_label.height = self.value_label.height = value_h
+                main.height = value_h + line_h
                 self.side_unit_label.height = self.sub_label.height = line_h
                 col.size = (max(value_w, unit_w), value_h + line_h)
                 anchor.width = col.width
