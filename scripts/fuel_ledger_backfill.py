@@ -24,7 +24,7 @@ import can_backend  # noqa: E402
 PARQUET_GLOB = "data/can/candump-*_decoded.parquet"
 CLOCK_OFFSETS_PATH = "data/can_clock_offsets.json"
 OUT_PATH = "data/derived/fuel_ledger_backfill.jsonl"
-SIGNALS = (can_backend.FUEL_COUNTER_SIGNAL, can_backend.FUEL_TANK_SIGNAL, "VehicleSpeed")
+SIGNALS = (can_backend.FUEL_COUNTER_SIGNAL, can_backend.FUEL_TANK_SIGNAL)
 
 
 def log_start(key, offsets):
@@ -35,21 +35,20 @@ def log_start(key, offsets):
 
 def replay(fuel, samples, base_epoch, on_start):
     """samples: [(t_rel, signal, value)] in Dateireihenfolge. on_start(liters) beim ersten bekannten Stand."""
-    speed = None
-    started = fuel.liters is not None
-    if started:
-        on_start(fuel.liters)
+    fuel.start_session()  # jedes Log beginnt mit Zuendung an
+    started, liters0 = False, fuel.liters
     for t, signal, value in samples:
         now = base_epoch + t
-        if signal == "VehicleSpeed":
-            speed = value
-        elif signal == can_backend.FUEL_COUNTER_SIGNAL:
+        if signal == can_backend.FUEL_COUNTER_SIGNAL:
             fuel.on_counter(value, now)
         else:
-            fuel.on_sensor(value, now, speed)
-        if not started and fuel.liters is not None:
+            fuel.on_sensor(value, now)
+        # Startstand wie im Backend: nach dem Geber-Abgleich des Startfensters
+        if not started and not fuel.start_pending and fuel.liters is not None:
             started = True
             on_start(fuel.liters)
+    if not started and liters0 is not None:  # kurzes Log ohne Geberwert: Stand vom Logbeginn
+        on_start(liters0)
 
 
 def main():
@@ -75,7 +74,7 @@ def main():
         start_dt = log_start(key, offsets)
         samples = con.execute(
             f"SELECT t, signal, value FROM '{PARQUET_GLOB.replace('candump-*', key)}' "
-            f"WHERE signal IN (?, ?, ?) AND value IS NOT NULL ORDER BY file_row_number", SIGNALS).fetchall()
+            f"WHERE signal IN (?, ?) AND value IS NOT NULL ORDER BY file_row_number", SIGNALS).fetchall()
         if not samples:
             rows.append((key, None, None, "ohne Tank-/Zaehlersignal"))
             continue
@@ -83,11 +82,11 @@ def main():
         current["key"] = key
         current["time"] = lambda: (start_dt + datetime.timedelta(seconds=last_t[0])).strftime("%F %T")
         start = {}
-        n_before = len(entries)
+        n_before = len(entries)  # Tankstopp (vor Logbeginn) und Start stehen in dieser Reihenfolge danach
 
         def on_start(liters):
             start["l"] = liters
-            entries.insert(n_before, {"log": key, "event": "start", "liters": round(liters, 2),
+            entries.append({"log": key, "event": "start", "liters": round(liters, 2),
                                       "time": start_dt.strftime("%F %T"), "source": "nachberechnet"})
 
         def tracked():
@@ -119,19 +118,22 @@ def main():
 
 
 def _selftest():
-    """Volltanken mitten im Log, Stand traegt ins naechste Log."""
+    """Tankstopp zwischen zwei Logs, Stand traegt ins naechste Log, Schwappen in Fahrt aendert nichts."""
     entries = []
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None,
                                      on_resync=lambda full, b, a: entries.append((full, b, a)))
     fuel.liters = 10.0
-    samples = [(i * 0.1, can_backend.FUEL_TANK_SIGNAL, 36.2) for i in range(50)]
+    tank = can_backend.FUEL_TANK_SIGNAL
     starts = []
-    replay(fuel, samples, 1000.0, starts.append)
-    assert starts == [10.0] and fuel.liters == 45.0 and entries == [(True, 10.0, 45.0)], (starts, entries)
-    counter = [(i * 0.1, can_backend.FUEL_COUNTER_SIGNAL, i % 256) for i in range(500)]
-    replay(fuel, counter, 9000.0, starts.append)  # 499 Schritte
+    replay(fuel, [(i * 0.1, tank, 36.2) for i in range(50)], 1000.0, starts.append)
+    assert starts == [45.0] and entries == [(True, 10.0, 45.0)], (starts, entries)   # Start nach dem Tanken
+
+    log2 = [(i * 0.1, tank, 36.2) for i in range(40)]
+    log2 += [(4.0 + i * 0.1, can_backend.FUEL_COUNTER_SIGNAL, i % 256) for i in range(500)]   # 499 Schritte
+    log2 += [(60.0 + i * 0.1, tank, 10.0) for i in range(1200)]                            # 2 min Schwappen
+    replay(fuel, log2, 9000.0, starts.append)
+    assert starts == [45.0, 45.0] and len(entries) == 1, (starts, entries)
     assert abs(fuel.liters - (45.0 - 499 / can_backend.FUEL_COUNTS_PER_L)) < 1e-9, fuel.liters
-    assert starts == [10.0, 45.0]
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ def test_health_line_reports_value_ages_and_resets_obd_request_counts():
 
 # --- Tankinhalt aus dem Kraftstoffzaehler (04.11.2026) ---
 
-def _drive(fuel, t, seconds, liters_per_h, counter, hz=10, speed=50.0, sensor_raw=None):
+def _drive(fuel, t, seconds, liters_per_h, counter, hz=10, sensor_raw=None):
     """Zaehlerframes wie 0x420 (8 Bit umlaufend) fuer eine Fahrt mit konstantem Verbrauch."""
     acc = 0.0
     for _ in range(int(seconds * hz)):
@@ -114,7 +114,7 @@ def _drive(fuel, t, seconds, liters_per_h, counter, hz=10, speed=50.0, sensor_ra
         counter = (counter + step) % 256
         fuel.on_counter(counter, t)
         if sensor_raw is not None:
-            fuel.on_sensor(sensor_raw, t, speed)
+            fuel.on_sensor(sensor_raw, t)
     return t, counter
 
 
@@ -127,7 +127,7 @@ def test_fuel_full_tank_reads_45_l_and_counts_down_with_the_counter():
     t = 1000.0
     for i in range(40):                      # 4 s im Stand, Geber gesaettigt
         t += 0.1
-        fuel.on_sensor(36.2, t, speed=0.0)
+        fuel.on_sensor(36.2, t)
         fuel.on_counter(17, t)
     assert fuel.liters == 45.0, (fuel.liters, logs)
     assert fuel.published_liters(t) == 45.0
@@ -145,24 +145,24 @@ def test_fuel_sensor_init_zero_after_ignition_is_ignored():
     fuel = can_backend.FuelEstimator(None, log=logs.append)
     fuel.liters = 9.64
     t = 1000.0
-    fuel.on_sensor(0.0, t, speed=None)
+    fuel.on_sensor(0.0, t)
     for _ in range(40):
         t += 0.1
-        fuel.on_sensor(36.2, t, speed=0.0)
+        fuel.on_sensor(36.2, t)
     assert fuel.liters == 45.0, (fuel.liters, logs)
     assert not any("Abgleich" in line for line in logs), logs
 
     fresh = can_backend.FuelEstimator(None, log=lambda _l: None)   # ohne gespeicherten Stand
     for i in range(55):
-        fresh.on_sensor(0.0, i * 0.1, speed=None)
+        fresh.on_sensor(0.0, i * 0.1)
     assert fresh.liters is None
-    fresh.on_sensor(6.2, 5.6, speed=0.0)
+    fresh.on_sensor(6.2, 5.6)
     assert abs(fresh.liters - can_backend.fuel_sensor_liters(6.2)) < 1e-9
 
     # Sim-Start direkt nach dem Tanken (Log 04.11. 080151): gesaettigter Geber = voll, nicht 42,8 l
     full = can_backend.FuelEstimator(None, log=lambda _l: None)
-    full.on_sensor(0.0, 0.0, speed=None)
-    full.on_sensor(36.2, 0.05, speed=None)
+    full.on_sensor(0.0, 0.0)
+    full.on_sensor(36.2, 0.05)
     assert full.liters == can_backend.FUEL_FULL_L, full.liters
 
 
@@ -172,27 +172,34 @@ def test_fuel_saturated_sensor_does_not_override_counter_near_full():
     t = 0.0
     for _ in range(100):
         t += 0.1
-        fuel.on_sensor(36.2, t, speed=0.0)
+        fuel.on_sensor(36.2, t)
     assert fuel.liters == 44.0
 
 
-def test_fuel_slosh_while_moving_does_not_resync_but_drive_without_pi_does():
-    """Kurzes Schwappen in Fahrt: kein Abgleich. Stand der Geber dagegen bei Fahrtbeginn
-    deutlich tiefer (Fahrt ohne Pi), gilt nach FUEL_RESYNC_HOLD_STAND_S der Geber."""
+def test_fuel_sensor_only_counts_at_ignition_on_not_while_driving():
+    """Getankt wird mit Zuendung aus (Nutzer 04.11.): der Geber gleicht nur im Startfenster ab. In
+    Fahrt nie, auch nicht minutenlang daneben (Steigung/Schwappen, 27.10.: 38,5 -> 33,4 -> 39,4 l).
+    Steht er bei Zuendung an deutlich tiefer (Fahrt ohne Pi), gilt er."""
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None)
     fuel.liters = 30.0
     t = 0.0
     raw_30 = (30.0 - 3.0) / 1.10
-    for i in range(300):                      # 30 s Kurve: Geber 8 l daneben
+    for _ in range(40):                       # Startfenster passt
         t += 0.1
-        fuel.on_sensor(raw_30 - 8.0, t, speed=80.0)
+        fuel.on_sensor(raw_30, t)
+    assert not fuel.start_pending
+    for _ in range(3000):                     # 5 min Geber 8 l daneben, und gesaettigt
+        t += 0.1
+        fuel.on_sensor(raw_30 - 8.0 if t < 200 else 36.2, t)
     assert fuel.liters == 30.0
 
     t += 600                                  # Zuendung aus, Fahrt ohne Pi, neuer Start
+    fuel.start_session()
+    assert fuel.start_pending
     raw_20 = (20.0 - 3.0) / 1.10
     for _ in range(50):
         t += 0.1
-        fuel.on_sensor(raw_20, t, speed=0.0)
+        fuel.on_sensor(raw_20, t)
     assert abs(fuel.liters - 20.0) < 1e-6
 
 
@@ -211,7 +218,7 @@ def test_fuel_counter_glitch_and_gap_are_ignored():
 
 def test_fuel_without_counter_publishes_nothing_so_dash_uses_the_sensor():
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None)
-    fuel.on_sensor(20.0, 1.0, speed=0.0)
+    fuel.on_sensor(20.0, 1.0)
     assert fuel.liters is not None
     assert fuel.published_liters(1.0) is None
     fuel.on_counter(5, 1.0)
@@ -228,7 +235,7 @@ def test_fuel_state_survives_restart_and_is_saved_on_ignition_off():
         assert fuel.liters is None
         fuel.liters = 10.0
         for i in range(40):
-            fuel.on_sensor(36.2, 100.0 + i * 0.1, speed=0.0)   # Volltanken -> sofort gespeichert
+            fuel.on_sensor(36.2, 100.0 + i * 0.1)   # Volltanken -> sofort gespeichert
         assert can_backend.FuelEstimator(path).liters == 45.0
 
         fuel.on_counter(0, 104.0)
@@ -260,15 +267,17 @@ def test_fuel_ledger_records_drive_and_sim_reads_start_liters():
                                              fuel_ledger_path=ledger)
             backend._fuel_real._log = lambda _l: None
             backend._fuel_real.liters = 20.0
-            backend._update_logging_edge(True)
-            backend._update_logging_edge(True)                 # laufend: kein zweiter Start
+            backend._fuel_real.on_sensor(36.2, 50.0)           # Startfenster vom Backend-Start (Vorfahrt)
+            backend._fuel_real.on_sensor(36.2, 53.0)
+            backend._fuel_real.liters = 20.0                   # Stand am Ende der Vorfahrt
+            backend._update_logging_edge(True)                 # Zuendung an nach dem Tanken
+            assert backend._fuel_real.start_pending
+            backend._update_logging_edge(True)                 # Startfenster laeuft: noch kein Eintrag
             for i in range(40):
-                backend._fuel_real.on_sensor(36.2, 100.0 + i * 0.1, speed=0.0)
+                backend._fuel_real.on_sensor(36.2, 100.0 + i * 0.1)
+            backend._update_logging_edge(True)                 # naechste Runde der Prozessueberwachung
+            backend._update_logging_edge(True)                 # laufend: kein zweiter Start
             backend._update_logging_edge(False)
-
-            restarted = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=os.path.join(d, "s.json"),
-                                               fuel_ledger_path=ledger)
-            restarted._update_logging_edge(True)               # derselbe Log, Stand jetzt 45 l
 
         with mock.patch.object(can_backend, "SIM_TRIGGER_PATH", ledger):   # Trigger da = Sim laeuft
             sim = can_backend.CanBackend(channel="nonexistent0", fuel_state_path=None, fuel_ledger_path=ledger)
@@ -279,12 +288,13 @@ def test_fuel_ledger_records_drive_and_sim_reads_start_liters():
         with open(ledger) as fh:
             entries = [json.loads(line) for line in fh]
         assert [(e["log"], e["event"], e["liters"]) for e in entries] == [
-            ("candump-2026-11-05_120000", "start", 20.0),
-            ("candump-2026-11-05_120000", "refuel", 45.0),
-            ("candump-2026-11-05_120000", "end", 45.0),
-            ("candump-2026-11-05_120000", "start", 45.0)], entries
-        assert entries[1]["before"] == 20.0 and all(e["source"] == "live" for e in entries)
-        assert can_backend.fuel_ledger_start_liters("/x/candump-2026-11-05_120000.log.gz", ledger) == 20.0
+            ("candump-2026-11-05_120000", "refuel", 45.0),     # Tankstopp vor dem Log, dann Start voll
+            ("candump-2026-11-05_120000", "start", 45.0),
+            ("candump-2026-11-05_120000", "end", 45.0)], entries
+        assert entries[0]["before"] == 20.0 and all(e["source"] == "live" for e in entries)
+        with open(ledger, "a") as fh:                          # Backend-Neustart in Fahrt: zweiter Start
+            fh.write('{"log": "candump-2026-11-05_120000", "event": "start", "liters": 41.0, "source": "live"}\n')
+        assert can_backend.fuel_ledger_start_liters("/x/candump-2026-11-05_120000.log.gz", ledger) == 45.0
 
         with open(ledger, "a") as fh:
             fh.write('{"log": "candump-2026-11-01_090000", "event": "start", "liters": 30.0, '
@@ -327,7 +337,7 @@ if __name__ == "__main__":
     test_fuel_full_tank_reads_45_l_and_counts_down_with_the_counter()
     test_fuel_sensor_init_zero_after_ignition_is_ignored()
     test_fuel_saturated_sensor_does_not_override_counter_near_full()
-    test_fuel_slosh_while_moving_does_not_resync_but_drive_without_pi_does()
+    test_fuel_sensor_only_counts_at_ignition_on_not_while_driving()
     test_fuel_counter_glitch_and_gap_are_ignored()
     test_fuel_without_counter_publishes_nothing_so_dash_uses_the_sensor()
     test_fuel_state_survives_restart_and_is_saved_on_ignition_off()

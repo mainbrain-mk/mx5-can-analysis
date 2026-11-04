@@ -137,9 +137,12 @@ HEALTH_KEYS = {
 # ~90 %, bis die ersten ~2,3 l verbraucht waren. Jetzt: nach dem Volltanken 45 l, danach wird
 # der Kraftstoffzaehler 0x420 Byte2 abgezogen (4985 Schritte je Liter, Voll-bis-Voll-Kette
 # 16.09.->26.10., ~1 %). Der Geber dient nur noch zum Erkennen von Tankstopps und Fahrten ohne
-# Pi: weicht er laenger als FUEL_RESYNC_HOLD_* um mehr als FUEL_RESYNC_L ab, gilt sein Wert
-# (bzw. 45 l, wenn er gesaettigt ist). Der Stand liegt auf dem Stick (FUEL_STATE_PATH) und
-# ueberlebt Neustart und Zuendung aus. Logbuch "Tankanzeige aus dem Kraftstoffzaehler".
+# Pi, und nur bei Zuendung an: getankt wird immer mit Zuendung aus, also zwischen zwei Logs
+# (Nutzer 04.11.). Weicht der Median der ersten FUEL_START_WINDOW_S um mehr als FUEL_RESYNC_L ab,
+# gilt sein Wert (bzw. 45 l, wenn er gesaettigt ist). In Fahrt loeste der Abgleich bei Steigung
+# und Schwappen hin und her aus (27.10.: 38,5 -> 33,4 -> 39,4 -> 33,3 l), das entfaellt.
+# Der Stand liegt auf dem Stick (FUEL_STATE_PATH) und ueberlebt Neustart und Zuendung aus.
+# Logbuch "Tankanzeige aus dem Kraftstoffzaehler", "Tankbuch".
 FUEL_COUNTER_CAN_ID = COOLANT_TEMP_CAN_ID  # 0x420 traegt Kuehlwasser und Kraftstoffzaehler
 FUEL_COUNTER_SIGNAL = "FuelConsumption_Counter"
 FUEL_TANK_SIGNAL = "Fuel_Tank"
@@ -148,11 +151,9 @@ FUEL_COUNTS_PER_L = FUEL_STEPS_PER_L  # 0x420 Byte2 (4985/l), umlaufend 8 Bit
 FUEL_SENSOR_L0 = 3.0              # Geber-Kennlinie: Liter = 3,0 + 1,10 * Fuel_Tank (DBC-Wert)
 FUEL_SENSOR_L_PER_RAW = 1.10
 FUEL_SENSOR_SATURATED_RAW = 36.1  # Saettigung liest 36,2 (Aufloesung 0,2)
-FUEL_SENSOR_TAU_S = 20.0          # Glaettung gegen Schwappen, nur fuer den Abgleich
 FUEL_RESYNC_L = 4.0               # Abweichung Geber <-> Zaehlerstand, ab der der Geber gilt
-FUEL_RESYNC_HOLD_STAND_S = 3.0    # so lange muss sie anliegen: im Stand (Tankstopp) kurz,
-FUEL_RESYNC_HOLD_MOVING_S = 60.0  # in Fahrt lang, damit Schwappen in Kurven nichts ausloest
-FUEL_STAND_KMH = 2.0
+FUEL_START_WINDOW_S = 3.0         # Geber-Median ab dem ersten Wert nach Zuendung an; nach jedem Tankstopp
+                                  # 04.11. war er ab der ersten Sekunde gesaettigt (7 Stopps geprueft)
 FUEL_SAMPLE_GAP_S = 5.0           # laengere Luecke (Zuendung aus, Neustart) = Neubeginn
 FUEL_MAX_COUNTS_PER_S = 60.0      # ~43 l/h; groessere Spruenge sind Lesefehler
 FUEL_COUNTER_FRESH_S = 5.0        # ohne Zaehler (alte DBC) kein Literwert -> Dash nimmt den Geber
@@ -224,8 +225,8 @@ class FuelEstimator:
         self.liters = None
         self._counter = None          # (Rohwert, t)
         self._counter_seen = None     # t des letzten gueltigen Zaehlerwerts
-        self._sensor = None           # (geglaetteter Rohwert, t)
-        self._deviation_since = None
+        self._window = []             # Geberwerte des Startfensters, None = geschlossen (in Fahrt)
+        self._window_t0 = None
         self._saved_liters = None
         self._saved_t = None
         self._load()
@@ -279,43 +280,43 @@ class FuelEstimator:
                 self.liters = max(0.0, self.liters - delta / FUEL_COUNTS_PER_L)
         self.save(now)
 
-    def on_sensor(self, raw, now, speed=None):
+    def start_session(self):
+        """Zuendung an (neues Log): Startfenster fuer den Geber-Abgleich oeffnen. Ein frischer Schaetzer
+        (Backend-/Sim-Start) hat es schon offen."""
+        with self._lock:
+            self._window, self._window_t0 = [], None
+
+    @property
+    def start_pending(self):
+        """True, solange das Startfenster noch nicht ausgewertet ist."""
+        return self._window is not None
+
+    def on_sensor(self, raw, now):
         # 0,0 = Init-Artefakt direkt nach Zuendung an (30 ms bis 5,5 s); real waeren das 3,0 l.
-        # Die Glaettung startete sonst bei 0 und loeste einen Zwischen-Abgleich aus (Tankstopp 04.11.).
         if not isinstance(raw, (int, float)) or raw <= 0:
             return
         event = resync = None
         with self._lock:
-            if self._sensor is None or now - self._sensor[1] > FUEL_SAMPLE_GAP_S:
-                smooth = raw
-                self._deviation_since = None
-            else:
-                prev, t_prev = self._sensor
-                smooth = prev + (1.0 - math.exp(-(now - t_prev) / FUEL_SENSOR_TAU_S)) * (raw - prev)
-            self._sensor = (smooth, now)
-            saturated = smooth >= FUEL_SENSOR_SATURATED_RAW
-            sensor_l = min(FUEL_FULL_L, fuel_sensor_liters(smooth))
             if self.liters is None:
-                # Gesaettigt = frisch getankt (Nutzer tankt immer voll), nicht 42,8 l = 94 % (Sim 04.11.)
-                self.liters = FUEL_FULL_L if saturated else sensor_l
+                self.liters = FUEL_FULL_L if raw >= FUEL_SENSOR_SATURATED_RAW else fuel_sensor_liters(raw)
                 event = f"Start ohne gespeicherten Stand: {self.liters:.1f} l laut Geber"
-            else:
-                # Gesaettigt heisst "mindestens 42,8 l" - widerspricht nur einem Stand darunter.
-                off = (sensor_l - self.liters) if (not saturated or self.liters < sensor_l) else 0.0
-                if abs(off) <= FUEL_RESYNC_L:
-                    self._deviation_since = None
-                else:
-                    if self._deviation_since is None:
-                        self._deviation_since = now
-                    standing = speed is None or speed < FUEL_STAND_KMH  # ohne Tempo: Start im Stand
-                    hold = FUEL_RESYNC_HOLD_STAND_S if standing else FUEL_RESYNC_HOLD_MOVING_S
-                    if now - self._deviation_since >= hold:
+            if self._window is not None:
+                if self._window_t0 is None:
+                    self._window_t0 = now
+                self._window.append(raw)
+                if now - self._window_t0 >= FUEL_START_WINDOW_S:
+                    median = sorted(self._window)[len(self._window) // 2]
+                    self._window = None
+                    saturated = median >= FUEL_SENSOR_SATURATED_RAW
+                    sensor_l = min(FUEL_FULL_L, fuel_sensor_liters(median))
+                    # Gesaettigt heisst "mindestens 42,8 l" - widerspricht nur einem Stand darunter.
+                    off = (sensor_l - self.liters) if (not saturated or self.liters < sensor_l) else 0.0
+                    if abs(off) > FUEL_RESYNC_L:
                         new = FUEL_FULL_L if saturated else sensor_l
                         event = (f"{'Volltanken' if saturated else 'Abgleich mit dem Geber'}: "
-                                 f"{self.liters:.1f} -> {new:.1f} l (Geber roh {smooth:.1f})")
+                                 f"{self.liters:.1f} -> {new:.1f} l (Geber roh {median:.1f})")
                         resync = (saturated, self.liters, new)
                         self.liters = new
-                        self._deviation_since = None
         if event:
             self._log(f"{time.strftime('%F %T')} Tank: {event}")
             self.save(now, force=True)
@@ -465,6 +466,7 @@ class CanBackend:
         self.fuel_ledger_path = fuel_ledger_path
         self._ledger_log = None            # Logname der laufenden echten Fahrt
         self._ledger_start_pending = False
+        self._ledger_start_fallback = None
         self._lock = threading.Lock()
         self._values = {}  # "can_id:signal" -> (value, timestamp)
         self.error = None
@@ -522,13 +524,18 @@ class CanBackend:
                 if not os.path.exists(SIM_TRIGGER_PATH):  # die Sim hat ihr eigenes Log und Tankbuch
                     self._ledger_log = current_candump_log(os.path.dirname(self.fuel_ledger_path))
                     self._ledger_start_pending = self._ledger_log is not None
-            # Startstand, sobald bekannt: sofort aus fuel_state.json, ohne sie nach dem ersten Geberwert
-            if self._ledger_start_pending and self._fuel_real.liters is not None:
+                    self._ledger_start_fallback = self._fuel_real.liters  # falls das Startfenster nie schliesst
+                    self._fuel_real.start_session()  # getankt wird bei Zuendung aus: jetzt pruefen
+            # Startstand nach dem Geber-Abgleich (ein Tankstopp liegt davor, zwischen den Logs)
+            if (self._ledger_start_pending and not self._fuel_real.start_pending
+                    and self._fuel_real.liters is not None):
                 self._ledger_start_pending = False
                 self._ledger_write("start", self._fuel_real.liters)
         else:
             if self._logging_since_mono is not None:
                 self._fuel_real.save(force=True)  # Zuendung aus: Stand sofort sichern
+                if self._ledger_start_pending and self._ledger_start_fallback is not None:
+                    self._ledger_write("start", self._ledger_start_fallback)  # kein Geberwert gesehen
                 if self._ledger_log is not None and self._fuel_real.liters is not None:
                     self._ledger_write("end", self._fuel_real.liters)
             self._logging_since_mono = None
@@ -668,9 +675,7 @@ class CanBackend:
                             if msg.arbitration_id == FUEL_COUNTER_CAN_ID and FUEL_COUNTER_SIGNAL in decoded:
                                 self.fuel.on_counter(decoded[FUEL_COUNTER_SIGNAL], now)
                             elif msg.arbitration_id == FUEL_TANK_CAN_ID and FUEL_TANK_SIGNAL in decoded:
-                                speed = self._values.get("514:VehicleSpeed", (None,))[0]
-                                self.fuel.on_sensor(decoded[FUEL_TANK_SIGNAL], now,
-                                                    speed if isinstance(speed, (int, float)) else None)
+                                self.fuel.on_sensor(decoded[FUEL_TANK_SIGNAL], now)
                             if msg.arbitration_id == 514 and "VehicleSpeed" in decoded:
                                 speed = decoded["VehicleSpeed"]
                                 if isinstance(speed, (int, float)) and speed > self.session_max_speed:
