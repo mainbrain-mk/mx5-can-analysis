@@ -6038,3 +6038,33 @@ Fehler = gezählt − getankt; G inklusive ~1 400 Schritte ODO-Lücke.
 - Fix `can_backend.py`: Start ohne Stand bei gesättigtem Geber = 45 l (Nutzer tankt immer voll). Betrifft im Auto
   nur den Fall ohne `fuel_state.json`. Test in `test_fuel_sensor_init_zero_after_ignition_is_ignored`.
 - Grenze: Eine Sim mitten aus einer Fahrt mit noch gesättigtem Geber (42,8–45 l) startet jetzt bei 100 % statt 94 %.
+
+## Tankbuch: Literstand je Log, Sim startet beim echten Stand (04.11.2026)
+
+**Anlass (Nutzer):** Sim von `candump-2026-11-04_152230` zeigte 100 %, obwohl dort nicht getankt wurde. Der Fix
+vom selben Abend (gesättigter Geber = 45 l) stimmt nur für das erste Log nach dem Tanken. Der Geber sättigt bis
+42,8 l und kann „voll“ nicht von „2 l verbraucht“ unterscheiden; die Sim hatte keine Vorgeschichte.
+
+**Umsetzung (Konzept vom Nutzer abgenommen):**
+- `canlogs/fuel_ledger.jsonl` auf dem Stick, eine JSON-Zeile je Ereignis, nur angehängt, `fsync` (keine USV):
+  `{"log", "event": start|refuel|resync|end, "liters", "before", "time", "source": live|nachberechnet}`.
+- `can_backend.py`: Bei Logging-Beginn einer echten Fahrt (nicht in der Sim) gilt das jüngste ungepackte
+  `candump-*.log` als laufendes Log. `start` kommt sofort aus `fuel_state.json`, also vor einem Volltank-Abgleich;
+  die Sim spielt den Abgleich dann genauso nach. Volltanken/Abgleich schreibt der `FuelEstimator` über den neuen
+  Callback `on_resync`, `end` kommt bei Zündung aus.
+- Sim: `dash_gui.py` schreibt den Logpfad in `/tmp/mx5_sim_active` (bisher „vcan0“, las niemand), das Backend
+  setzt den Sim-Schätzer auf den `start`-Stand. Der erste Live-Eintrag gilt (ein Backend-Neustart in Fahrt schreibt
+  einen zweiten, mittendrin), ohne ihn der letzte nachberechnete, ohne Eintrag der Geber wie bisher.
+- `scripts/fuel_ledger_backfill.py` (PC): alle 114 Parquets chronologisch (No-RTC-Versätze aus
+  `data/can_clock_offsets.json`) durch denselben `FuelEstimator`, 248 Einträge. Auf den Pi kopiert, dazu
+  `fuel_state.json` = 40,37 l (Ende `04_163818`); die Datei gab es noch nicht, seit dem Deploy lief keine echte Fahrt.
+
+**Ergebnis Nachberechnung (Auszug):** `04_080151` Start 7,74 → Volltanken → Ende 42,74; `04_152230` Start
+**42,74 l = 93 %** (statt 100 %); `04_163818` Ende 40,37. Tankstopps 16.09., 26.09., 27.09., 04.10., 10.10., 26.10.,
+04.11. erkennt die Kette selbst (04.10. erst als Abgleich 12,3 → 40,9, Volltanken 42 min später).
+
+**Offen, nicht geändert:** In Fahrt löst der Geber-Abgleich (> 4 l für 60 s) mehrfach hin und zurück aus, z. B.
+`10-27_151224` 38,5 → 33,4 → 39,4 → 33,3, `10-30_162447`/`164517` 30,2 → 26,1 → 29,5, `10-31` dreimal. Das sind
+eher Steigung/Schwappen als echte Sprünge; der Live-Schätzer macht dasselbe. Die Logs vor dem 16.09. haben den
+Zähler, der Startwert 11.09. (25 l) ist aber nur ein Geberwert. Läuft eine Sim in Schleife, startet die zweite
+Runde beim Endstand der ersten, nicht beim Tankbuch-Start.

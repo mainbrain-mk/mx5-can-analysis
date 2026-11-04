@@ -42,6 +42,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   daneben gewählte Log (Standard: neuestes) komplett und in Schleife ab und zeigt den Fahrbildschirm. Die Liste
   wird alle 2 s neu eingelesen; gerade gepackte Logs erscheinen also ohne Dash-Neustart. Gestreamt
   per `zcat | canplayer -s 5`, nichts landet in `/tmp`. Beenden über „SIMULATION BEENDEN“ in dessen Fußzeile.
+  Die Trigger-Datei `/tmp/mx5_sim_active` enthält den Logpfad; der Tank startet mit dem Stand aus dem Tankbuch.
+  Ein Dash-Neustart während der Simulation lässt sie verwaist weiterlaufen (Knopf weg): vorher beenden.
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
   `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
   Adapters, im Auto genügt `sudo systemctl restart can-logger`.
@@ -56,7 +58,10 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
   `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker), `fuel_state.json` (Tankinhalt in Litern für die KRAFTSTOFF-Kachel, schreibt
-  `can_backend.py`; seit 04.11. im Repo, noch nicht deployt. Löschen = Neustart beim Geberwert).
+  `can_backend.py`; seit 04.11. 20:00 aktiv, angelegt mit 40,37 l aus dem Tankbuch. Löschen = Neustart beim Geberwert),
+  `fuel_ledger.jsonl` (Tankbuch, nur angehängt: je Log Liter bei Start/Ende, Tankstopps und Abgleiche; schreibt
+  `can_backend.py` bei jeder echten Fahrt, die Vcan-Simulation startet mit dem `start`-Stand des abgespielten Logs.
+  Die Logs bis 04.11. 16:38 sind mit `scripts/fuel_ledger_backfill.py` nachberechnet, `source: nachberechnet`).
 - `archiv/`: alte Backups (`backup-*`), Vorversionen und Ausgaben bis 10.10. Nichts davon wird im Betrieb gebraucht.
 
 ## Deploy-Stand = Git auf dem Pi

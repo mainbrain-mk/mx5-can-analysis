@@ -9,7 +9,9 @@ Die KRAFTSTOFF-Kachel zeigt 100 % = 45 l nach dem Volltanken und 0 % = 9,5 l Res
 zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der Tankgeber erkennt nur noch Tankstopps
 (gesättigt bei niedrigem Stand → 45 l) und Fahrten ohne Pi (Abweichung > 4 l → Geberwert). Der Stand liegt in
 `/home/pi/canlogs/fuel_state.json`. Bisher stand nach dem Tanken ~2,3 l lang 90 %, weil der Geber sättigt.
-Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.).
+Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.). Seit 04.11. abends führt das Backend ein Tankbuch
+(`canlogs/fuel_ledger.jsonl`, Liter je Log bei Start/Ende, Tankstopps); die Vcan-Simulation startet damit beim echten
+Stand des Logs. Logbuch: „Tankbuch…“ (04.11.).
 
 **Status 2026-10-31 — Drehzahlbalken glimmt nach (Nutzerwunsch).** Fällt die Drehzahl (v. a. beim Hochschalten),
 springen die Segmente auf 50 % Helligkeit (Sprung bleibt sichtbar) und blenden in 0,6 s auf die Ruhefarbe aus
