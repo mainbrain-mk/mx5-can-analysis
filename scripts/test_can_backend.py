@@ -135,6 +135,28 @@ def test_fuel_full_tank_reads_45_l_and_counts_down_with_the_counter():
     assert abs(fuel.liters - 39.0) < 0.05, fuel.liters
 
 
+def test_fuel_sensor_init_zero_after_ignition_is_ignored():
+    """Nach Zuendung an meldet der Geber kurz 0,0 (Tankstopp 04.11.2026: 30 ms, Abend davor 5,5 s).
+    Die Glaettung darf nicht bei 0 starten: sonst Zwischen-Abgleich statt Volltanken."""
+    logs = []
+    fuel = can_backend.FuelEstimator(None, log=logs.append)
+    fuel.liters = 9.64
+    t = 1000.0
+    fuel.on_sensor(0.0, t, speed=None)
+    for _ in range(40):
+        t += 0.1
+        fuel.on_sensor(36.2, t, speed=0.0)
+    assert fuel.liters == 45.0, (fuel.liters, logs)
+    assert not any("Abgleich" in line for line in logs), logs
+
+    fresh = can_backend.FuelEstimator(None, log=lambda _l: None)   # ohne gespeicherten Stand
+    for i in range(55):
+        fresh.on_sensor(0.0, i * 0.1, speed=None)
+    assert fresh.liters is None
+    fresh.on_sensor(6.2, 5.6, speed=0.0)
+    assert abs(fresh.liters - can_backend.fuel_sensor_liters(6.2)) < 1e-9
+
+
 def test_fuel_saturated_sensor_does_not_override_counter_near_full():
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None)
     fuel.liters = 44.0
@@ -244,6 +266,7 @@ if __name__ == "__main__":
     test_snapshot_values_are_stamped_on_the_monotonic_clock()
     test_health_line_reports_value_ages_and_resets_obd_request_counts()
     test_fuel_full_tank_reads_45_l_and_counts_down_with_the_counter()
+    test_fuel_sensor_init_zero_after_ignition_is_ignored()
     test_fuel_saturated_sensor_does_not_override_counter_near_full()
     test_fuel_slosh_while_moving_does_not_resync_but_drive_without_pi_does()
     test_fuel_counter_glitch_and_gap_are_ignored()

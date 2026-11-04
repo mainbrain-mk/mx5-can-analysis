@@ -5963,3 +5963,22 @@ dem Pi. `test_dash_gui.py` und `test_can_backend.py` dort grün. Vcan-Replay von
 meldet `tank=41.72l` und zählt im Leerlauf herunter (41,65 l nach ~70 s), Kachel zeigt 91 % (= (41,7 − 9,5)/35,5),
 Verbrauchsbalken bei 3,5 l/100km leer. Die Simulation legt kein `fuel_state.json` an (eigener Schätzer, der echte
 hat ohne `can0` keinen Stand). Offen: erste echte Fahrt (Start beim Geberwert) und der nächste Tankstopp (→ 45 l, 100 %).
+
+**Nachtrag 04.11. (Tankstopp heute Morgen offline nachgespielt):** Die Logs `candump-2026-11-03_174347`,
+`…-11-04_075453` und `…-11-04_080151` liefen auf dem Rechner durch `FuelEstimator` (Repo-DBC, Stand über die Logs
+weitergereicht wie auf dem Pi; live lief morgens noch der alte Code). Ablauf: Gestern Abend ~9,8 l (Geber roh 6,2), Fahrt zur Tankstelle
+07:55–07:59 (0,18 l laut Zähler), Zündung nach dem Tanken 08:01:51, Geber sofort 36,2 (gesättigt).
+Ergebnis: **Volltanken erkannt, aber erst 08:04:40 in Fahrt** (60-s-Haltezeit). Davor um 08:02:39 ein
+Zwischen-Abgleich auf 37,9 l (Anzeige 80 %). Bis Logende 43,05 l (2,26 l verbraucht).
+
+**Ursache:** Der Geber meldet direkt nach Zündung an kurz `Fuel_Tank = 0,0` (heute 30 ms, gestern Abend 5,5 s),
+danach den echten Wert. `on_sensor` setzt die Glättung nach einer Lücke > 5 s auf den ersten Rohwert, also auf 0, und
+läuft mit τ 20 s über Minuten zum echten Wert hoch. Unterwegs greift der 3-s-Abgleich im Stand auf einen Zwischenwert.
+Liegt der über 38,8 l, ist die Abweichung zur Sättigung (42,8 l) ≤ 4 l: **das Volltanken würde dann nie erkannt**, die
+Anzeige bliebe bis zum nächsten Tankstopp bei ~83 %. Heute fehlten dazu 0,9 l. Ohne gespeicherten Stand startet der
+Schätzer zudem bei 3,0 l (gestern Abend 80 s lang 0 %), bis der Abgleich in Fahrt greift.
+**Fix (04.11.):** `on_sensor` verwirft Rohwerte ≤ 0 (Init-Artefakt; 0 roh = 3,0 l kommt real nicht vor), ebenso der
+Geber-Ersatzweg in `dash_gui.py`. Neuer Test `test_fuel_sensor_init_zero_after_ignition_is_ignored`, Dash-Test erweitert.
+Offline-Replay derselben drei Logs danach: Volltanken **08:01:54, 3 s nach Zündung an im Stand** (9,6 → 45 l), kein
+Zwischen-Abgleich; gestern Abend Start direkt bei 9,8 l laut Geber. Das 0,0 beim Abschalten (Ende `075453`) fällt so
+ebenfalls weg. Ende `080151`: 42,74 l.

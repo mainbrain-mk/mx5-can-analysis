@@ -248,6 +248,15 @@ def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     screen.refresh()
     assert abs(screen._fuel_smooth - 80.0) < 0.1
 
+    # Init-0 des Gebers nach Zuendung an (04.11.2026) darf die neue Fahrt nicht bei 0 % starten lassen
+    screen.on_pre_enter()
+    screen.client.set(158, "Fuel_Tank", 0.0)
+    screen.refresh(1 / 30)
+    assert screen._fuel_smooth is None
+    screen.client.set(158, "Fuel_Tank", raw80)
+    screen.refresh(1 / 30)
+    assert abs(screen._fuel_smooth - 80.0) < 0.1
+
 
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()

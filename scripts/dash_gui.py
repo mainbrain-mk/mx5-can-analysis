@@ -1002,7 +1002,8 @@ class DriveScreen(Screen):
             self._fuel_smooth = _fuel_pct_from_liters(fuel_liters)
         else:
             fuel_raw = c.get(FUEL_TANK_CAN_ID, "Fuel_Tank")
-            fuel_pct = None if fuel_raw is None else _fuel_pct_from_liters(
+            # 0,0 = Init-Artefakt nach Zuendung an (wie FuelEstimator.on_sensor), wuerde die EMA bei 0 % starten
+            fuel_pct = None if fuel_raw is None or fuel_raw <= 0 else _fuel_pct_from_liters(
                 FUEL_SENSOR_L0 + FUEL_SENSOR_L_PER_RAW * fuel_raw)
             if fuel_pct is not None:
                 self._fuel_smooth = fuel_pct if self._fuel_smooth is None else (

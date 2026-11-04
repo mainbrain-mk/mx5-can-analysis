@@ -231,7 +231,9 @@ class FuelEstimator:
         self.save(now)
 
     def on_sensor(self, raw, now, speed=None):
-        if not isinstance(raw, (int, float)):
+        # 0,0 = Init-Artefakt direkt nach Zuendung an (30 ms bis 5,5 s); real waeren das 3,0 l.
+        # Die Glaettung startete sonst bei 0 und loeste einen Zwischen-Abgleich aus (Tankstopp 04.11.).
+        if not isinstance(raw, (int, float)) or raw <= 0:
             return
         event = None
         with self._lock:
