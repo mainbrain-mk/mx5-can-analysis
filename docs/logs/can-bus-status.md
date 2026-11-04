@@ -6028,3 +6028,208 @@ Fehler = gezählt − getankt; G inklusive ~1 400 Schritte ODO-Lücke.
   betrifft `04_080151`, `_152230`, `_163818`, ~2 kg); `can_backend.py` kennt die Sättigung. Nicht geändert.
 - **Entscheidung (Nutzer):** 4985/l bleibt bis zum nächsten Stopp. Dann ist 04.11. innerer Punkt; liegt H wieder
   deutlich im Minus, spricht das für 4913/l.
+
+## Vcan-Sim nach dem Tanken zeigte 94 % statt 100 % (04.11.2026)
+
+**Beobachtung (Nutzer):** Sim von `candump-2026-11-04_080151` (direkt nach dem Tankstopp) zeigt 94 % Tank.
+- Ursache: Der Sim-`FuelEstimator` hat keinen gespeicherten Stand (`state_path=None`) und übernimmt beim ersten
+  Geberwert dessen Liter. Der Geber steht ab Sekunde 0 gesättigt auf roh 36,2 → 42,8 l → (42,8 − 9,5)/35,5 = 94 %.
+  Der Volltank-Abgleich auf 45 l greift nur gegen einen *niedrigeren* Stand, den es in der Sim nicht gibt.
+- Fix `can_backend.py`: Start ohne Stand bei gesättigtem Geber = 45 l (Nutzer tankt immer voll). Betrifft im Auto
+  nur den Fall ohne `fuel_state.json`. Test in `test_fuel_sensor_init_zero_after_ignition_is_ignored`.
+- Grenze: Eine Sim mitten aus einer Fahrt mit noch gesättigtem Geber (42,8–45 l) startet jetzt bei 100 % statt 94 %.
+
+## Tankbuch: Literstand je Log, Sim startet beim echten Stand (04.11.2026)
+
+**Anlass (Nutzer):** Sim von `candump-2026-11-04_152230` zeigte 100 %, obwohl dort nicht getankt wurde. Der Fix
+vom selben Abend (gesättigter Geber = 45 l) stimmt nur für das erste Log nach dem Tanken. Der Geber sättigt bis
+42,8 l und kann „voll“ nicht von „2 l verbraucht“ unterscheiden; die Sim hatte keine Vorgeschichte.
+
+**Umsetzung (Konzept vom Nutzer abgenommen):**
+- `canlogs/fuel_ledger.jsonl` auf dem Stick, eine JSON-Zeile je Ereignis, nur angehängt, `fsync` (keine USV):
+  `{"log", "event": start|refuel|resync|end, "liters", "before", "time", "source": live|nachberechnet}`.
+- `can_backend.py`: Bei Logging-Beginn einer echten Fahrt (nicht in der Sim) gilt das jüngste ungepackte
+  `candump-*.log` als laufendes Log. `start` kommt sofort aus `fuel_state.json`, also vor einem Volltank-Abgleich;
+  die Sim spielt den Abgleich dann genauso nach. Volltanken/Abgleich schreibt der `FuelEstimator` über den neuen
+  Callback `on_resync`, `end` kommt bei Zündung aus.
+- Sim: `dash_gui.py` schreibt den Logpfad in `/tmp/mx5_sim_active` (bisher „vcan0“, las niemand), das Backend
+  setzt den Sim-Schätzer auf den `start`-Stand. Der erste Live-Eintrag gilt (ein Backend-Neustart in Fahrt schreibt
+  einen zweiten, mittendrin), ohne ihn der letzte nachberechnete, ohne Eintrag der Geber wie bisher.
+- `scripts/fuel_ledger_backfill.py` (PC): alle 114 Parquets chronologisch (No-RTC-Versätze aus
+  `data/can_clock_offsets.json`) durch denselben `FuelEstimator`, 248 Einträge. Auf den Pi kopiert, dazu
+  `fuel_state.json` = 40,37 l (Ende `04_163818`); die Datei gab es noch nicht, seit dem Deploy lief keine echte Fahrt.
+
+**Ergebnis Nachberechnung (Auszug):** `04_080151` Start 7,74 → Volltanken → Ende 42,74; `04_152230` Start
+**42,74 l = 93 %** (statt 100 %); `04_163818` Ende 40,37. Tankstopps 16.09., 26.09., 27.09., 04.10., 10.10., 26.10.,
+04.11. erkennt die Kette selbst (04.10. erst als Abgleich 12,3 → 40,9, Volltanken 42 min später).
+
+**Offen, nicht geändert:** In Fahrt löst der Geber-Abgleich (> 4 l für 60 s) mehrfach hin und zurück aus, z. B.
+`10-27_151224` 38,5 → 33,4 → 39,4 → 33,3, `10-30_162447`/`164517` 30,2 → 26,1 → 29,5, `10-31` dreimal. Das sind
+eher Steigung/Schwappen als echte Sprünge; der Live-Schätzer macht dasselbe. Die Logs vor dem 16.09. haben den
+Zähler, der Startwert 11.09. (25 l) ist aber nur ein Geberwert. Läuft eine Sim in Schleife, startet die zweite
+Runde beim Endstand der ersten, nicht beim Tankbuch-Start.
+
+## Geber-Abgleich nur bei Zündung an, Tankstopp zwischen zwei Logs (04.11.2026)
+
+**Hinweis (Nutzer):** Getankt wird immer mit Motor/Zündung aus, also immer zwischen zwei Logs.
+- Geprüft an allen 7 Tankstopps (16.09.–04.11.): Der Geber steht im ersten Log danach ab der ersten Sekunde auf
+  36,2 (gesättigt). Ein Abgleich in Fahrt ist also nie ein Tankstopp. Bisher (Halten 60 s in Fahrt) löste er bei
+  Steigung/Schwappen hin und her aus (27.10., 30.10., 31.10.) und am 04.10. kam das Volltanken erst 42 min nach
+  Logbeginn, weil der Nutzer nach 2 s losfuhr und der Abgleich nicht gesättigt landete (12,3 → 40,9 l).
+- `FuelEstimator`: Geber nur im Startfenster `FUEL_START_WINDOW_S` = 3 s ab dem ersten Wert nach `start_session()`
+  (Backend: Logging-Beginn = Zündung an; ein frischer Schätzer hat das Fenster offen). Entscheidung über den Median,
+  Schwelle wie bisher 4 l, gesättigt = 45 l. Glättung (τ 20 s), Haltezeiten und Tempo-Parameter entfallen.
+- Tankbuch: `refuel` steht vor `start`, `start` ist der Stand nach dem Abgleich (nach dem Tanken 45 l). Kurze Logs
+  ohne Geberwert bekommen den Stand vom Logbeginn.
+- Nachberechnung neu (228 Einträge, auf dem Pi ersetzt, keine Live-Zeilen vorhanden): `04_080151` Start 45,0,
+  `04_152230` 42,74, `10-04_110018` 45,0. In Fahrt keine Abgleiche mehr; bei Zündung an noch fünf (17.09. drei,
+  26.09. zwei, je 4–8 l, tiefer Tank bzw. No-RTC-Tag).
+- **Gegenprobe Zapfsäule** (Stand vor dem Tanken + getankt, soll 45): 26.09. 45,3; 27.09. 44,9; 04.10. 44,5;
+  10.10. 46,1; 26.10. 47,8; 04.11. 47,7 l. Die letzten beiden Intervalle zählen ~2,8 l zu wenig Verbrauch (passt zur
+  4913-statt-4985-Frage und zur ODO-Lücke in G); unter der 4-l-Schwelle, der Volltank setzt es zurück.
+
+## Fahrten ohne Logger in den Intervallen D und G: Kilometerstand-Lücken (04.11.2026)
+
+**Frage (Nutzer):** Erklären Fahrten ohne Dash die ~2,8 l, die der Zähler in den letzten zwei Tankintervallen zu
+wenig zählt? `C001_ODO` je Log (Anfang/Ende) und Zähler-Lücken > 5 s innerhalb der Logs, gegen das Tankbuch.
+
+| Intervall | getankt | gezählt (Tankbuch) | fehlt | ODO-Lücken zwischen Logs | Lücken im Log | ≈ Liter (6,6 l/100 km) |
+|---|---|---|---|---|---|---|
+| D 10.10.→26.10. | 34,86 l | 32,02 l | 2,84 l | 21 km (10.10. 12:14→13:32, Stick-Hänger-Tag), 14 km (10.→15.10.), 8 km (16.→26.10.) | `10-16_181006`: 3 Zählerlücken 17–23 s, ~7 km | ~2,8 + ~0,5 l |
+| G 26.10.→04.11. | 36,14 l | 33,48 l | 2,66 l | 1 km (27.→28.10.), 3 km (29.10. 08:35→10:36) | keine | ~0,3 l |
+
+- **D ist erklärt:** 43 km ohne Aufzeichnung (wie schon am 26.10. gefunden) plus Aufnahmelücken am 16.10.
+- **G nicht:** nur 4 km Lücke. Es bleiben ~2,4 l, das passt zur Überfüllung laut Geber am 04.11. (~1,8 l) und zur
+  Skalenfrage 4913/4985 (1,5 % ≈ 0,5 l). Beim nächsten Stopp neu bewerten (siehe „Gegenrechnung 4913/l“).
+- Tankbuch/Schätzer ziehen ODO-Lücken bisher nicht ab: Eine Fahrt ohne Pi unter ~4 l bleibt unsichtbar, bis zum
+  nächsten Volltanken.
+
+## Wie voll war „voll“? Verbrauch bis der Geber die Sättigung verlässt (04.11.2026)
+
+**Frage (Nutzer):** 47,7 l Tankinhalt (Stand vor dem Tanken + getankt) wären unmöglich bzw. müssten in der Reichweite
+auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) unter roh 35,9 fällt (≈ 42,6 l).
+
+| Tankstopp | Liter bis Sättigung verlassen | ⇒ Inhalt nach dem Tanken |
+|---|---|---|
+| 26.09. | 2,61 | ~45,2 l |
+| 27.09. | 1,97 | ~44,6 l |
+| 04.10. | 2,95 | ~45,6 l |
+| 10.10. | 2,50 | ~45,1 l |
+| **26.10.** | **1,52** | **~44,1 l** |
+| **04.11.** | **3,45** | **~46,1 l** |
+
+- Der Tank war nie bei 48 l. „Voll“ streut ±1 l (Abschalten der Zapfpistole, Einfüllstutzen); 26.10. knapp, 04.11.
+  reichlich. Deckt sich mit dem Geber vor dem Tanken (26.10. 9,2 + 34,86 = 44,1 l; 04.11. 9,8 + 36,14 = 45,9 l).
+- Intervall G damit: Start ~44,1, Ende ~9,8 → ~34,3 l verbraucht; Zähler 33,42 + ODO-Lücke 0,3 = 33,7 l. Rest
+  ~0,6 l (1,7 %) = die Skalenfrage 4913/4985. Die 47,7 l kamen aus dem festen 45-l-Anker an beiden Enden.
+- Pro Tankfüllung je km: G 479 km/36,14 l = 7,54 l/100 km (Säule) gegen 7,04 (Zähler); ±1 l Füllung sind ~15 km
+  Reichweite, im Alltag nicht zu merken.
+- Möglicher Ausbau (nicht umgesetzt): Den Moment, in dem der Geber die Sättigung verlässt, als zweiten Anker
+  (~42,6 l) nutzen; korrigiert die Füllstreuung nach ~1,5–3,5 l Verbrauch.
+
+## Sättigungsende als zweiter Anker, Startabgleich ab 5 l (04.11.2026)
+
+**Umsetzung des Befunds „Wie voll war voll?“ (Nutzerwunsch: in `fuel_state.json` einbauen).**
+- `FuelEstimator`: Nach dem Volltanken `await_desat`. Liegt der Median der letzten 120 s (≥ 96 s Daten) zwischen roh
+  33,9 und 35,9, gilt `FUEL_DESAT_L` = 42,6 l (= 3,0 + 1,10 · 36,0). Tiefer zählt nicht (Schwappen/Steigung). Ist der
+  Zähler schon > 2,5 l darunter, wird das Warten aufgegeben; eine Korrektur > 2,5 l wird verworfen.
+- `await_desat` steht in `fuel_state.json` und im Tankbuch-`start` (das Sättigungsende kommt oft erst im nächsten
+  Log, 04.11. nach 3,45 l in `_152230`); die Sim übernimmt es. Tankbuch-Ereignis `anchor`.
+- `FUEL_RESYNC_L` 4 → 5 l: Mit Anker lag 29.10. `_103615` 4,1 l unter dem Geber und 30.10. `_162447` 4,7 l darüber,
+  beides Parken am Hang. Mit 5 l verschwinden auch die Hin-und-zurück-Paare 17.09. und 26.09.; 6 l ändert nichts mehr.
+  Übrig: 17.09. `_084511` −7,7 l (No-RTC-Tag, evtl. Fahrt ohne Pi).
+- Nachberechnung (230 Einträge, auf dem Pi ersetzt). Anker je Tankstopp: 26.09. +0,2, 27.09. −0,4, 04.10. +0,6,
+  10.10. +0,1, 26.10. −0,9, 04.11. +1,1 l (16.09.: Geber sprang über Nacht unter das Band, aufgegeben).
+- **`fuel_state.json` auf dem Pi: 41,42 l** (vorher 40,37), `await_desat` false, Backend neu gestartet. Die Sim von
+  `_152230` startet mit 42,74 l und springt nach ~1,2 l auf 42,6 l, wie es live gewesen wäre.
+
+## Dash: Blinker in der TPMS-Autozeichnung (04.11.2026)
+
+**Wunsch (Nutzer):** Blinker in der Autozeichnung der TPMS-Kachel gelb blinken lassen.
+- Quelle `Turn` auf 0x09A (0 Off, 1 L, 2 R, 3 LR): Das ist der Lampenzustand selbst, er geht im Blinktakt an und
+  aus (Log `09-12_120952`: 0,35 s an / 0,35 s aus, 12 Frames/s). Das Dash spiegelt ihn ohne eigenen Takt, Warnblinker
+  und Notbremssignal (LR) leuchten beidseitig. Älter als 0,5 s = aus. 0x09A lief schon durch den Backend-Filter.
+- Leuchtflächen in Pixeln der `mx5_top_view.png` (linke Seite, rechts gespiegelt): Scheinwerfer-Außenkante,
+  Seitenblinker auf dem vorderen Kotflügel (Oval bei y≈410), runde Rückleuchte; je ein breiter Schein (35 %) und ein
+  satter Kern in Bernstein.
+- Fallstrick: `bind(pos=…)` am Bild feuerte nur vor dem endgültigen Layout, die Lampen lagen ~450 px zu tief.
+  Platziert wird jetzt bei jedem `set_turn`, sobald sich die Geometrie ändert.
+- Nebenbefund: `test_sim_loop_replays_whole_log_until_stopped` scheitert auf dem Pi gelegentlich auch mit dem
+  unveränderten Stand („Prozessgruppe lebt nach stop() noch“), vermutlich Timing unter Last (laufende Sim).
+
+## Dash: Licht, Bremse und Lichtkegel in der Autozeichnung (04.11.2026)
+
+**Wunsch (Nutzer, mit Skizze):** Licht und Bremslicht in der TPMS-Zeichnung, Lichtschein in Draufsicht (PhotoCraft).
+- Positionen nach der Skizze (Maßstab 0,72 auf `mx5_top_view.png` umgerechnet): weißer Punkt (176, 120) innen am
+  Scheinwerfer, roter Punkt (240, 1265) hinten innen; Blinker unverändert (Skizze davor).
+- `0x09A Headlight` je Log gegen die Tageszeit: `1` nur mittags (Tagfahrlicht), `TNS_Lo` morgens/abends (Abblend),
+  `TNS` kurz beim Umschalten, `Off` bei Zündung an, `Hi` 152 Frames am 02.11. abends (Fernlicht), `9` zweimal am
+  02.11. morgens (Lichthupe zum Tagfahrlicht). Bit 3 = Fernlicht.
+- Bremslicht aus `BrakeSwitch_PCM` (0x167 Bit 19, ~50 Hz, gegen Bremsdruck geprüft). `BrakeLamp` auf 0x43E käme nur
+  mit ~2 Hz (4965 gegen 121563 Frames in `11-04_152230`).
+- Kegel mit PhotoCraft (Lasso mit 22–26 px Weichzeichnung, radialer Verlauf warmweiß → transparent, Gauß 6–7 px):
+  Abblendlicht 400×600 asymmetrisch für Rechtsverkehr (rechts länger), Fernlicht 400×900 symmetrisch. Ebenen in
+  `~/Bilder/PhotoCraft/headlight_beam_{low,high}.pcraft`, PNGs in `scripts/`. Beide Scheinwerfer nutzen denselben
+  (nicht gespiegelten) Kegel. Pfad über `realpath`, weil `dash_gui.py` auf dem Pi ein Symlink in `canlogs/` ist.
+- Zustände: Tagfahrlicht = weißer Punkt; Stand-/Abblendlicht = Punkt + Rücklicht 50 % (+ Abblendkegel); Fernlicht =
+  beide Kegel; Bremse = Rücklicht voll. Blinker laufen über dieselbe Lampengruppen-Logik (`set_lamps`).
+- Auto in der Kachel 0,92 → 0,8 hoch und etwas tiefer, damit die Kegel unter „TPMS“ enden.
+- Nachtrag (zweite Skizze): Tagfahrlicht ist ein eigener kleiner Punkt (209, 107) innen neben dem Scheinwerfer.
+  `1`/`9` = nur dieser Punkt; Stand-/Abblend-/Fernlicht = Punkt gedimmt (Positionslicht), Scheinwerferpunkt (176, 120)
+  nur bei Abblend/Fern.
+- Nachtrag (Detailfoto Front/Heck): Tagfahrlicht als LED-Lichtleiter-Streifen innen (durch den Skizzenpunkt), kühles
+  Weiß; Projektorlinse als großer heller Kreis mit bläulich-weißem Schein; Blinker vorn als Bernstein-Klammer am
+  äußeren Scheinwerferende; Rücklicht als roter Leuchtring mit dunkler Mitte (neue Form `ring`: Durchmesser fest,
+  der Schein wächst nur in der Strichstärke).
+- Nachtrag (Vogelperspektive, Hinweis des Nutzers): Von oben sieht man weder die runde Projektorlinse noch den
+  Leuchtring. Leuchten jetzt als PhotoCraft-Overlays (`scripts/lamps/`, Ebenen `~/Bilder/PhotoCraft/top_*.pcraft`):
+  leuchtender Glassaum genau auf der Außenkontur (per Flood-Fill aus der Zeichnung bestimmt) und Lichtschein nur
+  außerhalb der Karosserie in Abstrahlrichtung (PhotoCraft-Auswahl „aussen“ per Zauberstab aus der Zeichnung,
+  `select.loadSelection` über Dokumente hinweg). Leinwand mit 60 px Rand, damit der Schein vor Nase/Heck nicht
+  abgeschnitten wird. Blinker nur links gemalt, rechts in Kivy gespiegelt (nur u der `tex_coords` umdrehen, Kivy-
+  Bildtexturen sind schon vertikal gedreht). Kegel-Ursprung an die Frontkante (176, 80) verlegt.
+  PhotoCraft-Fallstrick: `doc_select`/`index` gehen im GUI-Modus nicht, Dokument per `document.activate` wechseln.
+- Nachtrag (Nutzer: rechter Front-/Seitenblinker sitzen nicht perfekt): Die Zeichnung ist nicht symmetrisch, rechts
+  liegt die Frontkontur an der Blinkerecke ~4 px höher (Projektor/Lichtleiter 1–3 px, Heck 0–2 px), das rechte
+  Seitenblinker-Oval beginnt 4 px höher (Linienpixel y 382 statt 386). Gespiegelt saß der rechte Blinker darum neben
+  der Kante. Jetzt beide Seiten einzeln gemalt: jeder linke Pinselpunkt auf die echte rechte Kontur übertragen (Front/
+  Heck gleicher Abstand zur Kante an gespiegeltem x, Flanke gleicher Abstand zur Seitenkontur bei y − 4). Eigenes
+  `turn_right.png`, keine Spiegelung mehr in Kivy.
+
+## Dash: mitlenkende Vorderräder in der TPMS-Zeichnung (04.11.2026)
+
+**Wunsch (Nutzer, Variante 2 von 4 Vorschlägen).**
+- Lenkradwinkel `Steering_Wheel_Absolute_Angle` (0x082), Vorzeichen gegen den Blinker geprüft (15 Logs): mit `TURN_SW`
+  L lagen die Lenkwinkel > 60° bei +117 … +432°, mit R bei −99 … −185° → positiv = links. Median 0° (zentriert).
+- Geometrie in Zeichnungspixeln (0,328 px/mm aus 3915 mm Länge): Reifen 195/50 R16 = 64 × 197, Vorderachse y 285
+  (breiteste Stelle der Kotflügel, Spec-Überhang 765 mm ergäbe 275), Hinterachse y 1000, Spur 1495/1505 mm = ±245 px.
+  Geradeaus liegt der Reifen 26 px unter der Karosseriekante; ohne Überhöhung erst ab ~16° Rad (~255° Lenkrad) sichtbar.
+- Darstellung: Reifen voll → Karosseriefläche in Kachelfarbe (`lamps/body.png`, Flood-Fill aus der Zeichnung) →
+  Reifen nochmal mit 30 % („verdeckte Kanten“) → Linienzeichnung. Vorderräder drehen um ihre Mitte mit
+  Lenkrad/15,5 × 3, begrenzt auf ±40°; Hinterräder fest. Reifen- und Karosseriebild mit PIL (PhotoCraft war
+  geschlossen worden; reine Geometrie ohne Lichteffekte).
+
+## Traktionseingriffe: Stand über alle Logs, Anzeige im Dash (04.11.2026)
+
+- `TCS_Active_maybe` (0x211 Bit 40) in allen Logs: **53 Episoden** (0,02–1,6 s), seit den Winterreifen (01.10.)
+  deutlich häufiger (26.09.: 6). Bei den meisten liegt die Hinterachse 5–9 km/h vor der Vorderachse (max. 17,5 km/h
+  am 16.09.). Umgekehrt war nur gut ein Viertel aller 0,1-s-Schritte mit > 4 km/h Hinterachs-Vorsprung (v > 10 km/h)
+  mit Eingriff: Geradeaus-Schlupf wird toleriert, eingegriffen wird bei Schlupf plus Querdynamik (wie 26.09. gefunden).
+  Einzelne Pulse ohne nennenswerten Schlupf (0,3 km/h, 0,02–0,1 s am 17.09. und 04.11.) eher Stabilitätsregelung.
+- Dash: Bei Eingriff leuchten die Hinterräder in der TPMS-Zeichnung orange (`lamps/tcs.png`, PIL), 1 s gehalten
+  (`TCS_HOLD_S`), weil viele Eingriffe nur 0,02–0,1 s dauern.
+
+## Radzuordnung 0x215 und Schlupf ohne Regeleingriff (04.11.2026)
+
+- **`WheelSpeed_1-4` (0x215) = VL, VR, HL, HR**, aus der Kurvengeometrie (20 Logs, |Lenkrad| > 150°, 12–40 km/h):
+  in Linkskurven 2 und 4 (rechts außen) +9,1/+6,5 %, 1 und 3 −7,1/−8,5 %; in Rechtskurven spiegelbildlich; auf jeder
+  Seite das Vorderrad weiter außen (größerer Bogen). Bisher nur angenommen (`can_traction_circle.py`: „nicht zugeordnet“).
+- Hinterachse/Vorderachse geradeaus (|Lenkrad| < 15°, v > 40): 1,0001–1,0029 je Log (Median 1,001), also < 0,3 km/h
+  bei 100 km/h; fester Faktor genügt.
+- Schlupf = Hinterachse − 1,001 · Vorderachse > 3 km/h für ≥ 0,3 s bei v_vorn > 10 km/h: **44 Ereignisse, 15 mit
+  TCS-Eingriff (±0,5 s), 29 ohne.** Mit Eingriff: Median 6,8 km/h, Lenkrad bis 168°, 0,8 s. Ohne: 5,0 km/h, 49°,
+  0,4 s. Größte ohne Eingriff: Anfahren (vorn 6 km/h, hinten bis 31 km/h; 28.10., 02.11., 15.09.) und Volllast-Züge
+  um 57 km/h (01.10., 02.11., bis 19 km/h), Bremsdruck < 4 bar, Moment 75–90 %. Nicht geprüft: 13 km/h bei 412° Lenkrad
+  (28.10.), einzelne > 20 km/h-Spitzen könnten Einkuppeln beim Schalten sein.
+- Dash: Schlupf ohne Eingriff → Hinterräder gelb (`lamps/slip.png`), Eingriff → orange hat Vorrang; je 1 s gehalten.
+  `can_backend.py` lässt 0x215 jetzt durch.

@@ -36,20 +36,27 @@ Config.set("input", "mouse", "mouse,disable_on_activity")
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, Line, Rectangle, RoundedRectangle, Ellipse
+from kivy.graphics import Color, Line, Rectangle, RoundedRectangle, Ellipse, PushMatrix, PopMatrix, Rotate
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.image import Image
-from kivy.uix.spinner import Spinner
+from kivy.core.image import Image as CoreImage
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
 # Neben dem Skript statt in LOG_DIR - ein Asset, kein Laufzeit-/Log-Artefakt.
 CAR_TOP_VIEW_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mx5_top_view.png")
+# Leuchten und Lichtkegel in Draufsicht, mit PhotoCraft gemalt (04.11., Ebenen in ~/Bilder/PhotoCraft/
+# top_*.pcraft und headlight_beam_*.pcraft). realpath: auf dem Pi liegt dash_gui.py als Symlink in canlogs/,
+# die Assets nur im Repo daneben.
+LAMP_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lamps")
 # Titillium Web Bold Italic (Google Fonts, OFL) statt Kivys Standard-Roboto -
 # Nutzer zeigte ein Foto des echten Chrom-Emblems: fett UND kursiv/schraeg,
 # nicht aufrecht. Kein Font trifft das handgezeichnete Original exakt, das
@@ -200,6 +207,7 @@ BLUE = (0.22, 0.53, 0.9, 1)
 BABY_BLUE = (0.54, 0.81, 0.94, 1)
 NAVY = (0, 0, 0.5, 1)  # #000080 - GEAR-Farbe bei voll getretener Kupplung (Nutzerwunsch 2026-09-29)
 SILVER = (0.75, 0.76, 0.79, 1)
+SIM_BUTTON_BG = (0.11, 0.48, 0.24, 1)  # Gruen wie LOGGING LAEUFT
 GOOD = GREEN
 WARN = YELLOW
 
@@ -456,36 +464,52 @@ class MetricCard(Panel):
         self.title_label.bind(size=lambda w, s: setattr(w, "text_size", s))
         self.value_label = Label(text="–", font_size="52sp", color=TEXT, bold=True,
                                   halign="left", valign="middle")
-        self.value_label.bind(size=lambda w, s: setattr(w, "text_size", s))
+        # Mit Zweitwert nur die Breite vorgeben: die Hoehe folgt dort dem Text (siehe fit unten)
+        self.value_label.bind(size=lambda w, s: setattr(w, "text_size", (s[0], None) if side else s))
         self.add_widget(self.title_label)
         # Optionaler Zweitwert rechtsbuendig in der Wertzeile (KRAFTSTOFF: Momentanverbrauch)
         self.side_label = None
         if side:
             row = BoxLayout(orientation="horizontal")
-            row.add_widget(self.value_label)
-            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter. Oben ein Platzhalter
-            # in Einheitenhoehe, damit der Zweitwert (Spalte mittig verankert) auf derselben Hoehe
-            # steht wie der Hauptwert. Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
+            # Unter dem Hauptwert eine zweite Zeile gleicher Groesse (KRAFTSTOFF: Liter, Nutzerwunsch
+            # 04.11.); die Einheit des Zweitwerts steht mittig auf ihrer Hoehe.
+            self.sub_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
+                                   size_hint_y=None, height=0, halign="left")
+            self.sub_label.bind(width=lambda w, width: setattr(w, "text_size", (width, None)))
+            self.value_label.size_hint_y = None
+            main = BoxLayout(orientation="vertical", size_hint_y=None, height=0)
+            main.add_widget(self.value_label)
+            main.add_widget(self.sub_label)
+            main_anchor = AnchorLayout(anchor_x="left", anchor_y="center")
+            main_anchor.add_widget(main)
+            row.add_widget(main_anchor)
+            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter.
+            # Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
             self.side_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
                                     size_hint_y=None, height=0)
             self.side_unit_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
                                          size_hint_y=None, height=0)
-            pad = Widget(size_hint_y=None, height=0)
             col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(0, 0))
-            for w in (pad, self.side_label, self.side_unit_label):
+            for w in (self.side_label, self.side_unit_label):
                 col.add_widget(w)
             anchor = AnchorLayout(anchor_x="right", anchor_y="center", size_hint_x=None, width=0)
             anchor.add_widget(col)
 
             def fit(*_args):
-                value_w, value_h = self.side_label.texture_size
+                value_w, side_h = self.side_label.texture_size
                 unit_w, unit_h = self.side_unit_label.texture_size
-                self.side_label.height = value_h
-                self.side_unit_label.height = pad.height = unit_h
-                col.size = (max(value_w, unit_w), value_h + 2 * unit_h)
+                # Je Zeile die hoehere Seite, eine Seite darf leer sein - so stehen beide Zeilen links und rechts gleich
+                value_h = max(side_h, self.value_label.texture_size[1])
+                line_h = max(unit_h, self.sub_label.texture_size[1])
+                self.side_label.height = self.value_label.height = value_h
+                main.height = value_h + line_h
+                self.side_unit_label.height = self.sub_label.height = line_h
+                col.size = (max(value_w, unit_w), value_h + line_h)
                 anchor.width = col.width
             self.side_label.bind(texture_size=fit)
             self.side_unit_label.bind(texture_size=fit)
+            self.sub_label.bind(texture_size=fit)
+            self.value_label.bind(texture_size=fit)
             row.add_widget(anchor)
             self.add_widget(row)
         else:
@@ -730,6 +754,106 @@ class _RpmScaleRow(FloatLayout):
                                    pos_hint={"center_x": frac, "top": 1.0}))
 
 
+# Blinker (Nutzerwunsch 04.11.): 0x09A Turn ist der Lampenzustand selbst, er geht im Takt der Blinker
+# an und aus (0,35 s/0,35 s, 12 Frames/s, Log 2026-09-12_120952) - das Dash spiegelt ihn nur, ohne
+# eigenen Takt. "LR" = Warnblinker/Notbremssignal.
+TURN_CAN_ID, TURN_SIGNAL = 154, "Turn"
+TURN_STALE_S = 0.5
+# Leuchten als Bild-Overlays auf der Zeichnung (784x1326, Nase oben, y nach unten). Aus Vogelperspektive
+# (Hinweis des Nutzers 04.11.): von oben sieht man nur die Oberkante des Glases als leuchtenden Saum an der
+# Karosseriekante und den Lichtschein, der in Abstrahlrichtung vor/hinter/neben das Auto faellt - nie auf
+# Haube oder Kofferraum (Schein in PhotoCraft per Auswahl "aussen" auf die Flaeche ausserhalb der Karosserie
+# begrenzt). Gruppe -> (Datei, linke obere Ecke in Zeichnungspixeln). Beide Seiten einzeln gemalt, nicht
+# gespiegelt: die Zeichnung ist nicht symmetrisch (rechts Front 2-4 px hoeher, Seitenblinker-Oval 4 px hoeher),
+# gespiegelt sass der rechte Blinker neben der Kante (Nutzer 04.11.).
+CAR_PNG_W, CAR_PNG_H = 784, 1326
+# Gemalt auf einer Leinwand mit 60 px Rand, damit der Schein vor Nase und Heck nicht abgeschnitten ist; die Ecke
+# darf darum negativ sein.
+LAMP_SPRITES = {
+    "front": ("front.png", (63, -37)),
+    "drl": ("drl.png", (148, -15)),
+    "rear": ("rear.png", (129, 1227)),
+    "turn_L": ("turn_left.png", (36, 33)),
+    "turn_R": ("turn_right.png", (529, 30)),
+    "tcs": ("tcs.png", (73, 862)),  # Schein um die Hinterraeder bei Traktionseingriff
+    "slip": ("slip.png", (73, 862)),  # dasselbe gelb: Schlupf ohne Eingriff
+}
+# Traktionskontrolle (Nutzerwunsch 04.11.): 0x211 Bit 40 TCS_Active_maybe, seit 26.09. bekannt, bis 04.11. 53 Eingriffe
+# (0,02-1,6 s, meist 5-9 km/h Hinterachs-Vorsprung). Kurze Pulse werden gehalten, sonst sieht man sie nicht.
+TCS_CAN_ID, TCS_SIGNAL = ABS_CAN_ID, "TCS_Active_maybe"
+TCS_HOLD_S = 1.0
+# Schlupf ohne Eingriff (Nutzerwunsch 04.11.): Hinterachse > SLIP_MIN_KMH vor der Vorderachse fuer SLIP_MIN_S, gelb
+# statt orange. 0x215: 1 = VL, 2 = VR, 3 = HL, 4 = HR (aus der Kurvengeometrie: links aussen schneller, vorn mehr
+# als hinten). Hinten/vorn geradeaus 1,0001-1,0029 in allen Logs, darum fester Faktor statt Lernen. In den Logs
+# 29 solcher Ereignisse ohne Eingriff (meist Anfahren/Volllast geradeaus), 15 mit.
+WHEEL_SPEED_CAN_ID = 533
+SLIP_REAR_FRONT_RATIO = 1.001
+SLIP_MIN_KMH = 3.0
+SLIP_MIN_VF_KMH = 10.0
+SLIP_MIN_S = 0.3
+
+
+def rear_slip_kmh(wheels):
+    """[VL, VR, HL, HR] km/h -> Vorsprung der Hinterachse in km/h, None ohne vollstaendige Werte."""
+    if len(wheels) != 4 or not all(isinstance(w, (int, float)) for w in wheels):
+        return None
+    vf = (wheels[0] + wheels[1]) / 2
+    if vf < SLIP_MIN_VF_KMH:
+        return None
+    return (wheels[2] + wheels[3]) / 2 - SLIP_REAR_FRONT_RATIO * vf
+POSITION_LEVEL = 0.5  # Tagfahrlicht als Standlicht gedimmt
+BEAM_ORIGIN_LEFT = (176, 80)  # Frontkante vor dem Projektor
+# (Textur, Laenge in Autolaengen, Breite relativ zum Texturverhaeltnis, Ursprung in der Textur als
+# Anteil von links/unten). Abblendlicht kurz und breit gefaechert, Fernlicht lang.
+BEAMS = {"low": ("headlight_beam_low.png", 0.27, 1.7, (0.5, 2 / 600)),
+         "high": ("headlight_beam_high.png", 0.29, 1.5, (0.5, 2 / 900))}
+# Mitlenkende Vorderraeder (Nutzerwunsch 04.11.): Reifen 195/50 R16 (64 x 197 Zeichnungspixel bei 0,328 px/mm),
+# Achsen an der breitesten Stelle der Kotfluegel, Spur 1495/1505 mm. Geradeaus liegen sie 26 px unter der
+# Karosseriekante und waeren erst ab ~16 Grad Radeinschlag (~255 Grad Lenkrad) zu sehen. Darum: verdeckter Teil
+# gedaempft "durch" die Karosserie (wie verdeckte Kanten einer technischen Zeichnung), herausragender Teil voll,
+# Einschlag ueberhoeht. Lenkrad 0x082, positiv = links (gegen den Blinker geprueft: L +117..+432, R -99..-185).
+WHEELS = (((146, 285), True), ((637, 285), True), ((145, 1000), False), ((638, 1000), False))  # (Mitte, lenkt?)
+STEER_CAN_ID, STEER_SIGNAL = 130, "Steering_Wheel_Absolute_Angle"
+STEER_RATIO = 15.5      # Lenkuebersetzung ND (Lenkrad- zu Radwinkel), Stellschraube
+STEER_VIS_GAIN = 3.0    # Ueberhoehung in der Zeichnung
+STEER_VIS_MAX = 40.0    # Grad, damit voller Einschlag nicht absurd aussieht
+WHEEL_XRAY_ALPHA = 0.3  # verdeckter Teil
+
+
+def wheel_angle(steering_deg):
+    """Lenkradwinkel (Grad, links positiv) -> angezeigter Radwinkel (Grad, Kivy: gegen den Uhrzeigersinn)."""
+    if not isinstance(steering_deg, (int, float)):
+        return 0.0
+    return max(-STEER_VIS_MAX, min(STEER_VIS_MAX, steering_deg / STEER_RATIO * STEER_VIS_GAIN))
+
+
+HEADLIGHT_SIGNAL = "Headlight"  # 0x09A: 0 Off, 1 Tagfahrlicht, 2 TNS, 3 Abblend, 12 Fern, 9 Lichthupe am Tag
+HEADLIGHT_NAMES = {"Off": 0, "TNS": 2, "TNS_Lo": 3, "Hi": 12}
+BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL = 359, "BrakeSwitch_PCM"  # 0x167, ~50 Hz; 0x43E BrakeLamp nur ~2 Hz
+TAIL_LEVEL = 0.5  # Ruecklicht gedimmt, Bremse voll
+
+
+def light_state(headlight, brake):
+    """-> {Gruppe: Helligkeit 0..1} fuer Scheinwerfer, Tagfahrlicht, Ruecklampen und Kegel aus 0x09A
+    Headlight und Bremsschalter. In den Logs: 1 mittags (Tagfahrlicht), 3 morgens/abends, 12 kurz (Fernlicht),
+    9 = Lichthupe am Tag."""
+    raw = HEADLIGHT_NAMES.get(headlight, headlight)
+    raw = int(raw) if isinstance(raw, (int, float)) else 0
+    high = bool(raw & 8)
+    low = raw & 3 == 3 or high
+    tail = bool(raw & 2) or high
+    drl = raw == 1 or (raw & 1 and not raw & 2)  # 1 und 9 (Lichthupe am Tag)
+    return {"front": 1.0 if low else 0.0,
+            "drl": 1.0 if drl else (POSITION_LEVEL if tail else 0.0),
+            "rear": 1.0 if brake else (TAIL_LEVEL if tail else 0.0),
+            "low": 1.0 if low else 0.0, "high": 1.0 if high else 0.0}
+
+
+def turn_sides(value):
+    """0x09A Turn (Text oder Rohwert) -> (links an, rechts an)."""
+    return value in ("L", "LR", 1, 3), value in ("R", "LR", 2, 3)
+
+
 class TpmsCarView(Panel):
     """Reifendruck/-temperatur an einer Auto-Draufsicht - PNG-Asset
     (mx5_top_view.png, vom Nutzer als Gemini-Grafik geliefert: weisse
@@ -753,10 +877,39 @@ class TpmsCarView(Panel):
         # der 784x1326-PNG auf die kleine Kachelgroesse - Kivys Default-Texturfilter
         # ohne Mipmaps sieht bei einer duennen Linienzeichnung wie dieser sichtbar
         # unruhig/unsauber aus (vom Nutzer 2026-09-20 bemaengelt).
+        # Lichtkegel duerfen ueber "TPMS" strahlen (Nutzer 04.11.), das Auto bleibt dafuer gross und mittig.
         self._car = Image(source=CAR_TOP_VIEW_PNG, allow_stretch=True, keep_ratio=True,
                            mipmap=True, color=CAR_LINE, size_hint=(0.3, 0.92),
                            pos_hint={"center_x": 0.5, "center_y": 0.5})
         body.add_widget(self._car)
+        # Leuchten ueber, Kegel unter der Zeichnung; Gruppen ein/aus bzw. gedimmt ueber das Alpha ihrer Color.
+        self._lamp_colors = {}  # Gruppe -> [(Color, volles Alpha)]
+        self._lamp_rects = []   # (Rectangle, linke obere Ecke in Zeichnungspixeln)
+        self._beams = {}        # "low"/"high" -> (Color, [Rectangle links, rechts])
+        with self._car.canvas.before:
+            for name, (path, *_rest) in BEAMS.items():
+                texture = CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture
+                color = Color(1, 1, 1, 0)
+                self._beams[name] = (color, [Rectangle(texture=texture), Rectangle(texture=texture)])
+            # Reifen voll, darueber die Karosserieflaeche in Kachelfarbe (verdeckt sie), darueber gedaempft nochmal
+            tire = CoreImage(os.path.join(LAMP_DIR, "tire.png"), mipmap=True).texture
+            self._wheels = []  # (Rotate, Rectangle, Mitte in Zeichnungspixeln, lenkt?)
+            for xray in (False, True):
+                if xray:
+                    Color(*CARD_BG)
+                    self._body_fill = Rectangle(texture=CoreImage(os.path.join(LAMP_DIR, "body.png")).texture)
+                Color(1, 1, 1, WHEEL_XRAY_ALPHA if xray else 1.0)
+                for center, steers in WHEELS:
+                    PushMatrix()
+                    rotate = Rotate(angle=0, origin=(0, 0))
+                    self._wheels.append((rotate, Rectangle(texture=tire), center, steers))
+                    PopMatrix()
+        with self._car.canvas.after:
+            for group, (path, corner) in LAMP_SPRITES.items():
+                self._lamp_colors[group] = [(Color(1, 1, 1, 0), 1.0)]
+                rect = Rectangle(texture=CoreImage(os.path.join(LAMP_DIR, path), mipmap=True).texture)
+                self._lamp_rects.append((rect, corner))
+        self._lamp_geometry = None  # (pos, Bildgroesse) der letzten Platzierung
         self.corner_labels = {}
         # (Eckenschluessel, links?, oben?) - Positionierung ueber pos_hint x/right + top,
         # halign ueber text_size=size erzwungen (sonst zentriert Kivy trotz halign).
@@ -783,6 +936,62 @@ class TpmsCarView(Panel):
             col.add_widget(temp)
             body.add_widget(col)
             self.corner_labels[key] = (val, temp)
+
+    def _place_lamps(self):
+        # Bei jedem Setzen statt per bind(pos=...): das Binding feuerte nur vor dem endgueltigen
+        # Layout, die Lampen lagen dann ~450 px zu tief (Vorschau 04.11.).
+        geometry = (tuple(self._car.center), tuple(self._car.norm_image_size))
+        if geometry == self._lamp_geometry:
+            return
+        self._lamp_geometry = geometry
+        w, h = self._car.norm_image_size
+        scale = w / CAR_PNG_W
+        x0, y0 = self._car.center_x - w / 2, self._car.center_y - h / 2
+
+        def to_px(x, y):
+            return x0 + x * scale, y0 + (CAR_PNG_H - y) * scale
+
+        for rect, (left, top) in self._lamp_rects:
+            tw, th = rect.texture.size
+            px, py = to_px(left, top + th)  # Kivy: Ursprung unten links
+            rect.pos, rect.size = (px, py), (tw * scale, th * scale)
+        self._body_fill.pos, self._body_fill.size = (x0, y0), (w, h)
+        for rotate, rect, center, _steers in self._wheels:
+            cx, cy = to_px(*center)
+            tw, th = rect.texture.size
+            rect.size = (tw * scale, th * scale)
+            rect.pos = (cx - rect.size[0] / 2, cy - rect.size[1] / 2)
+            rotate.origin = (cx, cy)
+        # Kegel: beide Scheinwerfer gleich (Abblendlicht ist nicht spiegelsymmetrisch, sondern fuer
+        # Rechtsverkehr rechts laenger), Laenge relativ zur Autolaenge auf dem Bildschirm.
+        for name, (_path, length, widen, (ox, oy)) in BEAMS.items():
+            rects = self._beams[name][1]
+            tex_w, tex_h = rects[0].texture.size
+            bh = length * h
+            bw = bh * tex_w / tex_h * widen
+            for rect, x in zip(rects, (BEAM_ORIGIN_LEFT[0], CAR_PNG_W - BEAM_ORIGIN_LEFT[0])):
+                px, py = to_px(x, BEAM_ORIGIN_LEFT[1])
+                rect.pos, rect.size = (px - ox * bw, py - oy * bh), (bw, bh)
+
+    def set_lamps(self, levels):
+        """{Gruppe: 0..1} fuer front/drl/rear/turn_L/turn_R/low/high; fehlende Gruppen bleiben."""
+        self._place_lamps()
+        for group, level in levels.items():
+            if group in self._beams:
+                self._beams[group][0].a = level
+            else:
+                for color, alpha in self._lamp_colors[group]:
+                    color.a = alpha * level
+
+    def set_steering(self, steering_deg):
+        self._place_lamps()
+        angle = wheel_angle(steering_deg)
+        for rotate, _rect, _center, steers in self._wheels:
+            if steers:
+                rotate.angle = angle
+
+    def set_turn(self, left, right):
+        self.set_lamps({"turn_L": 1.0 if left else 0.0, "turn_R": 1.0 if right else 0.0})
 
     def set_corner(self, key, pressure, temp):
         val_label, temp_label = self.corner_labels[key]
@@ -853,6 +1062,9 @@ class DriveScreen(Screen):
         self.client = client
         self.session_max_speed = 0.0
         self._fuel_smooth = None
+        self._tcs_until = 0.0  # time.monotonic(), bis wann der Traktionseingriff angezeigt bleibt
+        self._slip_since = None  # Beginn des laufenden Schlupfs
+        self._slip_until = 0.0
         self._status_bar_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
@@ -987,6 +1199,22 @@ class DriveScreen(Screen):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
             t = c.get(TPMS_CAN_ID, f"{spec}_Temp_maybe", max_age=TPMS_STALE_S)
             self.tpms.set_corner(key, p, t)
+        self.tpms.set_turn(*turn_sides(c.get(TURN_CAN_ID, TURN_SIGNAL, max_age=TURN_STALE_S)))
+        self.tpms.set_lamps(light_state(c.get(TURN_CAN_ID, HEADLIGHT_SIGNAL),
+                                        c.get(BRAKE_LIGHT_CAN_ID, BRAKE_LIGHT_SIGNAL, max_age=TURN_STALE_S)))
+        self.tpms.set_steering(c.get(STEER_CAN_ID, STEER_SIGNAL, max_age=TURN_STALE_S))
+        now = time.monotonic()
+        if c.get(TCS_CAN_ID, TCS_SIGNAL, max_age=TURN_STALE_S) == 1:
+            self._tcs_until = now + TCS_HOLD_S
+        slip = rear_slip_kmh([c.get(WHEEL_SPEED_CAN_ID, f"WheelSpeed_{i}", max_age=TURN_STALE_S) for i in (1, 2, 3, 4)])
+        if slip is not None and slip > SLIP_MIN_KMH:
+            self._slip_since = now if self._slip_since is None else self._slip_since
+            if now - self._slip_since >= SLIP_MIN_S:
+                self._slip_until = now + TCS_HOLD_S
+        else:
+            self._slip_since = None
+        tcs = now < self._tcs_until  # Eingriff geht vor: orange statt gelb
+        self.tpms.set_lamps({"tcs": 1.0 if tcs else 0.0, "slip": 1.0 if not tcs and now < self._slip_until else 0.0})
 
         cruise_active = _cruise_active(c.get(CRUISE_FLAG_CAN_ID, CRUISE_FLAG_SIGNAL),
                                       c.get(CRUISE_CAN_ID, CRUISE_SIGNAL))
@@ -1010,6 +1238,10 @@ class DriveScreen(Screen):
                     self._fuel_smooth
                     + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
+        if fuel_liters is None and self._fuel_smooth is not None:
+            # ponytail: Geber-Ersatzweg rechnet aus den (bei 0 % gekappten) Prozent zurueck, unter 9,5 l steht dann 9,5
+            fuel_liters = FUEL_ZERO_PCT_L + self._fuel_smooth / 100.0 * (FUEL_FULL_L - FUEL_ZERO_PCT_L)
+        self.fuel_card.sub_label.text = "" if fuel_liters is None else f"{fuel_liters:.1f} l".replace(".", ",")
         # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
         # Deckel 99,9: dreistellig wird neben "100%" zu eng
         l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")
@@ -1128,6 +1360,12 @@ class PedalRow(BoxLayout):
             card.set_value(v)
 
 
+def sim_log_label(path, size):
+    """candump-2026-11-04_080151.log.gz, 83e6 -> "04.11.2026  08:01:51   83 MB" (Listenzeile Sim-Auswahl)."""
+    stamp = os.path.basename(path)[8:25]
+    return f"{stamp[8:10]}.{stamp[5:7]}.{stamp[:4]}   {stamp[11:13]}:{stamp[13:15]}:{stamp[15:17]}   {size / 1e6:.0f} MB"
+
+
 class SimController:
     """"Vcan-Simulation starten"-Knopf auf dem WARTE-AUF-CAN-BUS-Screen: baut
     vcan0 auf, spielt das ausgewaehlte (Standard: neueste) candump-Log komplett
@@ -1163,7 +1401,7 @@ class SimController:
                         ["sudo", "ip", "link", "set", "up", "vcan0"]):
                 subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             with open(SIM_TRIGGER_PATH, "w") as f:  # vor dem Start: Schleifenbedingung
-                f.write("vcan0")
+                f.write(log_path)  # can_backend.py holt damit den Tank-Startstand aus dem Tankbuch
             # Eigene Prozessgruppe: stop() beendet sh, zcat und canplayer zusammen
             self.proc = subprocess.Popen(
                 ["sh", "-c", SIM_LOOP_SH, "sh", SIM_TRIGGER_PATH, log_path],
@@ -1244,18 +1482,28 @@ class StatusScreen(Screen):
         self.live_grid = LiveGrid(client, size_hint_y=0.34)
         self.tpms = TpmsCarView(size_hint_y=0.34)
 
-        self._extras = BoxLayout(orientation="vertical", spacing=10, size_hint_y=0.6)
+        self._extras = BoxLayout(orientation="vertical", spacing=10, size_hint_y=None, height=0)
         col.add_widget(self._extras)
 
-        # Nur sichtbar bei WARTE AUF CAN-BUS - Vcan-Simulation mit dem
-        # im Spinner gewaehlten Log (Standard: neuestes), siehe SimController.
+        # Nur sichtbar bei WARTE AUF CAN-BUS - Vcan-Simulation mit dem in der Liste gewaehlten Log
+        # (Standard: neuestes), siehe SimController. 04.11.: Liste statt Spinner (Dropdown war zu klein
+        # und schlecht lesbar), Knopf hoch statt flach-breit - beide fuellen den sonst leeren Bildschirm.
         self.sim = SimController()
-        self._sim_logs = {}  # Spinner-Text -> Pfad
+        self._sim_logs = {}  # Listentext -> Pfad, neuestes zuerst
         self._sim_logs_at = 0.0  # time.monotonic() des letzten Einlesens
-        self.sim_spinner = Spinner(text="", font_size="16sp", size_hint_x=0.45)
-        self.sim_button = Button(text="Vcan-Simulation starten", font_size="20sp")
+        self.sim_choice = None  # gewaehlter Listentext
+        self._sim_rows = {}  # Listentext -> ToggleButton
+        self.sim_list = GridLayout(cols=1, spacing=6, size_hint_y=None)
+        self.sim_list.bind(minimum_height=self.sim_list.setter("height"))
+        self.sim_scroll = ScrollView(size_hint_x=0.62, bar_width=14, scroll_type=["bars", "content"],
+                                     bar_color=(*TEXT[:3], 0.7), bar_inactive_color=(*TEXT[:3], 0.35))
+        self.sim_scroll.add_widget(self.sim_list)
+        self.sim_button = Button(text="", font_size="30sp", bold=True, halign="center", size_hint_x=0.38,
+                                 background_normal="", background_color=SIM_BUTTON_BG)
+        self.sim_button.bind(size=lambda b, s: setattr(b, "text_size", (s[0] - 30, None)))
         self.sim_button.bind(on_release=lambda *_: self._on_sim_button())
-        self._sim_area = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=None, height=52)
+        self._set_sim_button_idle()
+        self._sim_area = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=0)
         self._sim_button_visible = False
         col.add_widget(self._sim_area)
 
@@ -1265,6 +1513,8 @@ class StatusScreen(Screen):
 
     def set_logging_extras_visible(self, visible):
         self._extras.clear_widgets()
+        self._extras.size_hint_y = 0.6 if visible else None  # leer kein Platzfresser (Sim-Liste braucht ihn)
+        self._extras.height = 0
         if visible:
             self._extras.add_widget(self.test_button)
             self._extras.add_widget(self.pedal_row)
@@ -1273,26 +1523,47 @@ class StatusScreen(Screen):
 
     def _refresh_sim_logs(self):
         self._sim_logs_at = time.monotonic()
-        old_newest = self.sim_spinner.values[0] if self.sim_spinner.values else None
-        self._sim_logs = {f"{os.path.basename(p)[8:25]} · {size / 1e6:.0f} MB": p
-                          for p, size in SimController.list_logs()}
-        values = list(self._sim_logs)
-        if values != list(self.sim_spinner.values):  # baut das Dropdown neu, also nur bei Aenderung
-            self.sim_spinner.values = values
+        old_newest = next(iter(self._sim_logs), None)
+        self._sim_logs = {sim_log_label(p, size): p for p, size in SimController.list_logs()}
+        rebuilt = list(self._sim_logs) != list(self._sim_rows)
+        if rebuilt:  # baut die Liste neu, also nur bei Aenderung
+            self.sim_list.clear_widgets()
+            self._sim_rows = {}
+            for label in self._sim_logs:
+                row = ToggleButton(text=label, group="sim_log", allow_no_selection=False, font_size="24sp",
+                                   size_hint_y=None, height=72, background_normal="", background_down="",
+                                   background_color=CARD_BG)
+                row.bind(state=lambda b, st: setattr(b, "background_color", BLUE if st == "down" else CARD_BG),
+                         on_release=lambda b: self._select_sim_log(b.text))
+                self.sim_list.add_widget(row)
+                self._sim_rows[label] = row
         # Stand die Auswahl auf dem neuesten Log (Standard), folgt sie einem neu gepackten; eine bewusst
         # gewaehlte aeltere bleibt stehen.
-        if self.sim_spinner.text not in self._sim_logs or self.sim_spinner.text == old_newest:
-            self.sim_spinner.text = next(iter(self._sim_logs), "kein Log")
+        if self.sim_choice not in self._sim_logs or self.sim_choice == old_newest:
+            self._select_sim_log(next(iter(self._sim_logs), None))
+            if rebuilt:
+                self.sim_scroll.scroll_y = 1  # neuestes oben in Sicht; sonst nie (Nutzer scrollt evtl.)
+        elif rebuilt:
+            self._select_sim_log(self.sim_choice)  # Markierung nach Neuaufbau wiederherstellen
+
+    def _select_sim_log(self, label):
+        self.sim_choice = label
+        for text, row in self._sim_rows.items():
+            row.state = "down" if text == label else "normal"
+
+    def _set_sim_button_idle(self):
+        self.sim_button.text = "SIMULATION\nSTARTEN"
+        self.sim_button.background_color = SIM_BUTTON_BG
 
     def _on_sim_button(self):
         self.sim_button.disabled = True
-        self.sim_spinner.disabled = True
+        self.sim_scroll.disabled = True
         if self.sim.running:
             self.sim_button.text = "Simulation stoppt..."
             threading.Thread(target=self._stop_sim_thread, daemon=True).start()
         else:
             self.sim_button.text = "Simulation startet..."
-            log_path = self._sim_logs.get(self.sim_spinner.text)
+            log_path = self._sim_logs.get(self.sim_choice)
             threading.Thread(target=self._start_sim_thread, args=(log_path,), daemon=True).start()
 
     def _start_sim_thread(self, log_path=None):
@@ -1305,11 +1576,12 @@ class StatusScreen(Screen):
 
     def _on_sim_result(self, ok, info):
         self.sim_button.disabled = False
-        self.sim_spinner.disabled = self.sim.running
+        self.sim_scroll.disabled = self.sim.running
         if self.sim.running:
-            self.sim_button.text = f"Simulation stoppen ({info})"
+            self.sim_button.text = f"SIMULATION\nSTOPPEN\n\n{info}"
+            self.sim_button.background_color = RED
         elif ok:
-            self.sim_button.text = "Vcan-Simulation starten"
+            self._set_sim_button_idle()
         else:
             self.sim_button.text = f"Fehler: {info}"
 
@@ -1354,9 +1626,12 @@ class StatusScreen(Screen):
         if want_sim != self._sim_button_visible:
             self._sim_button_visible = want_sim
             self._sim_area.clear_widgets()
+            # Sichtbar nimmt der Bereich den freien Platz, versteckt keinen.
+            self._sim_area.size_hint_y = 1 if want_sim else None
+            self._sim_area.height = 0
             if want_sim:
                 self._refresh_sim_logs()  # neue Logs seit dem letzten Mal (Fahrt dazwischen)
-                self._sim_area.add_widget(self.sim_spinner)
+                self._sim_area.add_widget(self.sim_scroll)
                 self._sim_area.add_widget(self.sim_button)
         elif want_sim and not self.sim.running and time.monotonic() - self._sim_logs_at >= SIM_LOGS_REFRESH_S:
             self._refresh_sim_logs()

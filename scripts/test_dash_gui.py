@@ -258,6 +258,121 @@ def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     assert abs(screen._fuel_smooth - 80.0) < 0.1
 
 
+def test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm():
+    """Nutzerwunsch 04.11.2026: Blinker in der TPMS-Zeichnung gelb. 0x09A Turn ist schon der
+    Lampentakt (an/aus), das Dash spiegelt ihn; veraltet = aus."""
+    assert dash_gui.turn_sides("L") == (True, False)
+    assert dash_gui.turn_sides("R") == (False, True)
+    assert dash_gui.turn_sides("LR") == (True, True)
+    assert dash_gui.turn_sides("Off") == (False, False) and dash_gui.turn_sides(None) == (False, False)
+    assert dash_gui.turn_sides(2) == (False, True)
+
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    alphas = lambda side: [c.a for c, _ in screen.tpms._lamp_colors["turn_" + side]]
+    lit = [1.0]
+    dark = [0.0] * len(lit)
+    client.set(154, "Turn", "L")
+    screen.refresh()
+    assert alphas("L") == lit and alphas("R") == dark
+    client.set(154, "Turn", "Off")                # Dunkelphase
+    screen.refresh()
+    assert alphas("L") == dark
+    client.set(154, "Turn", "LR")
+    screen.refresh()
+    assert alphas("L") == alphas("R") == lit
+
+
+def test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch():
+    """Licht und Bremse in der Autozeichnung (Skizze des Nutzers 04.11.2026). 0x09A Headlight in den
+    Logs: 1 mittags = Tagfahrlicht, TNS_Lo morgens/abends = Abblend, Hi kurz = Fern, 9 = Lichthupe am Tag."""
+    pos, tail = dash_gui.POSITION_LEVEL, dash_gui.TAIL_LEVEL
+    state = lambda *a: dash_gui.light_state(*a)
+    assert state("Off", 0) == {"front": 0.0, "drl": 0.0, "rear": 0.0, "low": 0.0, "high": 0.0}
+    assert state(1.0, 0) == {"front": 0.0, "drl": 1.0, "rear": 0.0, "low": 0.0, "high": 0.0}       # Tagfahrlicht
+    assert state("TNS", 0) == {"front": 0.0, "drl": pos, "rear": tail, "low": 0.0, "high": 0.0}   # Standlicht
+    assert state("TNS_Lo", 0) == {"front": 1.0, "drl": pos, "rear": tail, "low": 1.0, "high": 0.0}
+    assert state("Hi", 1) == {"front": 1.0, "drl": pos, "rear": 1.0, "low": 1.0, "high": 1.0}
+    assert state(9.0, 0)["high"] == 1.0 and state(9.0, 0)["drl"] == 1.0                     # Lichthupe am Tag
+    assert state(None, 1) == {"front": 0.0, "drl": 0.0, "rear": 1.0, "low": 0.0, "high": 0.0}
+
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(154, "Headlight", "TNS_Lo")
+    client.set(359, "BrakeSwitch_PCM", 1)
+    screen.refresh()
+    view = screen.tpms
+    assert view._beams["low"][0].a == 1.0 and view._beams["high"][0].a == 0.0
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [1.0]
+    client.set(359, "BrakeSwitch_PCM", 0)
+    screen.refresh()
+    assert [c.a for c, _ in view._lamp_colors["rear"]] == [dash_gui.TAIL_LEVEL]
+    # rechter Blinker als eigenes Bild an der echten rechten Kontur (Zeichnung nicht symmetrisch)
+    (left, _), (right, right_corner) = view._lamp_rects[3], view._lamp_rects[4]
+    assert right_corner[0] > dash_gui.CAR_PNG_W / 2 and right.texture.size[1] > 1000
+
+
+def test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not():
+    """Mitlenkende Vorderraeder (Nutzerwunsch 04.11.2026): Lenkrad links positiv -> Raeder gegen den Uhrzeigersinn,
+    ueberhoeht und begrenzt; ohne Signal geradeaus."""
+    assert dash_gui.wheel_angle(None) == 0.0
+    assert abs(dash_gui.wheel_angle(93.0) - 93.0 / dash_gui.STEER_RATIO * dash_gui.STEER_VIS_GAIN) < 1e-9
+    assert dash_gui.wheel_angle(-480.0) == -dash_gui.STEER_VIS_MAX
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    client.set(130, "Steering_Wheel_Absolute_Angle", 155.0)   # 10 Grad Radeinschlag links
+    screen.refresh()
+    angles = [(rot.angle, steers) for rot, _r, _c, steers in screen.tpms._wheels]
+    assert all(abs(a - 30.0) < 1e-6 for a, steers in angles if steers)
+    assert all(a == 0 for a, steers in angles if not steers)
+    client.set(130, "Steering_Wheel_Absolute_Angle", None)
+    screen.refresh()
+    assert all(rot.angle == 0 for rot, _r, _c, _s in screen.tpms._wheels)
+
+
+def test_traction_control_lights_rear_wheels_and_holds_short_pulses():
+    """Traktionseingriff (0x211 Bit 40) laesst die Hinterraeder leuchten; 0,02-s-Pulse bleiben TCS_HOLD_S stehen."""
+    from unittest import mock
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    tcs = lambda: screen.tpms._lamp_colors["tcs"][0][0].a
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0):
+        screen.refresh()
+        assert tcs() == 0.0
+        client.set(529, "TCS_Active_maybe", 1)
+        screen.refresh()
+        assert tcs() == 1.0
+        client.set(529, "TCS_Active_maybe", 0)
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0 + dash_gui.TCS_HOLD_S - 0.1):
+        screen.refresh()
+        assert tcs() == 1.0
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=100.0 + dash_gui.TCS_HOLD_S + 0.1):
+        screen.refresh()
+        assert tcs() == 0.0
+
+
+def test_rear_slip_without_intervention_lights_yellow_after_0_3_s_and_tcs_wins():
+    """Schlupf ohne Eingriff (Nutzerwunsch 04.11.2026): Hinterachse > 3 km/h vor der Vorderachse fuer 0,3 s -> gelb;
+    kuerzer, langsamer als 10 km/h oder mit Eingriff (orange) nicht."""
+    from unittest import mock
+    assert dash_gui.rear_slip_kmh([50, 50, 56, 56]) > 5.9
+    assert dash_gui.rear_slip_kmh([5, 6, 30, 30]) is None          # unter 10 km/h vorn: kein Urteil
+    assert dash_gui.rear_slip_kmh([50, None, 56, 56]) is None
+    client = FakeSnapshotClient()
+    screen = dash_gui.DriveScreen(client)
+    lamps = lambda: (screen.tpms._lamp_colors["slip"][0][0].a, screen.tpms._lamp_colors["tcs"][0][0].a)
+    for i, v in enumerate((50, 50, 56, 56), start=1):
+        client.set(533, f"WheelSpeed_{i}", v)
+    for t, expect in ((10.0, (0.0, 0.0)), (10.2, (0.0, 0.0)), (10.31, (1.0, 0.0))):
+        with mock.patch.object(dash_gui.time, "monotonic", return_value=t):
+            screen.refresh()
+            assert lamps() == expect, (t, lamps())
+    client.set(529, "TCS_Active_maybe", 1)
+    with mock.patch.object(dash_gui.time, "monotonic", return_value=10.4):
+        screen.refresh()
+        assert lamps() == (0.0, 1.0)
+
+
 def test_fuel_card_shows_momentary_consumption_right_of_level():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
@@ -416,9 +531,9 @@ def test_sim_log_choice_newest_first_without_stubs():
             assert names == ["candump-2026-10-10_133226.log.gz", "candump-2026-10-04_092939.log.gz"]
             screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
             screen.refresh({"values": {}, "can_up": False})
-        assert screen.sim_spinner.text == "2026-10-10_133226 · 3 MB"
-        assert len(screen.sim_spinner.values) == 2
-        screen.sim_spinner.text = screen.sim_spinner.values[1]
+        assert screen.sim_choice == "10.10.2026   13:32:26   3 MB"
+        assert len(screen._sim_logs) == 2
+        screen._select_sim_log(list(screen._sim_logs)[1])
         with mock.patch.object(dash_gui.threading, "Thread") as thread:
             screen._on_sim_button()
         assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
@@ -439,22 +554,22 @@ def test_sim_log_list_picks_up_logs_packed_after_dash_start():
         screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
         waiting = {"values": {}, "can_up": False}
         screen.refresh(waiting)
-        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+        assert screen.sim_choice.startswith("16.10.2026   18:10:06")
 
         put(tmp, "2026-10-16_183252")
         screen.refresh(waiting)  # innerhalb von SIM_LOGS_REFRESH_S: noch nicht nachgelesen
-        assert len(screen.sim_spinner.values) == 1
+        assert len(screen._sim_logs) == 1
         screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
         screen.refresh(waiting)
-        assert len(screen.sim_spinner.values) == 2
-        assert screen.sim_spinner.text.startswith("2026-10-16_183252")
+        assert len(screen._sim_logs) == 2
+        assert screen.sim_choice.startswith("16.10.2026   18:32:52")
 
-        screen.sim_spinner.text = screen.sim_spinner.values[1]  # Nutzer waehlt das aeltere
+        screen._select_sim_log(list(screen._sim_logs)[1])  # Nutzer waehlt das aeltere
         put(tmp, "2026-10-16_200000")
         screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
         screen.refresh(waiting)
-        assert len(screen.sim_spinner.values) == 3
-        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+        assert len(screen._sim_logs) == 3
+        assert screen.sim_choice.startswith("16.10.2026   18:10:06")
 
 
 def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
@@ -575,6 +690,7 @@ def test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_
     screen.refresh()
     assert screen._fuel_smooth == 100.0
     assert screen.fuel_card.value_label.text.startswith("100")
+    assert screen.fuel_card.sub_label.text == "45,0 l"
     client.snap = {"fuel_liters": 44.0}
     screen.refresh()
     assert abs(screen._fuel_smooth - 100.0 * 34.5 / 35.5) < 1e-9
@@ -583,6 +699,7 @@ def test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_
     screen.on_pre_enter()
     screen.refresh()
     assert abs(screen._fuel_smooth - dash_gui._fuel_pct_from_liters(3.0 + 1.10 * 36.2)) < 1e-9
+    assert screen.fuel_card.sub_label.text == "42,8 l"
 
 
 def test_shiftlight_colors_cover_the_narrow_orange_zone():
@@ -722,6 +839,11 @@ if __name__ == "__main__":
     test_led_dot_recolors_without_rebuilding_canvas()
     test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive()
     test_fuel_card_shows_momentary_consumption_right_of_level()
+    test_turn_signals_light_the_car_drawing_in_the_cars_own_rhythm()
+    test_headlights_beams_and_brake_light_follow_0x09a_and_brake_switch()
+    test_front_wheels_steer_with_the_steering_wheel_rear_wheels_do_not()
+    test_traction_control_lights_rear_wheels_and_holds_short_pulses()
+    test_rear_slip_without_intervention_lights_yellow_after_0_3_s_and_tcs_wins()
     test_every_signal_the_dash_reads_passes_the_backend_filter_and_exists()
     test_not_logging_falls_back_to_status()
     test_testmode_has_priority_over_logging()
