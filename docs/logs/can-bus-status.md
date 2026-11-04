@@ -6087,3 +6087,19 @@ Runde beim Endstand der ersten, nicht beim Tankbuch-Start.
 - **Gegenprobe Zapfsäule** (Stand vor dem Tanken + getankt, soll 45): 26.09. 45,3; 27.09. 44,9; 04.10. 44,5;
   10.10. 46,1; 26.10. 47,8; 04.11. 47,7 l. Die letzten beiden Intervalle zählen ~2,8 l zu wenig Verbrauch (passt zur
   4913-statt-4985-Frage und zur ODO-Lücke in G); unter der 4-l-Schwelle, der Volltank setzt es zurück.
+
+## Fahrten ohne Logger in den Intervallen D und G: Kilometerstand-Lücken (04.11.2026)
+
+**Frage (Nutzer):** Erklären Fahrten ohne Dash die ~2,8 l, die der Zähler in den letzten zwei Tankintervallen zu
+wenig zählt? `C001_ODO` je Log (Anfang/Ende) und Zähler-Lücken > 5 s innerhalb der Logs, gegen das Tankbuch.
+
+| Intervall | getankt | gezählt (Tankbuch) | fehlt | ODO-Lücken zwischen Logs | Lücken im Log | ≈ Liter (6,6 l/100 km) |
+|---|---|---|---|---|---|---|
+| D 10.10.→26.10. | 34,86 l | 32,02 l | 2,84 l | 21 km (10.10. 12:14→13:32, Stick-Hänger-Tag), 14 km (10.→15.10.), 8 km (16.→26.10.) | `10-16_181006`: 3 Zählerlücken 17–23 s, ~7 km | ~2,8 + ~0,5 l |
+| G 26.10.→04.11. | 36,14 l | 33,48 l | 2,66 l | 1 km (27.→28.10.), 3 km (29.10. 08:35→10:36) | keine | ~0,3 l |
+
+- **D ist erklärt:** 43 km ohne Aufzeichnung (wie schon am 26.10. gefunden) plus Aufnahmelücken am 16.10.
+- **G nicht:** nur 4 km Lücke. Es bleiben ~2,4 l, das passt zur Überfüllung laut Geber am 04.11. (~1,8 l) und zur
+  Skalenfrage 4913/4985 (1,5 % ≈ 0,5 l). Beim nächsten Stopp neu bewerten (siehe „Gegenrechnung 4913/l“).
+- Tankbuch/Schätzer ziehen ODO-Lücken bisher nicht ab: Eine Fahrt ohne Pi unter ~4 l bleibt unsichtbar, bis zum
+  nächsten Volltanken.
