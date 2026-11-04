@@ -22,6 +22,13 @@ except ImportError:
     dash_gui = None
 
 
+def _fuel_raw_for_pct(pct):
+    """Fuel_Tank-Wert (DBC), fuer den der Geber-Ersatzweg pct anzeigt (0 % = 9,5 l, 100 % = 45 l,
+    Liter = 3,0 + 1,10 * roh)."""
+    liters = dash_gui.FUEL_ZERO_PCT_L + pct / 100.0 * (dash_gui.FUEL_FULL_L - dash_gui.FUEL_ZERO_PCT_L)
+    return (liters - dash_gui.FUEL_SENSOR_L0) / dash_gui.FUEL_SENSOR_L_PER_RAW
+
+
 class FakeScreenManager:
     def __init__(self):
         self.current = "status"
@@ -199,14 +206,14 @@ def test_fuel_smoothing_is_frame_rate_independent_and_resets_on_new_drive():
     def run(hz, seconds, raw_after):
         client = FakeSnapshotClient()
         screen = dash_gui.DriveScreen(client)
-        client.set(158, "Fuel_Tank", (20.0 + 0.02) / 2.486)
+        client.set(158, "Fuel_Tank", _fuel_raw_for_pct(20.0))
         screen.refresh(1 / hz)
         client.set(158, "Fuel_Tank", raw_after)
         for _ in range(int(seconds * hz)):
             screen.refresh(1 / hz)
         return screen
 
-    raw80 = (80.0 + 0.02) / 2.486
+    raw80 = _fuel_raw_for_pct(80.0)
     fast = run(30, 8, raw80)._fuel_smooth
     slow = run(10, 8, raw80)._fuel_smooth
     assert abs(fast - slow) < 0.5, (fast, slow)
@@ -455,9 +462,9 @@ def test_fuel_gauge_smooths_out_tank_slosh():
     client = FakeSnapshotClient()
     screen = dash_gui.DriveScreen(client)
 
-    # Fuel_Tank ist der Rohwert vor der 2.486x-0.02-Umrechnung - Mittelwert
+    # Fuel_Tank ist der Geberwert vor der Liter-/Prozent-Umrechnung - Mittelwert
     # hier so gewaehlt, dass fuel_pct um 50% herum schwankt.
-    base_raw = (50.0 + 0.02) / 2.486
+    base_raw = _fuel_raw_for_pct(50.0)
     readings = []
     for i in range(240):  # 8s bei 30Hz
         noisy_raw = base_raw + 4.0 * math.sin(i * 1.3)  # schnelles Schwappen
@@ -465,7 +472,9 @@ def test_fuel_gauge_smooths_out_tank_slosh():
         screen.refresh()
         readings.append(screen._fuel_smooth)
 
-    raw_values = [max(0.0, min(100.0, 2.486 * (base_raw + 4.0 * math.sin(i * 1.3)) - 0.02))
+    raw_values = [dash_gui._fuel_pct_from_liters(
+                      dash_gui.FUEL_SENSOR_L0
+                      + dash_gui.FUEL_SENSOR_L_PER_RAW * (base_raw + 4.0 * math.sin(i * 1.3)))
                   for i in range(240)]
     tail_raw = raw_values[-60:]
     tail_smoothed = readings[-60:]
@@ -475,10 +484,44 @@ def test_fuel_gauge_smooths_out_tank_slosh():
 
     # Ein echter Sprung (z.B. Tanken) muss trotzdem durchkommen, nicht auf
     # ewig weggeglaettet werden.
-    client.set(158, "Fuel_Tank", (90.0 + 0.02) / 2.486)
+    client.set(158, "Fuel_Tank", _fuel_raw_for_pct(90.0))
     for _ in range(720):  # weitere 24s (~3 Tau, ~95% Annaeherung)
         screen.refresh()
     assert screen._fuel_smooth > 80.0, screen._fuel_smooth
+
+
+def test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_to_0():
+    """Nutzerwunsch 04.11.2026: voll = 45 l = 100 %, 9,5 l Rest = 0 %. Liefert can_backend.py
+    "fuel_liters" (Zaehlerintegration), zeigt die Kachel ihn sofort, ohne die Geber-Glaettung -
+    und der gesaettigte Geber (42,8 l) spielt dann keine Rolle mehr."""
+    assert dash_gui._fuel_pct_from_liters(45.0) == 100.0
+    assert dash_gui._fuel_pct_from_liters(9.5) == 0.0
+    assert dash_gui._fuel_pct_from_liters(5.0) == 0.0
+    assert abs(dash_gui._fuel_pct_from_liters(27.25) - 50.0) < 1e-9
+
+    class Client(FakeSnapshotClient):
+        snap = {}
+
+        def snapshot(self):
+            return self.snap
+
+    client = Client()
+    screen = dash_gui.DriveScreen(client)
+    client.set(158, "Fuel_Tank", 36.2)            # Geber gesaettigt
+    client.snap = {"fuel_liters": 10.0}
+    screen.refresh()
+    client.snap = {"fuel_liters": 45.0}           # Volltanken erkannt
+    screen.refresh()
+    assert screen._fuel_smooth == 100.0
+    assert screen.fuel_card.value_label.text.startswith("100")
+    client.snap = {"fuel_liters": 44.0}
+    screen.refresh()
+    assert abs(screen._fuel_smooth - 100.0 * 34.5 / 35.5) < 1e-9
+
+    client.snap = {}                              # aelteres Backend: Geber-Ersatzweg
+    screen.on_pre_enter()
+    screen.refresh()
+    assert abs(screen._fuel_smooth - dash_gui._fuel_pct_from_liters(3.0 + 1.10 * 36.2)) < 1e-9
 
 
 def test_shiftlight_colors_cover_the_narrow_orange_zone():
@@ -629,6 +672,7 @@ if __name__ == "__main__":
     test_gear_display_keeps_last_gear_while_clutch_pressed()
     test_clock_source_ntp_then_rtc_then_unknown()
     test_fuel_gauge_smooths_out_tank_slosh()
+    test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_to_0()
     test_shiftlight_colors_cover_the_narrow_orange_zone()
     test_limiter_active_needs_all_three_conditions()
     test_limiter_blink_toggles_over_time()

@@ -55,7 +55,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 - **Symlinks ins Repo:** `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`, `tpms_poller.py`,
   `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),
-  `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker).
+  `boot_timing.log` (Dash-Erstframe je Boot), `last_known_time` (Uhr-Anker), `fuel_state.json` (Tankinhalt in Litern für die KRAFTSTOFF-Kachel, schreibt
+  `can_backend.py`; seit 04.11. im Repo, noch nicht deployt. Löschen = Neustart beim Geberwert).
 - `archiv/`: alte Backups (`backup-*`), Vorversionen und Ausgaben bis 10.10. Nichts davon wird im Betrieb gebraucht.
 
 ## Deploy-Stand = Git auf dem Pi

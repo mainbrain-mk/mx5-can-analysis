@@ -4,6 +4,13 @@
 
 ## Kurzüberblick: aktueller Stand (2026-09-30)
 
+**Status 2026-11-04 — Tankanzeige im Dash aus dem Kraftstoffzähler (im Repo, noch nicht auf dem Pi).**
+Die KRAFTSTOFF-Kachel zeigt 100 % = 45 l nach dem Volltanken und 0 % = 9,5 l Rest, dazwischen linear. `can_backend.py`
+zählt ab dem Volltanken `FuelConsumption_Counter` (0x420, 4985/l) herunter. Der Tankgeber erkennt nur noch Tankstopps
+(gesättigt bei niedrigem Stand → 45 l) und Fahrten ohne Pi (Abweichung > 4 l → Geberwert). Der Stand liegt in
+`/home/pi/canlogs/fuel_state.json`. Bisher stand nach dem Tanken ~2,3 l lang 90 %, weil der Geber sättigt.
+Logbuch: „Tankanzeige aus dem Kraftstoffzähler…“ (04.11.).
+
 **Status 2026-10-31 — Dekodierte Logs jetzt als Parquet.** `can_log_parser.py` schreibt `<log>_decoded.parquet`
 (Spalten t/can_id/message/signal/value/value_text; Enum-Namen wie KeyState "ON" in `value_text`, `value` dann NaN)
 statt `_decoded.csv` - ~20x kleiner, Dekodieren+Schreiben ~7x schneller. Seit 31.10. auch alle Altlogs (CSV geloescht;
