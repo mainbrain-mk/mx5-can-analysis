@@ -151,7 +151,17 @@ FUEL_COUNTS_PER_L = FUEL_STEPS_PER_L  # 0x420 Byte2 (4985/l), umlaufend 8 Bit
 FUEL_SENSOR_L0 = 3.0              # Geber-Kennlinie: Liter = 3,0 + 1,10 * Fuel_Tank (DBC-Wert)
 FUEL_SENSOR_L_PER_RAW = 1.10
 FUEL_SENSOR_SATURATED_RAW = 36.1  # Saettigung liest 36,2 (Aufloesung 0,2)
-FUEL_RESYNC_L = 4.0               # Abweichung Geber <-> Zaehlerstand, ab der der Geber gilt
+FUEL_RESYNC_L = 5.0               # Abweichung Geber <-> Zaehlerstand, ab der der Geber gilt; 4 l loeste
+                                  # beim Parken am Hang hin und zurueck aus (29./30.10. +4,1/-4,7 l)
+# Zweiter Anker (04.11.): Nach dem Volltanken streut "voll" um +-1 l (Zapfpistole, Einfuellstutzen;
+# 26.10. ~44,1 l, 04.11. ~46,1 l). Faellt der Geber danach erstmals dauerhaft aus der Saettigung
+# (Median ueber FUEL_DESAT_WINDOW_S unter FUEL_DESAT_RAW), sind ~FUEL_DESAT_L im Tank. Bei allen sechs
+# Stopps 26.09.-04.11. nach 1,5-3,5 l Verbrauch; deckt sich mit dem Geber vor dem Tanken.
+FUEL_DESAT_RAW = 35.9
+FUEL_DESAT_BAND_RAW = 2.0         # nur knapp darunter zaehlt (langsames Absinken), tiefer = Schwappen/Steigung
+FUEL_DESAT_L = 42.6               # = 3,0 + 1,10 * 36,0
+FUEL_DESAT_WINDOW_S = 120.0
+FUEL_DESAT_MAX_FIX_L = 2.5        # groessere Korrektur = eher Schwappen/Steigung als Fuellstreuung: verwerfen
 FUEL_START_WINDOW_S = 3.0         # Geber-Median ab dem ersten Wert nach Zuendung an; nach jedem Tankstopp
                                   # 04.11. war er ab der ersten Sekunde gesaettigt (7 Stopps geprueft)
 FUEL_SAMPLE_GAP_S = 5.0           # laengere Luecke (Zuendung aus, Neustart) = Neubeginn
@@ -184,10 +194,10 @@ def fuel_ledger_append(entry, path=FUEL_LEDGER_PATH, log=print):
         log(f"{time.strftime('%F %T')} Tankbuch nicht geschrieben: {e}")
 
 
-def fuel_ledger_start_liters(log_name, path=FUEL_LEDGER_PATH):
-    """Literstand bei Beginn des Logs laut Tankbuch, None ohne Eintrag. Der erste Live-Eintrag gilt
-    (ein Backend-Neustart in der Fahrt schreibt einen zweiten, mittendrin); ohne ihn der letzte
-    nachberechnete."""
+def fuel_ledger_start(log_name, path=FUEL_LEDGER_PATH):
+    """start-Eintrag des Logs laut Tankbuch (liters, await_desat), None ohne Eintrag. Der erste
+    Live-Eintrag gilt (ein Backend-Neustart in der Fahrt schreibt einen zweiten, mittendrin); ohne
+    ihn der letzte nachberechnete."""
     key, found, found_live = log_key(log_name), None, False
     try:
         with open(path) as fh:
@@ -200,7 +210,7 @@ def fuel_ledger_start_liters(log_name, path=FUEL_LEDGER_PATH):
                     continue
                 live = e.get("source") == "live"
                 if not found_live:
-                    found, found_live = float(e["liters"]), live
+                    found, found_live = e, live
     except OSError:
         return None
     return found
@@ -220,13 +230,15 @@ class FuelEstimator:
     def __init__(self, state_path=None, log=print, on_resync=None):
         self.state_path = state_path
         self._log = log
-        self._on_resync = on_resync  # (Volltanken?, Liter vorher, Liter nachher) -> Tankbuch
+        self._on_resync = on_resync  # ("refuel"|"resync"|"anchor", Liter vorher, nachher) -> Tankbuch
         self._lock = threading.Lock()
         self.liters = None
         self._counter = None          # (Rohwert, t)
         self._counter_seen = None     # t des letzten gueltigen Zaehlerwerts
         self._window = []             # Geberwerte des Startfensters, None = geschlossen (in Fahrt)
         self._window_t0 = None
+        self.await_desat = False      # nach dem Volltanken: auf das Saettigungsende warten (zweiter Anker)
+        self._desat = []              # (t, Geber roh) der letzten FUEL_DESAT_WINDOW_S
         self._saved_liters = None
         self._saved_t = None
         self._load()
@@ -237,27 +249,30 @@ class FuelEstimator:
             return
         try:
             with open(self.state_path) as fh:
-                liters = float(json.load(fh)["liters"])
+                state = json.load(fh)
+            liters = float(state["liters"])
         except (OSError, ValueError, KeyError, TypeError):
             return
         if 0.0 <= liters <= FUEL_FULL_L:
-            self.liters = self._saved_liters = liters
+            self.liters = liters
+            self.await_desat = bool(state.get("await_desat"))
+            self._saved_liters = (liters, self.await_desat)
 
     def save(self, now=None, force=False):
         if not self.state_path:
             return
         now = time.monotonic() if now is None else now
         with self._lock:
-            liters = self.liters
-            if liters is None or liters == self._saved_liters:
+            liters, flag = self.liters, self.await_desat
+            if liters is None or (liters, flag) == self._saved_liters:
                 return
             if not force and self._saved_t is not None and now - self._saved_t < FUEL_SAVE_INTERVAL_S:
                 return
-            self._saved_liters, self._saved_t = liters, now
+            self._saved_liters, self._saved_t = (liters, flag), now
         tmp = self.state_path + ".tmp"
         try:
             with open(tmp, "w") as fh:
-                json.dump({"liters": round(liters, 3), "saved": time.strftime("%F %T")}, fh)
+                json.dump({"liters": round(liters, 3), "await_desat": flag, "saved": time.strftime("%F %T")}, fh)
             os.replace(tmp, self.state_path)
         except OSError as e:
             self._log(f"{time.strftime('%F %T')} Tankstand nicht gespeichert: {e}")
@@ -299,6 +314,7 @@ class FuelEstimator:
         with self._lock:
             if self.liters is None:
                 self.liters = FUEL_FULL_L if raw >= FUEL_SENSOR_SATURATED_RAW else fuel_sensor_liters(raw)
+                self.await_desat = raw >= FUEL_SENSOR_SATURATED_RAW
                 event = f"Start ohne gespeicherten Stand: {self.liters:.1f} l laut Geber"
             if self._window is not None:
                 if self._window_t0 is None:
@@ -315,8 +331,27 @@ class FuelEstimator:
                         new = FUEL_FULL_L if saturated else sensor_l
                         event = (f"{'Volltanken' if saturated else 'Abgleich mit dem Geber'}: "
                                  f"{self.liters:.1f} -> {new:.1f} l (Geber roh {median:.1f})")
-                        resync = (saturated, self.liters, new)
+                        resync = ("refuel" if saturated else "resync", self.liters, new)
                         self.liters = new
+                        self.await_desat = saturated
+            if self.await_desat and self.liters < FUEL_DESAT_L - FUEL_DESAT_MAX_FIX_L:
+                self.await_desat, self._desat = False, []  # laengst darunter, Ende nicht gesehen: aufgeben
+            if self.await_desat and self._window is None:
+                if self._desat and now - self._desat[-1][0] > FUEL_SAMPLE_GAP_S:
+                    self._desat = []  # Zuendung aus dazwischen: Fenster neu
+                self._desat.append((now, raw))
+                while now - self._desat[0][0] > FUEL_DESAT_WINDOW_S:
+                    self._desat.pop(0)
+                if now - self._desat[0][0] >= 0.8 * FUEL_DESAT_WINDOW_S:
+                    values = sorted(r for _, r in self._desat)
+                    if FUEL_DESAT_RAW - FUEL_DESAT_BAND_RAW < values[len(values) // 2] < FUEL_DESAT_RAW:
+                        self.await_desat, self._desat = False, []
+                        if abs(FUEL_DESAT_L - self.liters) <= FUEL_DESAT_MAX_FIX_L:
+                            event = f"Saettigungsende: {self.liters:.2f} -> {FUEL_DESAT_L:.1f} l"
+                            resync = ("anchor", self.liters, FUEL_DESAT_L)
+                            self.liters = FUEL_DESAT_L
+                        else:
+                            event = f"Saettigungsende bei {self.liters:.2f} l verworfen (zu weit von {FUEL_DESAT_L} l)"
         if event:
             self._log(f"{time.strftime('%F %T')} Tank: {event}")
             self.save(now, force=True)
@@ -530,7 +565,7 @@ class CanBackend:
             if (self._ledger_start_pending and not self._fuel_real.start_pending
                     and self._fuel_real.liters is not None):
                 self._ledger_start_pending = False
-                self._ledger_write("start", self._fuel_real.liters)
+                self._ledger_write("start", self._fuel_real.liters, await_desat=self._fuel_real.await_desat)
         else:
             if self._logging_since_mono is not None:
                 self._fuel_real.save(force=True)  # Zuendung aus: Stand sofort sichern
@@ -547,9 +582,9 @@ class CanBackend:
         fuel_ledger_append({"log": self._ledger_log, "event": event, "liters": round(liters, 2), **extra,
                             "time": time.strftime("%F %T"), "source": "live"}, self.fuel_ledger_path)
 
-    def _ledger_resync(self, full, before, after):
+    def _ledger_resync(self, event, before, after):
         if self._ledger_log is not None:
-            self._ledger_write("refuel" if full else "resync", after, before=round(before, 2))
+            self._ledger_write(event, after, before=round(before, 2))
 
     def run_process_watch(self):
         # Nur fuer Tests ohne echten can0-Adapter (z.B. vcan0-Replay - dessen
@@ -621,9 +656,12 @@ class CanBackend:
                         sim_log = fh.read().strip()
                 except OSError:
                     sim_log = ""
-                self.fuel.liters = fuel_ledger_start_liters(sim_log, self.fuel_ledger_path) if sim_log else None
+                start = fuel_ledger_start(sim_log, self.fuel_ledger_path) if sim_log else None
+                if start is not None:
+                    self.fuel.liters = float(start["liters"])
+                    self.fuel.await_desat = bool(start.get("await_desat"))
                 print(f"{time.strftime('%F %T')} Sim {log_key(sim_log) or '?'}: Tank laut Tankbuch "
-                      f"{self.fuel.liters if self.fuel.liters is not None else 'unbekannt (Geber)'}", flush=True)
+                      f"{start if start is not None else 'unbekannt (Geber)'}", flush=True)
             else:
                 self.fuel = self._fuel_real
             try:

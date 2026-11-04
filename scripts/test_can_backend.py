@@ -294,14 +294,56 @@ def test_fuel_ledger_records_drive_and_sim_reads_start_liters():
         assert entries[0]["before"] == 20.0 and all(e["source"] == "live" for e in entries)
         with open(ledger, "a") as fh:                          # Backend-Neustart in Fahrt: zweiter Start
             fh.write('{"log": "candump-2026-11-05_120000", "event": "start", "liters": 41.0, "source": "live"}\n')
-        assert can_backend.fuel_ledger_start_liters("/x/candump-2026-11-05_120000.log.gz", ledger) == 45.0
+        start = can_backend.fuel_ledger_start("/x/candump-2026-11-05_120000.log.gz", ledger)
+        assert start["liters"] == 45.0 and start["await_desat"] is True, start
 
         with open(ledger, "a") as fh:
             fh.write('{"log": "candump-2026-11-01_090000", "event": "start", "liters": 30.0, '
                      '"source": "nachberechnet"}\n{"log": "candump-2026-11-01_09')   # halbe Zeile (Strom weg)
-        assert can_backend.fuel_ledger_start_liters("candump-2026-11-01_090000.log.gz", ledger) == 30.0
-        assert can_backend.fuel_ledger_start_liters("candump-2026-10-01_090000.log.gz", ledger) is None
-        assert can_backend.fuel_ledger_start_liters("x", os.path.join(d, "fehlt.jsonl")) is None
+        assert can_backend.fuel_ledger_start("candump-2026-11-01_090000.log.gz", ledger)["liters"] == 30.0
+        assert can_backend.fuel_ledger_start("candump-2026-10-01_090000.log.gz", ledger) is None
+        assert can_backend.fuel_ledger_start("x", os.path.join(d, "fehlt.jsonl")) is None
+
+
+def test_fuel_desaturation_is_second_anchor_and_survives_restart():
+    """Fuellstreuung (26.10. ~44,1 l, 04.11. ~46,1 l): sinkt der Geber nach dem Volltanken erstmals
+    knapp unter die Saettigung, gilt FUEL_DESAT_L. Das Warten ueberlebt Zuendung aus/Neustart;
+    tiefes Schwappen loest nichts aus."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "fuel_state.json")
+        events = []
+        fuel = can_backend.FuelEstimator(path, log=lambda _l: None, on_resync=lambda *e: events.append(e))
+        fuel.liters = 11.5
+        t = 0.0
+        for _ in range(40):                    # Zuendung an nach dem Tanken
+            t += 0.1
+            fuel.on_sensor(36.2, t)
+        assert fuel.liters == 45.0 and fuel.await_desat
+        fuel.liters = 43.0                     # 2 l gefahren, Geber noch gesaettigt
+        fuel.save(force=True)
+
+        fuel = can_backend.FuelEstimator(path, log=lambda _l: None, on_resync=lambda *e: events.append(e))
+        assert fuel.liters == 43.0 and fuel.await_desat   # naechstes Log, Backend neu
+        fuel.start_session()
+        t = 1000.0
+        for _ in range(40):
+            t += 0.1
+            fuel.on_sensor(36.2, t)
+        for _ in range(240):                   # 2 min tiefes Schwappen: kein Anker
+            t += 0.5
+            fuel.on_sensor(20.0, t)
+        assert fuel.liters == 43.0 and fuel.await_desat
+        for _ in range(240):                   # langsames Absinken knapp unter die Saettigung
+            t += 0.5
+            fuel.on_sensor(35.8, t)
+        assert fuel.liters == can_backend.FUEL_DESAT_L and not fuel.await_desat
+        assert events[-1] == ("anchor", 43.0, can_backend.FUEL_DESAT_L), events
+        fuel.save(force=True)
+        assert can_backend.FuelEstimator(path).await_desat is False
+
+        fuel.await_desat, fuel.liters = True, 39.0   # Ende nie gesehen, Zaehler laengst darunter
+        fuel.on_sensor(36.2, t + 10)
+        assert not fuel.await_desat
 
 
 def test_consumption_meter_l100km_with_counter_wrap():
@@ -342,5 +384,6 @@ if __name__ == "__main__":
     test_fuel_without_counter_publishes_nothing_so_dash_uses_the_sensor()
     test_fuel_state_survives_restart_and_is_saved_on_ignition_off()
     test_fuel_ledger_records_drive_and_sim_reads_start_liters()
+    test_fuel_desaturation_is_second_anchor_and_survives_restart()
     test_consumption_meter_l100km_with_counter_wrap()
     print("ok")

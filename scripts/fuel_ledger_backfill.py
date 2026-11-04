@@ -65,8 +65,8 @@ def main():
     current = {}  # Log/Zeit fuer den Resync-Callback
     fuel = can_backend.FuelEstimator(
         None, log=lambda _line: None,
-        on_resync=lambda full, before, after: entries.append({
-            "log": current["key"], "event": "refuel" if full else "resync", "liters": round(after, 2),
+        on_resync=lambda event, before, after: entries.append({
+            "log": current["key"], "event": event, "liters": round(after, 2),
             "before": round(before, 2), "time": current["time"](), "source": "nachberechnet"}))
 
     prev_end = 0.0
@@ -86,7 +86,7 @@ def main():
 
         def on_start(liters):
             start["l"] = liters
-            entries.append({"log": key, "event": "start", "liters": round(liters, 2),
+            entries.append({"log": key, "event": "start", "liters": round(liters, 2), "await_desat": fuel.await_desat,
                                       "time": start_dt.strftime("%F %T"), "source": "nachberechnet"})
 
         def tracked():
@@ -104,7 +104,7 @@ def main():
             entries.append({"log": key, "event": "end", "liters": round(fuel.liters, 2),
                             "time": current["time"](), "source": "nachberechnet"})
         events = [f"{e['event']} {e['before']:.1f}->{e['liters']:.1f}" for e in entries[n_before:]
-                  if e["event"] in ("refuel", "resync")]
+                  if e["event"] in ("refuel", "resync", "anchor")]
         rows.append((key, start.get("l"), fuel.liters, ", ".join(events)))
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
@@ -118,15 +118,16 @@ def main():
 
 
 def _selftest():
-    """Tankstopp zwischen zwei Logs, Stand traegt ins naechste Log, Schwappen in Fahrt aendert nichts."""
+    """Tankstopp zwischen zwei Logs, Stand traegt ins naechste Log, Schwappen in Fahrt aendert nichts,
+    das Saettigungsende setzt den zweiten Anker."""
     entries = []
     fuel = can_backend.FuelEstimator(None, log=lambda _l: None,
-                                     on_resync=lambda full, b, a: entries.append((full, b, a)))
+                                     on_resync=lambda event, b, a: entries.append((event, b, a)))
     fuel.liters = 10.0
     tank = can_backend.FUEL_TANK_SIGNAL
     starts = []
     replay(fuel, [(i * 0.1, tank, 36.2) for i in range(50)], 1000.0, starts.append)
-    assert starts == [45.0] and entries == [(True, 10.0, 45.0)], (starts, entries)   # Start nach dem Tanken
+    assert starts == [45.0] and entries == [("refuel", 10.0, 45.0)], (starts, entries)   # Start nach dem Tanken
 
     log2 = [(i * 0.1, tank, 36.2) for i in range(40)]
     log2 += [(4.0 + i * 0.1, can_backend.FUEL_COUNTER_SIGNAL, i % 256) for i in range(500)]   # 499 Schritte
@@ -134,6 +135,11 @@ def _selftest():
     replay(fuel, log2, 9000.0, starts.append)
     assert starts == [45.0, 45.0] and len(entries) == 1, (starts, entries)
     assert abs(fuel.liters - (45.0 - 499 / can_backend.FUEL_COUNTS_PER_L)) < 1e-9, fuel.liters
+    assert fuel.await_desat
+
+    log3 = [(i * 0.1, tank, 36.2) for i in range(40)] + [(4.0 + i * 0.5, tank, 35.8) for i in range(300)]
+    replay(fuel, log3, 20000.0, starts.append)   # Geber sinkt langsam aus der Saettigung
+    assert entries[-1][0] == "anchor" and fuel.liters == can_backend.FUEL_DESAT_L and not fuel.await_desat, entries
 
 
 if __name__ == "__main__":
