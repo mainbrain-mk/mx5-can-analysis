@@ -416,9 +416,9 @@ def test_sim_log_choice_newest_first_without_stubs():
             assert names == ["candump-2026-10-10_133226.log.gz", "candump-2026-10-04_092939.log.gz"]
             screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
             screen.refresh({"values": {}, "can_up": False})
-        assert screen.sim_spinner.text == "2026-10-10_133226 · 3 MB"
-        assert len(screen.sim_spinner.values) == 2
-        screen.sim_spinner.text = screen.sim_spinner.values[1]
+        assert screen.sim_choice == "10.10.2026   13:32:26   3 MB"
+        assert len(screen._sim_logs) == 2
+        screen._select_sim_log(list(screen._sim_logs)[1])
         with mock.patch.object(dash_gui.threading, "Thread") as thread:
             screen._on_sim_button()
         assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
@@ -439,22 +439,22 @@ def test_sim_log_list_picks_up_logs_packed_after_dash_start():
         screen = dash_gui.StatusScreen(FakeSnapshotClient(), on_start_test=lambda: None)
         waiting = {"values": {}, "can_up": False}
         screen.refresh(waiting)
-        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+        assert screen.sim_choice.startswith("16.10.2026   18:10:06")
 
         put(tmp, "2026-10-16_183252")
         screen.refresh(waiting)  # innerhalb von SIM_LOGS_REFRESH_S: noch nicht nachgelesen
-        assert len(screen.sim_spinner.values) == 1
+        assert len(screen._sim_logs) == 1
         screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
         screen.refresh(waiting)
-        assert len(screen.sim_spinner.values) == 2
-        assert screen.sim_spinner.text.startswith("2026-10-16_183252")
+        assert len(screen._sim_logs) == 2
+        assert screen.sim_choice.startswith("16.10.2026   18:32:52")
 
-        screen.sim_spinner.text = screen.sim_spinner.values[1]  # Nutzer waehlt das aeltere
+        screen._select_sim_log(list(screen._sim_logs)[1])  # Nutzer waehlt das aeltere
         put(tmp, "2026-10-16_200000")
         screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
         screen.refresh(waiting)
-        assert len(screen.sim_spinner.values) == 3
-        assert screen.sim_spinner.text.startswith("2026-10-16_181006")
+        assert len(screen._sim_logs) == 3
+        assert screen.sim_choice.startswith("16.10.2026   18:10:06")
 
 
 def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():

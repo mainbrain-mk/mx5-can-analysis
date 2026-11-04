@@ -40,11 +40,13 @@ from kivy.graphics import Color, Line, Rectangle, RoundedRectangle, Ellipse
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.image import Image
-from kivy.uix.spinner import Spinner
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 
 LOG_DIR = os.environ.get("MX5_LOG_DIR", "/home/pi/canlogs")
@@ -200,6 +202,7 @@ BLUE = (0.22, 0.53, 0.9, 1)
 BABY_BLUE = (0.54, 0.81, 0.94, 1)
 NAVY = (0, 0, 0.5, 1)  # #000080 - GEAR-Farbe bei voll getretener Kupplung (Nutzerwunsch 2026-09-29)
 SILVER = (0.75, 0.76, 0.79, 1)
+SIM_BUTTON_BG = (0.11, 0.48, 0.24, 1)  # Gruen wie LOGGING LAEUFT
 GOOD = GREEN
 WARN = YELLOW
 
@@ -1128,6 +1131,12 @@ class PedalRow(BoxLayout):
             card.set_value(v)
 
 
+def sim_log_label(path, size):
+    """candump-2026-11-04_080151.log.gz, 83e6 -> "04.11.2026  08:01:51   83 MB" (Listenzeile Sim-Auswahl)."""
+    stamp = os.path.basename(path)[8:25]
+    return f"{stamp[8:10]}.{stamp[5:7]}.{stamp[:4]}   {stamp[11:13]}:{stamp[13:15]}:{stamp[15:17]}   {size / 1e6:.0f} MB"
+
+
 class SimController:
     """"Vcan-Simulation starten"-Knopf auf dem WARTE-AUF-CAN-BUS-Screen: baut
     vcan0 auf, spielt das ausgewaehlte (Standard: neueste) candump-Log komplett
@@ -1244,18 +1253,28 @@ class StatusScreen(Screen):
         self.live_grid = LiveGrid(client, size_hint_y=0.34)
         self.tpms = TpmsCarView(size_hint_y=0.34)
 
-        self._extras = BoxLayout(orientation="vertical", spacing=10, size_hint_y=0.6)
+        self._extras = BoxLayout(orientation="vertical", spacing=10, size_hint_y=None, height=0)
         col.add_widget(self._extras)
 
-        # Nur sichtbar bei WARTE AUF CAN-BUS - Vcan-Simulation mit dem
-        # im Spinner gewaehlten Log (Standard: neuestes), siehe SimController.
+        # Nur sichtbar bei WARTE AUF CAN-BUS - Vcan-Simulation mit dem in der Liste gewaehlten Log
+        # (Standard: neuestes), siehe SimController. 04.11.: Liste statt Spinner (Dropdown war zu klein
+        # und schlecht lesbar), Knopf hoch statt flach-breit - beide fuellen den sonst leeren Bildschirm.
         self.sim = SimController()
-        self._sim_logs = {}  # Spinner-Text -> Pfad
+        self._sim_logs = {}  # Listentext -> Pfad, neuestes zuerst
         self._sim_logs_at = 0.0  # time.monotonic() des letzten Einlesens
-        self.sim_spinner = Spinner(text="", font_size="16sp", size_hint_x=0.45)
-        self.sim_button = Button(text="Vcan-Simulation starten", font_size="20sp")
+        self.sim_choice = None  # gewaehlter Listentext
+        self._sim_rows = {}  # Listentext -> ToggleButton
+        self.sim_list = GridLayout(cols=1, spacing=6, size_hint_y=None)
+        self.sim_list.bind(minimum_height=self.sim_list.setter("height"))
+        self.sim_scroll = ScrollView(size_hint_x=0.62, bar_width=14, scroll_type=["bars", "content"],
+                                     bar_color=(*TEXT[:3], 0.7), bar_inactive_color=(*TEXT[:3], 0.35))
+        self.sim_scroll.add_widget(self.sim_list)
+        self.sim_button = Button(text="", font_size="30sp", bold=True, halign="center", size_hint_x=0.38,
+                                 background_normal="", background_color=SIM_BUTTON_BG)
+        self.sim_button.bind(size=lambda b, s: setattr(b, "text_size", (s[0] - 30, None)))
         self.sim_button.bind(on_release=lambda *_: self._on_sim_button())
-        self._sim_area = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=None, height=52)
+        self._set_sim_button_idle()
+        self._sim_area = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=0)
         self._sim_button_visible = False
         col.add_widget(self._sim_area)
 
@@ -1265,6 +1284,8 @@ class StatusScreen(Screen):
 
     def set_logging_extras_visible(self, visible):
         self._extras.clear_widgets()
+        self._extras.size_hint_y = 0.6 if visible else None  # leer kein Platzfresser (Sim-Liste braucht ihn)
+        self._extras.height = 0
         if visible:
             self._extras.add_widget(self.test_button)
             self._extras.add_widget(self.pedal_row)
@@ -1273,26 +1294,47 @@ class StatusScreen(Screen):
 
     def _refresh_sim_logs(self):
         self._sim_logs_at = time.monotonic()
-        old_newest = self.sim_spinner.values[0] if self.sim_spinner.values else None
-        self._sim_logs = {f"{os.path.basename(p)[8:25]} · {size / 1e6:.0f} MB": p
-                          for p, size in SimController.list_logs()}
-        values = list(self._sim_logs)
-        if values != list(self.sim_spinner.values):  # baut das Dropdown neu, also nur bei Aenderung
-            self.sim_spinner.values = values
+        old_newest = next(iter(self._sim_logs), None)
+        self._sim_logs = {sim_log_label(p, size): p for p, size in SimController.list_logs()}
+        rebuilt = list(self._sim_logs) != list(self._sim_rows)
+        if rebuilt:  # baut die Liste neu, also nur bei Aenderung
+            self.sim_list.clear_widgets()
+            self._sim_rows = {}
+            for label in self._sim_logs:
+                row = ToggleButton(text=label, group="sim_log", allow_no_selection=False, font_size="24sp",
+                                   size_hint_y=None, height=72, background_normal="", background_down="",
+                                   background_color=CARD_BG)
+                row.bind(state=lambda b, st: setattr(b, "background_color", BLUE if st == "down" else CARD_BG),
+                         on_release=lambda b: self._select_sim_log(b.text))
+                self.sim_list.add_widget(row)
+                self._sim_rows[label] = row
         # Stand die Auswahl auf dem neuesten Log (Standard), folgt sie einem neu gepackten; eine bewusst
         # gewaehlte aeltere bleibt stehen.
-        if self.sim_spinner.text not in self._sim_logs or self.sim_spinner.text == old_newest:
-            self.sim_spinner.text = next(iter(self._sim_logs), "kein Log")
+        if self.sim_choice not in self._sim_logs or self.sim_choice == old_newest:
+            self._select_sim_log(next(iter(self._sim_logs), None))
+            if rebuilt:
+                self.sim_scroll.scroll_y = 1  # neuestes oben in Sicht; sonst nie (Nutzer scrollt evtl.)
+        elif rebuilt:
+            self._select_sim_log(self.sim_choice)  # Markierung nach Neuaufbau wiederherstellen
+
+    def _select_sim_log(self, label):
+        self.sim_choice = label
+        for text, row in self._sim_rows.items():
+            row.state = "down" if text == label else "normal"
+
+    def _set_sim_button_idle(self):
+        self.sim_button.text = "SIMULATION\nSTARTEN"
+        self.sim_button.background_color = SIM_BUTTON_BG
 
     def _on_sim_button(self):
         self.sim_button.disabled = True
-        self.sim_spinner.disabled = True
+        self.sim_scroll.disabled = True
         if self.sim.running:
             self.sim_button.text = "Simulation stoppt..."
             threading.Thread(target=self._stop_sim_thread, daemon=True).start()
         else:
             self.sim_button.text = "Simulation startet..."
-            log_path = self._sim_logs.get(self.sim_spinner.text)
+            log_path = self._sim_logs.get(self.sim_choice)
             threading.Thread(target=self._start_sim_thread, args=(log_path,), daemon=True).start()
 
     def _start_sim_thread(self, log_path=None):
@@ -1305,11 +1347,12 @@ class StatusScreen(Screen):
 
     def _on_sim_result(self, ok, info):
         self.sim_button.disabled = False
-        self.sim_spinner.disabled = self.sim.running
+        self.sim_scroll.disabled = self.sim.running
         if self.sim.running:
-            self.sim_button.text = f"Simulation stoppen ({info})"
+            self.sim_button.text = f"SIMULATION\nSTOPPEN\n\n{info}"
+            self.sim_button.background_color = RED
         elif ok:
-            self.sim_button.text = "Vcan-Simulation starten"
+            self._set_sim_button_idle()
         else:
             self.sim_button.text = f"Fehler: {info}"
 
@@ -1354,9 +1397,12 @@ class StatusScreen(Screen):
         if want_sim != self._sim_button_visible:
             self._sim_button_visible = want_sim
             self._sim_area.clear_widgets()
+            # Sichtbar nimmt der Bereich den freien Platz, versteckt keinen.
+            self._sim_area.size_hint_y = 1 if want_sim else None
+            self._sim_area.height = 0
             if want_sim:
                 self._refresh_sim_logs()  # neue Logs seit dem letzten Mal (Fahrt dazwischen)
-                self._sim_area.add_widget(self.sim_spinner)
+                self._sim_area.add_widget(self.sim_scroll)
                 self._sim_area.add_widget(self.sim_button)
         elif want_sim and not self.sim.running and time.monotonic() - self._sim_logs_at >= SIM_LOGS_REFRESH_S:
             self._refresh_sim_logs()
