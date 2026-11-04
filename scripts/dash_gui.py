@@ -459,23 +459,33 @@ class MetricCard(Panel):
         self.title_label.bind(size=lambda w, s: setattr(w, "text_size", s))
         self.value_label = Label(text="–", font_size="52sp", color=TEXT, bold=True,
                                   halign="left", valign="middle")
-        self.value_label.bind(size=lambda w, s: setattr(w, "text_size", s))
+        # Mit Zweitwert nur die Breite vorgeben: die Hoehe folgt dort dem Text (siehe fit unten)
+        self.value_label.bind(size=lambda w, s: setattr(w, "text_size", (s[0], None) if side else s))
         self.add_widget(self.title_label)
         # Optionaler Zweitwert rechtsbuendig in der Wertzeile (KRAFTSTOFF: Momentanverbrauch)
         self.side_label = None
         if side:
             row = BoxLayout(orientation="horizontal")
-            row.add_widget(self.value_label)
-            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter. Oben ein Platzhalter
-            # in Einheitenhoehe, damit der Zweitwert (Spalte mittig verankert) auf derselben Hoehe
-            # steht wie der Hauptwert. Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
+            # Unter dem Hauptwert eine kleine Zeile (KRAFTSTOFF: Liter, Nutzerwunsch 04.11.), so hoch
+            # wie die Einheit unter dem Zweitwert - beide Werte stehen dadurch auf gleicher Hoehe.
+            self.sub_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
+                                   size_hint_y=None, height=0, halign="left")
+            self.sub_label.bind(width=lambda w, width: setattr(w, "text_size", (width, None)))
+            self.value_label.size_hint_y = None
+            main = BoxLayout(orientation="vertical", size_hint_y=None, height=0)
+            main.add_widget(self.value_label)
+            main.add_widget(self.sub_label)
+            main_anchor = AnchorLayout(anchor_x="left", anchor_y="center")
+            main_anchor.add_widget(main)
+            row.add_widget(main_anchor)
+            # Zweitwert in Hauptwert-Groesse, Einheit klein mittig darunter.
+            # Spaltenbreite = Textbreite, den Rest bekommt der Hauptwert.
             self.side_label = Label(text="", font_size="52sp", color=TEXT, bold=True,
                                     size_hint_y=None, height=0)
             self.side_unit_label = Label(text="", font_size="20sp", color=TEXT_DIM, bold=True,
                                          size_hint_y=None, height=0)
-            pad = Widget(size_hint_y=None, height=0)
             col = BoxLayout(orientation="vertical", size_hint=(None, None), size=(0, 0))
-            for w in (pad, self.side_label, self.side_unit_label):
+            for w in (self.side_label, self.side_unit_label):
                 col.add_widget(w)
             anchor = AnchorLayout(anchor_x="right", anchor_y="center", size_hint_x=None, width=0)
             anchor.add_widget(col)
@@ -483,12 +493,17 @@ class MetricCard(Panel):
             def fit(*_args):
                 value_w, value_h = self.side_label.texture_size
                 unit_w, unit_h = self.side_unit_label.texture_size
+                line_h = max(unit_h, self.sub_label.texture_size[1])  # eine Zeile darf leer sein
                 self.side_label.height = value_h
-                self.side_unit_label.height = pad.height = unit_h
-                col.size = (max(value_w, unit_w), value_h + 2 * unit_h)
+                self.value_label.height = self.value_label.texture_size[1]
+                main.height = self.value_label.height + line_h
+                self.side_unit_label.height = self.sub_label.height = line_h
+                col.size = (max(value_w, unit_w), value_h + line_h)
                 anchor.width = col.width
             self.side_label.bind(texture_size=fit)
             self.side_unit_label.bind(texture_size=fit)
+            self.sub_label.bind(texture_size=fit)
+            self.value_label.bind(texture_size=fit)
             row.add_widget(anchor)
             self.add_widget(row)
         else:
@@ -1013,6 +1028,10 @@ class DriveScreen(Screen):
                     self._fuel_smooth
                     + _ema_alpha(dt, FUEL_SMOOTH_TAU_S) * (fuel_pct - self._fuel_smooth))
         self.fuel_card.set_value(self._fuel_smooth)
+        if fuel_liters is None and self._fuel_smooth is not None:
+            # ponytail: Geber-Ersatzweg rechnet aus den (bei 0 % gekappten) Prozent zurueck, unter 9,5 l steht dann 9,5
+            fuel_liters = FUEL_ZERO_PCT_L + self._fuel_smooth / 100.0 * (FUEL_FULL_L - FUEL_ZERO_PCT_L)
+        self.fuel_card.sub_label.text = "" if fuel_liters is None else f"{fuel_liters:.1f} l".replace(".", ",")
         # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
         # Deckel 99,9: dreistellig wird neben "100%" zu eng
         l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")

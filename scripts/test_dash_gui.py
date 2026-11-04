@@ -575,6 +575,7 @@ def test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_
     screen.refresh()
     assert screen._fuel_smooth == 100.0
     assert screen.fuel_card.value_label.text.startswith("100")
+    assert screen.fuel_card.sub_label.text == "45,0 l"
     client.snap = {"fuel_liters": 44.0}
     screen.refresh()
     assert abs(screen._fuel_smooth - 100.0 * 34.5 / 35.5) < 1e-9
@@ -583,6 +584,7 @@ def test_fuel_card_shows_backend_liters_unsmoothed_and_maps_45l_to_100_and_9_5l_
     screen.on_pre_enter()
     screen.refresh()
     assert abs(screen._fuel_smooth - dash_gui._fuel_pct_from_liters(3.0 + 1.10 * 36.2)) < 1e-9
+    assert screen.fuel_card.sub_label.text == "42,8 l"
 
 
 def test_shiftlight_colors_cover_the_narrow_orange_zone():
