@@ -124,6 +124,9 @@ Logger und Dash-Feld laufen auf dem Pi (`ef8122e`), Herleitung im Logbuch.
 - **Dash:** Alle Zustände auf dem echten Display gesehen, außer dem grauen `GPS  --`. Kein Fehlalarm im 3-Minuten-Test.
 - **Zwei Logger-Fehler behoben:** wiederholter alter Fix galt als frisch, Schreibtakt lief gegen die Daten.
 
+- **Dritter Logger-Fehler, nach der Testfahrt:** Ein echter Funkabriss meldet `recv()` nicht, der Logger hing auf dem toten Socket und das Dash
+  zeigte dauerhaft `kein Fix`. Behoben mit `link_lost()`, am echten Abriss noch zu prüfen.
+
 **Für Phase 2 zu erledigen:** ganze Fahrt mit gesperrtem Handy, Einlesen mit Verwerfen wiederholter GPS-Zeiten und
 Höhenkorrektur, Abholen der `.nmea` vom Pi, Parallelbetrieb mit verbundenem Thermometer.
 

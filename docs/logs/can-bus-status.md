@@ -6312,3 +6312,38 @@ Classic SPP), der Pi baut die Verbindung auf. Noch kein Logger-Code, Messung mit
 - **Falle `pkill -f`:** Das Muster passt auch auf die eigene SSH-Befehlszeile und beendet die eigene Shell. `[p]ython3 ...` schreiben.
 - Offen für Phase 2: ganze Fahrt mit gesperrtem OnePlus, Qualität bei Bewegung, Einlesen, Abholen der `.nmea`, Parallelbetrieb mit
   verbundenem Thermometer. Die drei `gps-2026-11-06_*.nmea` auf dem Stick sind Testdaten vom Stand am Haus.
+
+## Handy-GPS: Logger erkannte Funkabriss nicht, Dash blieb auf "kein Fix" (2026-11-06)
+
+**Beobachtung (Testfahrt):** Nach dem Aussteigen mit dem Handy und der Rückkehr zeigte das Dash im zweiten Log dauerhaft gelb
+`GPS  kein Fix`, die App aber einen Fix. Im Rohlog keine einzige Zeile mehr: letzte GPS-Zeile 14:59:31, 35 s nach dem Ende des
+ersten CAN-Logs (14:58:56), danach nichts bis zum Pi-Neustart um 15:09. Das Journal ist flüchtig und war damit weg.
+
+**Reproduziert (15:36–15:43):** CAN-Log endet 15:37:32, letzte GPS-Zeile 15:37:48, zweites CAN-Log 15:39:07–15:39:46. Zustand danach,
+Pi lief durch, Handy wieder in Reichweite:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Statusdatei | `connected: true`, Datei frisch, letzter Fix 224 s alt |
+| Journal | keine Meldung einer Trennung |
+| `hcitool con`, `bluetoothctl info` | keine Verbindung |
+| `/sys/kernel/debug/bluetooth/rfcomm` | Socket auf Kanal 16 in Zustand 9 (`BT_CLOSED`) |
+| `sdptool search` | App lauscht bereits auf Kanal 18 |
+| CPU des Loggers | 87,5 % (sonst rund 0,4 %) |
+| `strace` | `ppoll` → `revents=POLLHUP`, `recvfrom` → `EAGAIN`, in Schleife |
+
+**Ursache:** Bei einem Funkabriss schließt der Kernel den RFCOMM-Socket, ohne dass `recv()` einen Fehler oder ein Ende meldet. Pythons
+`recv()` mit Timeout wertet `EAGAIN` nach dem Poll als Fehlalarm, wiederholt bis zum Timeout und wirft `socket.timeout`. Für `read_session()`
+sah das aus wie „gerade keine Daten“, also wie der bekannte Fall ohne Fix. Der Logger hat nie neu verbunden. Dass das Handy dabei den
+Abriss selbst bemerkt und auf einen neuen Kanal gewechselt ist, zeigt der Kanal 18.
+
+Die Trennungen aus Phase 1 (Bluetooth aus, App-Neustart, `disconnect`) waren alle sauber und liefen über einen `recv()`-Fehler oder ein
+Ende. Der echte Abgang aus der Reichweite war nicht getestet.
+
+**Gegenprobe:** `systemctl restart gps-logger` um 15:43:13: verbunden auf Kanal 18 nach 1,5 s, Daten nach 2,2 s, 60 s später frischer Fix,
+CPU 0 %. Die App sendet nach so einem Abriss also normal weiter, der Fehler lag allein im Logger.
+
+**Fix:** `link_lost()` in `gps_logger.py` fragt nach jedem Empfangs-Timeout per `poll()` mit leerer Ereignismaske nach `POLLHUP`/`POLLERR`.
+Gepufferte Daten gehen nicht verloren, denn solange welche da sind, kommt kein Timeout. Ein Watchdog „30 s keine Daten → neu verbinden“ ist damit
+nicht nötig und bliebe auch beim Warten auf den Fix störend. Regressionstest mit echtem Deskriptor (`socketpair`), schlägt ohne Fix fehl.
+Am echten Funkabriss noch nicht geprüft.

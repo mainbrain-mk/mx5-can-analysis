@@ -15,6 +15,8 @@ Gemessen in Phase 0 (06.11.2026), daraus folgt die Schleife unten:
   - Ohne GPS-Fix steht die Verbindung, es kommen aber keine Daten. Das ist kein Abbruch.
   - Standort aus: Die App wiederholt alle 5 s den letzten Fix unveraendert (update_status()). Das
     Rohlog behaelt auch das, beim Einlesen muessen Saetze mit bekannter GPS-Zeit wegfallen.
+  - Funkabriss (Handy ausser Reichweite): recv() meldet weder Fehler noch Ende, nur poll() sieht
+    ihn (link_lost()).
 
 Fuer die Fusszeile im Dash (gps_status() in dash_gui.py) ersetzt der Dienst nach jedem Datenpaket,
 mindestens aber einmal pro Sekunde atomar eine Statusdatei in /tmp. Zeiten dort in time.monotonic(), damit Uhrspruenge nichts
@@ -24,6 +26,7 @@ import functools
 import json
 import os
 import re
+import select
 import socket
 import subprocess
 import sys
@@ -137,6 +140,15 @@ def update_status(status, line, mono_now):
         status["last_fix_mono"] = mono_now
 
 
+def link_lost(sock):
+    """Reisst die Funkverbindung ab, setzt der Kernel POLLHUP, recv() liefert aber nur EAGAIN. Python
+    versucht es dann bis zum Timeout immer wieder (87 % CPU), ein Ende meldet es nie (gemessen
+    06.11.2026). POLLHUP und POLLERR meldet poll() auch mit leerer Ereignismaske."""
+    poller = select.poll()
+    poller.register(sock, 0)
+    return bool(poller.poll(0))
+
+
 def read_session(sock, recorder, status_path=STATUS_PATH, wall=time.time, mono=time.monotonic):
     """Liest bis zur Trennung. Ein Empfangs-Timeout ist nur "gerade keine Daten" (kein Fix).
     ponytail: alle Zeilen eines recv() bekommen dieselbe Empfangszeit; reicht, weil die GPS-Zeit
@@ -151,6 +163,9 @@ def read_session(sock, recorder, status_path=STATUS_PATH, wall=time.time, mono=t
             try:
                 data = sock.recv(4096)
             except socket.timeout:
+                if link_lost(sock):
+                    say("Funkverbindung verloren")
+                    return
                 data = None
             except OSError as e:
                 say(f"Verbindung abgebrochen: {e}")

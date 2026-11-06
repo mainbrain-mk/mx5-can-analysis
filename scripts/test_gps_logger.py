@@ -36,6 +36,10 @@ class FakeSocket:
     def __init__(self, script):
         self.script = list(script)
         self.closed = False
+        self._local, self.peer = socket.socketpair()  # echter Deskriptor fuer poll() in link_lost()
+
+    def fileno(self):
+        return self._local.fileno()
 
     def settimeout(self, _):
         pass
@@ -100,6 +104,23 @@ def test_no_data_writes_no_file_and_keeps_connection():
     tmp, rec, status_path, sock = _session([socket.timeout, socket.timeout, ConnectionResetError(104, "reset")])
     assert rec.path is None and os.listdir(tmp) == ["status.json"]
     assert sock.closed
+
+
+def test_link_loss_ends_session_although_recv_only_times_out():
+    """Funkabriss: recv() meldet nur Timeout, allein poll() sieht POLLHUP. Ohne Pruefung lief der Logger
+    weiter und das Dash zeigte dauerhaft "kein Fix" (gemessen 06.11.2026). Ein weiteres recv() wuerde
+    hier an der leeren Liste scheitern."""
+    tmp = tempfile.mkdtemp()
+    status_path = os.path.join(tmp, "status.json")
+    sock = FakeSocket([f"{RMC}\r\n".encode(), socket.timeout])
+    sock.peer.close()
+    rec = gps_logger.Recorder(tmp)
+    gps_logger.read_session(sock, rec, status_path, wall=lambda: 1794481265.5, mono=lambda: 100.0)
+    assert sock.closed
+    with open(status_path) as fh:
+        assert json.load(fh)["connected"] is False
+    with open(rec.path) as fh:
+        assert len(fh.read().splitlines()) == 1  # was vor dem Abriss ankam, bleibt
 
 
 def test_status_during_session():
@@ -198,6 +219,7 @@ if __name__ == "__main__":
     test_format_line_matches_candump_timestamp()
     test_session_records_every_line_and_reports_status_after_disconnect()
     test_no_data_writes_no_file_and_keeps_connection()
+    test_link_loss_ends_session_although_recv_only_times_out()
     test_status_during_session()
     test_status_is_written_after_each_packet_not_only_on_the_timer()
     test_repeated_fix_is_not_fresh()
