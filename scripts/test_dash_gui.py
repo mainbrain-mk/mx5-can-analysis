@@ -611,6 +611,20 @@ def test_sim_log_list_picks_up_logs_packed_after_dash_start():
         assert len(screen._sim_logs) == 3
         assert screen.sim_choice.startswith("16.10.2026   18:10:06")
 
+        # 06.11.2026: ungepacktes aelteres Log gewaehlt, dann gepackt -> MB-Zahl aendert sich, Auswahl bleibt
+        raw = os.path.join(tmp, "candump-2026-10-16_190000.log")
+        with open(raw, "wb") as f:
+            f.write(b"x" * 9_000_000)
+        screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
+        screen.refresh(waiting)
+        screen._select_sim_log("16.10.2026   19:00:00   9 MB")
+        os.remove(raw)
+        put(tmp, "2026-10-16_190000")
+        screen._sim_logs_at -= dash_gui.SIM_LOGS_REFRESH_S
+        screen.refresh(waiting)
+        assert screen.sim_choice == "16.10.2026   19:00:00   0 MB"
+        assert screen._sim_rows[screen.sim_choice].state == "down"
+
 
 def test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs():
     """Waehrend der Simulation zeigt das Dash den Drive-Screen, der Stopp-Knopf des Status-Screens war

@@ -6243,3 +6243,5 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   `.gz`; `.gz.tmp` vom laufenden Packen bleibt draußen. Die Sim-Schleife nimmt `zcat -f` (liest auch Ungepacktes)
   und weicht auf `<pfad>.gz` aus, wenn der Packdienst die Rohdatei während der Simulation ersetzt hat. Die
   MB-Angabe ungepackter Logs ist die Rohgröße, etwa 8× die der `.gz`.
+- Nachtrag: Beim Packen ändert sich die MB-Zahl im Listentext. Eine gewählte ältere Fahrt sprang dadurch auf die
+  neueste zurück. `_refresh_sim_logs()` nimmt die Auswahl jetzt über Datum und Uhrzeit mit.

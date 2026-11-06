@@ -1543,6 +1543,13 @@ class StatusScreen(Screen):
                          on_release=lambda b: self._select_sim_log(b.text))
                 self.sim_list.add_widget(row)
                 self._sim_rows[label] = row
+        # Gerade gepackt (06.11.2026): gleiches Log, nur die MB-Zahl im Text ist kleiner - Auswahl mitnehmen
+        if self.sim_choice is not None and self.sim_choice not in self._sim_logs:
+            stamp = self.sim_choice.rsplit("   ", 1)[0]
+            same = next((label for label in self._sim_logs if label.rsplit("   ", 1)[0] == stamp), None)
+            if same is not None:
+                old_newest = same if self.sim_choice == old_newest else old_newest
+                self.sim_choice = same
         # Stand die Auswahl auf dem neuesten Log (Standard), folgt sie einem neu gepackten; eine bewusst
         # gewaehlte aeltere bleibt stehen.
         if self.sim_choice not in self._sim_logs or self.sim_choice == old_newest:
