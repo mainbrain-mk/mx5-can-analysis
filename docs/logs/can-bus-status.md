@@ -6347,3 +6347,48 @@ CPU 0 %. Die App sendet nach so einem Abriss also normal weiter, der Fehler lag 
 Gepufferte Daten gehen nicht verloren, denn solange welche da sind, kommt kein Timeout. Ein Watchdog „30 s keine Daten → neu verbinden“ ist damit
 nicht nötig und bliebe auch beim Warten auf den Fix störend. Regressionstest mit echtem Deskriptor (`socketpair`), schlägt ohne Fix fehl.
 Am echten Funkabriss noch nicht geprüft.
+
+### Nachtrag: Fix `16e8cf4` am echten Funkabriss bestanden (2026-11-06)
+
+Mit dem Handy aus der Reichweite gegangen und zurück, Pi lief durch, kein Eingriff:
+
+| Zeit | Ereignis |
+|---|---|
+| 15:51:00 | letzte Daten |
+| 15:51:06 | `Funkverbindung verloren`, 5,6 s später, Status `connected: false`, kein Socket mehr im Kernel, CPU 0 % |
+| 15:52:13, 15:54:07, 15:56:00 | je `verbunden auf Kanal 21/22/23`, nach 6,5/6,3/5,5 s wieder verloren, keine Daten |
+| 15:56:44 | `verbunden auf Kanal 24`, Daten fließen, Fix frisch, bleibt stabil |
+
+Die drei kurzen Verbindungen lagen vor der Meldung „bin zurück“ (spätestens 15:56:30), die genaue Ankunftszeit fehlt. Der Fahrer hält für möglich, dass das Handy da nicht weit genug weg war. Vermutung: Rand der Reichweite, ein Verbindungsaufbau gelingt, danach reißt der Funkkontakt ab und die
+Verbindung fällt nach dem Supervision-Timeout (gut 5 s, passt zu den 5,6 s oben). Nicht belegt, der btmon-Mitschnitt begann erst nach 15:56:44. Sie kosten
+nichts: Es geht keine Zeile verloren, nur die Lücke selbst bleibt. Wiederkehr beim Pi unter 1 min. Noch offen: Verhalten während einer ganzen Fahrt.
+
+## Handy-GPS Phase 2: Abholen, Einlesen und Zuordnung der `.nmea` (2026-11-06)
+
+**Gebaut:** `sync_gps_logs_from_pi()` holt neue oder gewachsene `gps-*.nmea` (Größenvergleich, auch laufende Dateien, das Rohlog wird nur angehängt). `gps_logger.read_fixes()`
+liest das Rohlog: Prüfsumme, nur Status `A`, jede GPS-Zeit einmal, Knoten → km/h. `ingest_nmea()` schreibt dieselben vier Kanäle wie die GPX. `_find_matching_gpx()` nimmt
+weiter zuerst eine GPX, sonst das Rohlog mit den meisten Fixes in der Zeit des Logs (nicht die Überlappung, das Handy kann mitten im Rohlog lange weg sein). In
+`can_gps_pairs.json` steht dann der `.nmea`-Name, die Dateiendung entscheidet in `_build_can_target()` über den Leser.
+
+**Geprüft am echten Pi, in einem Testordner:** Lauf 1 holt 8 Dateien, Lauf 2 keine. `candump-2026-11-06_145524` → `gps-2026-11-06_145515.nmea`, `_150333` → keine Zuordnung (dort keine
+Fixes, das Rohlog endet 14:59:31). Im Rohlog `_125837` fallen 7 von 2.322 RMC als Wiederholung oder ungültig weg. Der echte Datalake und `data/can/` sind noch nicht berührt.
+
+**Höhe:** GPX ist tatsächlich auf das Ellipsoid bezogen. An denselben Orten (30-m-Raster, 15.035 GPX-Punkte aus 9 Tracks) liegt die GPX im Median 49,1 m über der GGA-Höhe, der
+Geoid-Abstand beträgt 44,7 m. Die Tracks streuen von 41 bis 58 m. `read_fixes()` liefert deshalb GGA-Höhe + Geoid-Abstand.
+
+**GPX als Referenz fehlt:** Neueste GPX im Drive vom 04.10., 38 CAN-Logs seither ohne GPS. Für die `.nmea` gibt es derzeit also keinen GPX-Vergleich.
+
+**Zeit, gegen `VehicleSpeed` im einzigen Fahrtstück (`_145524`, 212 s, bis 42 km/h, Stadtverkehr):**
+
+| Messung | Ergebnis |
+|---|---|
+| Empfang minus GPS-Zeit, Pi mit NTP (7 Rohlogs) | Median +0,19 bis +0,31 s, das ist die Bluetooth-Latenz |
+| Empfang minus GPS-Zeit, Testfahrt auf RTC | Median −0,29 s, die Pi-Uhr ging also rund 0,5 s nach |
+| Bester Versatz RMC-Tempo gegen CAN | −4,25 bis −4,75 s, r 0,962 (ohne Versatz 0,923), Minimum flach |
+| Bester Versatz Positionstempo gegen CAN | −2,75 bis −3,25 s, r 0,954 (ohne Versatz 0,916) |
+| Anhalten (10-km/h-Kante) | CAN 192,1 s, Position 193,3 s, RMC 194,8 s |
+| Anfahren (10-km/h-Kante) | CAN 42,1 s, Position 44,3 s, RMC 53,8 s |
+
+Das RMC-Tempo läuft also dem Positionstempo nach und bleibt beim Anfahren lange zu niedrig, vermutlich ein Filter und eine Totzone im Handy. Der Grund für den Rest des Versatzes ist offen.
+Bewusst nicht korrigiert: Zeitachse bleibt die GPS-Zeit. Für Versätze je Log gibt es `can_clock_offsets.json`. Der Verlauf passt, aber das Stück taugt nicht für die 2,9 %: CAN/GPS bei
+bestem Versatz 1,05, in diesem Tempo und mit dieser Dauer nicht aussagekräftig. Offen bis zur Fahrt am 09.11.

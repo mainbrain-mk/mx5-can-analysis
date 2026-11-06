@@ -148,6 +148,7 @@ import pandas as pd
 
 import can_log_parser
 from datalake_channels import log_key
+import gps_logger
 
 RAW_DLG_DIR = "data/raw"
 RAW_CSV_DIR = "data/raw_csv"
@@ -833,6 +834,16 @@ def ingest_gps(gpx_path, t0_epoch):
             float(ele_el.text) if ele_el is not None else None,
             float(speed_el.text) * 3.6 if speed_el is not None else None,  # m/s -> km/h
         ))
+    return _gps_rows_to_long(rows, t0_epoch)
+
+
+def ingest_nmea(nmea_path, t0_epoch):
+    """Wie ingest_gps(), aber aus dem Rohlog von gps_logger.py. Zeitachse ist die GPS-Zeit, wie bei
+    der GPX, nicht die Empfangszeit im Rohlog."""
+    return _gps_rows_to_long([(t - t0_epoch, *rest) for t, *rest in gps_logger.read_fixes(nmea_path)], t0_epoch)
+
+
+def _gps_rows_to_long(rows, t0_epoch):
     wide = pd.DataFrame(rows, columns=["t_elapsed_s", "Breite", "Länge", "Höhe", "GPS-Geschwindigkeit"])
     t0_local = datetime.fromtimestamp(t0_epoch, tz=LOCAL_TZ).replace(tzinfo=None)
     wide["timestamp_local"] = t0_local + pd.to_timedelta(wide["t_elapsed_s"], unit="s")
@@ -951,7 +962,8 @@ def _build_can_target(can_name, gpx_name):
         combined = ingest_can(can_path, decoded_path, t0_epoch)
         if gps_path:
             print(f"lade (gps): {os.path.basename(gps_path)}")
-            gps_df = ingest_gps(gpx_path, t0_epoch) if has_gpx else ingest_dlg_gps(dlg_path, t0_epoch)
+            reader = ingest_dlg_gps if not has_gpx else ingest_nmea if gpx_path.endswith(".nmea") else ingest_gps
+            gps_df = reader(gps_path, t0_epoch)
             if not combined.empty:  # ein Track kann mehrere CAN-Logs abdecken (27.09.) -> nur der eigene Zeitraum
                 gps_df = gps_df[gps_df["t_elapsed_s"].between(0, combined["t_elapsed_s"].max())]
             combined = pd.concat([combined, gps_df], ignore_index=True)

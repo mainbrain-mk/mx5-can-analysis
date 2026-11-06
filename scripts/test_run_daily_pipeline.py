@@ -3,6 +3,7 @@ deckt genau den Fall ab, der am 2026-09-18 zwei CAN-Logs verschluckt hat
 (truncated .gz durch Stromverlust auf dem Pi). Kein Framework noetig:
 `python scripts/test_run_daily_pipeline.py`.
 """
+import functools
 import gzip
 import json
 import os
@@ -287,6 +288,71 @@ def test_find_matching_gpx_by_overlap():
         assert rdp._find_matching_gpx("candump-2026-09-27_112539") is None
     finally:
         rdp.CAN_DIR = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_find_matching_nmea_counts_fixes_and_gpx_wins():
+    """Handy weg: Das Rohlog ueberspannt das CAN-Log zeitlich, hat darin aber keinen Fix (06.11.)."""
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR
+    rdp.CAN_DIR = tmp
+    try:
+        def nmea(body):
+            return f"${body}*{functools.reduce(lambda a, c: a ^ ord(c), body, 0):02X}"
+
+        def write_nmea(name, *hhmmss):
+            with open(os.path.join(tmp, name), "w") as f:
+                f.writelines(f"(1794000000.000000) {nmea(f'GNRMC,{t}.000,A,5000.0000,N,01000.0000,E,1.0,0.0,061126,,,A')}\n"
+                             for t in hhmmss)
+
+        def write_can(log_id, dur_s):
+            t0 = int(datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=rdp.LOCAL_TZ).timestamp())
+            with open(os.path.join(tmp, f"{log_id}.log"), "w") as f:
+                f.write(f"({t0}.000000) can0 202#00\n({t0 + dur_s}.000000) can0 202#00\n")
+
+        # UTC-Zeiten; CET = UTC+1. Rohlog a: Fixes 12:00 und 13:00, b: 12:30 UTC
+        write_nmea("gps-2026-11-06_130000.nmea", "120000", "120001", "130000")
+        write_nmea("gps-2026-11-06_133000.nmea", "123000")
+        write_can("candump-2026-11-06_125959", 10)   # 2 Fixes in a
+        write_can("candump-2026-11-06_133000", 10)   # 1 Fix in b, a ueberspannt das Log ohne Fix darin
+        write_can("candump-2026-11-06_134000", 10)   # a ueberspannt, kein Fix
+        assert rdp._find_matching_gpx("candump-2026-11-06_125959") == "gps-2026-11-06_130000.nmea"
+        assert rdp._find_matching_gpx("candump-2026-11-06_133000") == "gps-2026-11-06_133000.nmea"
+        assert rdp._find_matching_gpx("candump-2026-11-06_134000") is None
+
+        with open(os.path.join(tmp, "20261106-125900.gpx"), "w") as f:
+            f.write("<trkpt><time>2026-11-06T11:59:00Z</time><speed>10.0</speed></trkpt>\n"
+                    "<trkpt><time>2026-11-06T12:05:00Z</time><speed>10.0</speed></trkpt>\n")
+        assert rdp._find_matching_gpx("candump-2026-11-06_125959") == "20261106-125900.gpx"
+    finally:
+        rdp.CAN_DIR = orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_sync_gps_logs_fetches_new_and_grown_files_only():
+    tmp = tempfile.mkdtemp()
+    orig = rdp.CAN_DIR, rdp.pi_reachable, rdp.subprocess.run
+    rdp.CAN_DIR, rdp.pi_reachable = tmp, lambda: True
+    copied = []
+
+    def fake_run(cmd, **_):
+        if cmd[0] == "ssh":
+            out = "gps-gleich.nmea 3\ngps-gewachsen.nmea 9\ngps-neu.nmea 5\ngps-fehler.nmea 1\n"
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+        name = os.path.basename(cmd[-2])
+        copied.append(name)
+        return subprocess.CompletedProcess(cmd, 1 if "fehler" in name else 0, "", "kaputt")
+    try:
+        rdp.subprocess.run = fake_run
+        for name, size in (("gps-gleich.nmea", 3), ("gps-gewachsen.nmea", 4)):
+            with open(os.path.join(tmp, name), "w") as f:
+                f.write("x" * size)
+        errors = []
+        assert rdp.sync_gps_logs_from_pi(errors) == ["gps-gewachsen.nmea", "gps-neu.nmea"]
+        assert sorted(copied) == ["gps-fehler.nmea", "gps-gewachsen.nmea", "gps-neu.nmea"]
+        assert len(errors) == 1 and "gps-fehler.nmea" in errors[0][0]
+    finally:
+        rdp.CAN_DIR, rdp.pi_reachable, rdp.subprocess.run = orig
         shutil.rmtree(tmp, ignore_errors=True)
 
 

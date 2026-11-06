@@ -11,7 +11,7 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
-**Nachtrag 2026-11-06:** `deployed` = Kopf von Branch `gps-bluetooth-2026-11-06` (`ef8122e`, noch nicht in `main`). Handy per
+**Nachtrag 2026-11-06:** `deployed` = Kopf von Branch `gps-bluetooth-2026-11-06` (`16e8cf4`, noch nicht in `main`). Handy per
 Bluetooth gekoppelt, Schlüssel in der Basisschicht. Nach dem Neustart: keine failed units, `/media/root-ro` ro.
 
 ## Hardware
@@ -57,7 +57,7 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 ## `/home/pi/canlogs` (Stick)
 
 - **Fahrtdaten** (die Pipeline holt sie per `find -maxdepth 1`): `candump-*.log(.gz)`, `clockstate-*.txt`,
-  `clockjump-*.txt`, `ifstats-*.txt`.
+  `clockjump-*.txt`, `ifstats-*.txt`, seit 06.11. `gps-*.nmea` (nicht gepackt, je Logger-Prozess eine Datei).
 - **Symlinks ins Repo:** `can_backend.py`, `dash_gui.py`, `session_logger.py`, `status_gui.py`, `tpms_poller.py`,
   `uds_did_sweep.py`, `test_*.py`, `mx5_top_view.png`, `fonts/`, `respawn.sh`, beide HSCAN-DBC.
 - `repo/` (Git-Checkout, Branch `deployed`), `venv/`, `applogs/` (rotiert bei 5 MB beim Neustart),

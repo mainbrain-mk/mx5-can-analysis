@@ -31,6 +31,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 LOG_DIR = "/home/pi/canlogs"
 STATUS_PATH = "/tmp/mx5_gps_status.json"
@@ -39,6 +40,7 @@ CONNECT_RETRY_S = 5.0
 RECV_TIMEOUT_S = 1.0
 STATUS_INTERVAL_S = 1.0
 MAX_LINE_BYTES = 4096  # NMEA-Saetze sind < 100 Byte; ohne Zeilenende waere der Puffer sonst unbegrenzt
+KNOTS_TO_KMH = 1.852
 
 
 def parse_channel(sdptool_output):
@@ -94,6 +96,39 @@ def parse_gga(line):
 
 def format_line(wall_time, line):
     return f"({wall_time:.6f}) {line}\n"
+
+
+def _degrees(value, hemisphere):
+    """NMEA ddmm.mmmm -> Grad, Sueden und Westen negativ."""
+    deg, minutes = divmod(float(value), 100)
+    return (deg + minutes / 60) * (-1 if hemisphere in "SW" else 1)
+
+
+def read_fixes(path):
+    """Rohlog -> [(UTC-Epoch aus der GPS-Zeit, Breite, Laenge, Hoehe, km/h)], fuer den Datalake (auf
+    dem Laptop, der Dienst selbst braucht das nicht). Position und Tempo aus RMC, das auch das Datum
+    traegt. Jede GPS-Zeit nur einmal, siehe update_status(). Hoehe auf das Ellipsoid bezogen (GGA-Hoehe
+    + Geoid-Abstand) wie in den GPX: dort liegt sie am selben Ort 49 m ueber der GGA-Hoehe, der
+    Geoid-Abstand betraegt 44,7 m (gemessen 06.11.2026, 15.035 Punkte). Unbrauchbare Zeilen fallen weg.
+    ponytail: Hoehe je Tageszeit nachgeschlagen, ein Rohlog ueber mehr als 24 h traefe den falschen Tag."""
+    heights, rows, seen = {}, [], set()
+    with open(path, encoding="ascii", errors="replace") as fh:
+        for raw in fh:
+            line = raw.partition(") ")[2].strip()
+            if not checksum_ok(line):
+                continue
+            f = line[:line.rfind("*")].split(",")
+            try:
+                if line[3:6] == "GGA" and f[6] not in ("", "0"):
+                    heights[f[1]] = float(f[9]) + float(f[11])
+                elif line[3:6] == "RMC" and f[2] == "A" and (f[9], f[1]) not in seen:
+                    t = datetime.strptime(f[9] + f[1], "%d%m%y%H%M%S.%f").replace(tzinfo=timezone.utc)
+                    rows.append((f[1], t.timestamp(), _degrees(f[3], f[4]), _degrees(f[5], f[6]),
+                                 float(f[7]) * KNOTS_TO_KMH if f[7] else None))
+                    seen.add((f[9], f[1]))
+            except (IndexError, ValueError):
+                continue
+    return [(t, lat, lon, heights.get(gps_time), speed) for gps_time, t, lat, lon, speed in rows]
 
 
 class Recorder:

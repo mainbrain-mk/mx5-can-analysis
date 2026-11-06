@@ -13,6 +13,7 @@ Aufruf: .venv/bin/python scripts/run_daily_pipeline.py
 Siehe /home/manuel/.claude/plans/recursive-conjuring-minsky.md fuer den
 Architektur-Hintergrund.
 """
+import functools
 import glob
 import json
 import math
@@ -34,6 +35,7 @@ import pandas as pd
 import can_log_parser
 from build_datalake import KNOWN_CAN_LOG_DUPLICATES
 from datalake_channels import log_key
+import gps_logger
 import pipeline_checks
 import render_report
 
@@ -174,11 +176,19 @@ def _can_log_span(log_id):
     return start, start + (max(stamps) - stamps[0] if stamps else 0)
 
 
+@functools.lru_cache(maxsize=None)
+def _nmea_fix_times(nmea_path):
+    """Sortierte GPS-Zeiten eines Rohlogs. Gecacht: wird fuer jedes CAN-Log gegen alle Rohlogs geprueft."""
+    return np.sort([fix[0] for fix in gps_logger.read_fixes(nmea_path)])
+
+
 def _find_matching_gpx(log_id):
     """GPX in data/can/, die sich zeitlich am laengsten mit dem CAN-Log ueberlappt (ein Track
     kann mehrere CAN-Logs abdecken und spaeter als candump starten, 27.09.: 115642.gpx deckt
     _114812 und _125452 ab). Zeiten aus dem GPX-Inhalt (UTC), nicht aus dem Dateinamen.
-    None, falls keine Ueberlappung - der CAN-Log wird dann ohne GPS-Track (CAN-only) registriert."""
+    Ohne GPX das Rohlog von gps_logger.py mit den meisten Fixes in der Zeit des Logs (nicht die
+    Ueberlappung: das Handy kann mitten im Rohlog lange weg sein).
+    None, falls beides nicht - der CAN-Log wird dann ohne GPS-Track (CAN-only) registriert."""
     if not re.match(r"candump-\d{4}-\d{2}-\d{2}_\d{6}$", log_id):
         return None
     c0, c1 = _can_log_span(log_id)
@@ -190,6 +200,13 @@ def _find_matching_gpx(log_id):
         overlap = min(c1, g.index.max()) - max(c0, g.index.min())
         if overlap > best_overlap:
             best, best_overlap = os.path.basename(gpx_path), overlap
+    if best:
+        return best
+    for nmea_path in glob.glob(f"{CAN_DIR}/gps-*.nmea"):
+        times = _nmea_fix_times(nmea_path)
+        n_fixes = np.searchsorted(times, c1, side="right") - np.searchsorted(times, c0)
+        if n_fixes > best_overlap:
+            best, best_overlap = os.path.basename(nmea_path), n_fixes
     return best
 
 
@@ -560,6 +577,50 @@ def fix_clock_jump(log_id, errors):
     return new_id
 
 
+def _scp_from_pi(fname, errors):
+    """Kopiert eine Datei aus canlogs/ nach data/can/. False bei Fehler (in errors vermerkt)."""
+    try:
+        # Lange Fahrten (04./10.10.: bis 1,6 h, ungepackt ~600 MB+) brauchen per WLAN mehrere
+        # Minuten - abbrechen nur bei toter Verbindung (ServerAlive), nicht nach fester Dauer.
+        res = subprocess.run(
+            ["scp", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+             f"{PI_HOST}:{PI_CANLOGS_DIR}/{fname}", f"{CAN_DIR}/"],
+            capture_output=True, text=True, timeout=3600)
+    except Exception as e:
+        errors.append((f"scp {fname}", f"Exception: {e}"))
+        return False
+    if res.returncode != 0:
+        errors.append((f"scp {fname}", f"exit code {res.returncode}: {res.stderr[-300:]}"))
+        return False
+    return True
+
+
+def sync_gps_logs_from_pi(errors):
+    """Holt neue oder gewachsene gps-*.nmea vom Pi, vor den CAN-Logs, damit die sie schon finden.
+    Eine Datei waechst, solange gps_logger.py laeuft (auch ueber Trennungen hinweg), also Groesse
+    vergleichen. Anders als bei den CAN-Logs auch laufende Dateien: Das Rohlog wird nur angehaengt,
+    eine abgeschnittene letzte Zeile verwirft read_fixes(), der Rest kommt beim naechsten Lauf.
+    Gibt die geholten Dateinamen zurueck."""
+    if not pi_reachable():
+        return []
+    remote_cmd = f"find {shlex.quote(PI_CANLOGS_DIR)} -maxdepth 1 -name 'gps-*.nmea' -printf '%f %s\\n'"
+    try:
+        res = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", PI_HOST, remote_cmd],
+                             capture_output=True, text=True, timeout=20)
+    except Exception as e:
+        errors.append(("ssh find (Pi GPS-Logs)", f"Exception: {e}"))
+        return []
+    if res.returncode != 0:
+        errors.append(("ssh find (Pi GPS-Logs)", f"exit code {res.returncode}: {res.stderr[-300:]}"))
+        return []
+    new = []
+    for fname, size in sorted(l.rsplit(" ", 1) for l in res.stdout.splitlines()):
+        local = os.path.join(CAN_DIR, fname)
+        if (not os.path.exists(local) or os.path.getsize(local) != int(size)) and _scp_from_pi(fname, errors):
+            new.append(fname)
+    return new
+
+
 def sync_can_logs_from_pi(errors):
     """Neuer Schritt (vor der eigentlichen Auswertung): prueft, ob der
     Raspberry Pi erreichbar ist und abgeschlossene CAN-Logs hat, die
@@ -614,22 +675,7 @@ def sync_can_logs_from_pi(errors):
     if not new_remote:
         return []
 
-    fetched = []
-    for fname in new_remote:
-        try:
-            # Lange Fahrten (04./10.10.: bis 1,6 h, ungepackt ~600 MB+) brauchen per WLAN mehrere
-            # Minuten - abbrechen nur bei toter Verbindung (ServerAlive), nicht nach fester Dauer.
-            res = subprocess.run(
-                ["scp", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
-                 f"{PI_HOST}:{PI_CANLOGS_DIR}/{fname}", f"{CAN_DIR}/"],
-                capture_output=True, text=True, timeout=3600)
-        except Exception as e:
-            errors.append((f"scp {fname}", f"Exception: {e}"))
-            continue
-        if res.returncode != 0:
-            errors.append((f"scp {fname}", f"exit code {res.returncode}: {res.stderr[-300:]}"))
-            continue
-        fetched.append(fname)
+    fetched = [fname for fname in new_remote if _scp_from_pi(fname, errors)]
 
     pairs_override = {}
     if os.path.exists(CAN_GPS_PAIRS_OVERRIDE_PATH):
@@ -782,7 +828,8 @@ def main():
 
     downloaded = rclone_sync_new_logs(errors)
     new_gpx = rclone_sync_new_logs(errors, ".gpx", CAN_DIR)
-    late_pairs = pair_late_gpx() if new_gpx else {}  # vor dem Pi-Sync: neue CAN-Logs paart der selbst
+    new_gps_logs = sync_gps_logs_from_pi(errors)
+    late_pairs = pair_late_gpx() if new_gpx or new_gps_logs else {}  # vor dem Pi-Sync: neue CAN-Logs paart der selbst
     new_logs = find_new_logs()
     new_can_logs = sync_can_logs_from_pi(errors)
     new_can_logs, clock_fixes = fix_can_log_clocks(new_can_logs, errors)
@@ -790,6 +837,8 @@ def main():
 
     if new_gpx:
         print(f"{len(new_gpx)} neue GPX aus Google Drive geladen: {new_gpx}")
+    if new_gps_logs:
+        print(f"{len(new_gps_logs)} neue/gewachsene GPS-Rohlog(s) vom Raspberry Pi geladen: {new_gps_logs}")
     if late_pairs:
         print(f"GPX nachtraeglich zugeordnet: {late_pairs}")
 

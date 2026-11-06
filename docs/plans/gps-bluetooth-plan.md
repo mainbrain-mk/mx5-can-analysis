@@ -125,10 +125,26 @@ Logger und Dash-Feld laufen auf dem Pi (`ef8122e`), Herleitung im Logbuch.
 - **Zwei Logger-Fehler behoben:** wiederholter alter Fix galt als frisch, Schreibtakt lief gegen die Daten.
 
 - **Dritter Logger-Fehler, nach der Testfahrt:** Ein echter Funkabriss meldet `recv()` nicht, der Logger hing auf dem toten Socket und das Dash
-  zeigte dauerhaft `kein Fix`. Behoben mit `link_lost()`, am echten Abriss noch zu prüfen.
+  zeigte dauerhaft `kein Fix`. Behoben mit `link_lost()`, am echten Abriss bestanden (Erkennung nach 5,6 s, Wiederverbindung ohne Eingriff).
 
 **Für Phase 2 zu erledigen:** ganze Fahrt mit gesperrtem Handy, Einlesen mit Verwerfen wiederholter GPS-Zeiten und
 Höhenkorrektur, Abholen der `.nmea` vom Pi, Parallelbetrieb mit verbundenem Thermometer.
+
+## Ergebnisse Phase 2 (06.11.2026)
+
+Code fertig und an echten Dateien geprüft, die Prüfung über eine ganze Fahrt steht aus (geplant 09.11.). Herleitung im Logbuch.
+
+- **Abholen:** `run_daily_pipeline.py` holt neue und gewachsene `gps-*.nmea` vom Pi.
+- **Einlesen:** `ingest_nmea()` liefert dieselben vier Kanäle wie die GPX, wiederholte GPS-Zeiten fallen weg.
+- **Zuordnung:** GPX zuerst, sonst das Rohlog mit den meisten Fixes in der Zeit des Logs.
+- **Höhe:** GPX ist auf das Ellipsoid bezogen (49,1 m über GGA bei 44,7 m Geoid-Abstand), das Einlesen rechnet entsprechend um.
+- **Zeit:** Bluetooth-Latenz rund 0,2 s. Das RMC-Tempo läuft dem CAN-Tempo in der Stadt rund 4,5 s nach und bleibt beim Anfahren lange zu niedrig. Die Zeitachse bleibt die GPS-Zeit.
+
+**Noch offen:**
+- Abweichung von 2,9 % gegen `VehicleSpeed`: Das bisherige Fahrtstück ist zu kurz und zu langsam (212 s, bis 42 km/h).
+- Versatz bei höherem Tempo.
+- HDOP-Schwelle im Dash.
+- Vergleich gegen GPX: seit 04.10. liegt keine neue im Drive.
 
 ## Annahmen
 

@@ -11,10 +11,12 @@ siehe docs/logs/can-bus-status.md), und (3) die Laufzeitoptimierung vom
 INSERT und --verify.
 Kein Framework, kein pytest noetig: `python scripts/test_build_datalake.py`.
 """
+import functools
 import os
 import shutil
 import sqlite3
 import tempfile
+from datetime import datetime, timezone
 
 import duckdb
 import numpy as np
@@ -466,6 +468,41 @@ def test_force_full_reingests_unchanged_log():
         assert len(calls) == 2, "--full hat unveraendertes Log nicht erneut eingelesen"
     finally:
         bd.ingest_csv = original_ingest_csv
+        restore()
+
+
+def test_can_log_paired_with_nmea_gets_gps_channels():
+    """Paarung per Dateiendung: Rohlog von gps_logger.py statt GPX, gleiche Kanaele wie ingest_gps()."""
+    def nmea(body):
+        return f"${body}*{functools.reduce(lambda a, c: a ^ ord(c), body, 0):02X}"
+
+    _, restore = _scratch_env()
+    try:
+        t0 = int(datetime(2026, 11, 6, 12, 0, 0, tzinfo=timezone.utc).timestamp())
+        lines = [nmea("GNGGA,120001.000,5030.0000,N,01015.0000,E,1,21,0.61,59.8,M,44.7,M,,"),
+                 nmea("GNRMC,120001.000,A,5030.0000,N,01015.0000,E,10.000,0.00,061126,,,A")]
+        nmea_path = os.path.join(bd.CAN_DIR, "gps-2026-11-06_130000.nmea")
+        with open(nmea_path, "w") as f:
+            f.writelines(f"({t0}.000000) {l}\n" for l in lines)
+        df = bd.ingest_nmea(nmea_path, t0)
+        got = dict(zip(df["channel"], df["value"]))
+        assert got["Breite"] == 50.5 and got["Länge"] == 10.25
+        assert abs(got["Höhe"] - 104.5) < 1e-9 and abs(got["GPS-Geschwindigkeit"] - 18.52) < 1e-9
+        assert set(df["t_elapsed_s"]) == {1.0}
+        assert list(df.columns) == bd.INGEST_COLUMNS
+
+        can_name = "candump-2026-11-06_130000.log"
+        can_path = os.path.join(bd.CAN_DIR, can_name)
+        with open(can_path, "w") as f:
+            f.write(f"({t0}.000000) can0 202#00\n({t0 + 5}.000000) can0 202#00\n")
+        pd.DataFrame([(5.0, 0x202, "M", "VehicleSpeed", 1.0)], columns=["t", "can_id", "message", "signal", "value"]).to_csv(
+            os.path.splitext(can_path)[0] + "_decoded.csv", index=False)
+        log_id, target = bd._build_can_target(can_name, os.path.basename(nmea_path))
+        assert target["source_format"] == "can+gps" and nmea_path in target["paths"], target
+        assert set(target["ingest"]()["channel"]) >= {"Breite", "Länge", "Höhe", "GPS-Geschwindigkeit"}
+
+        assert bd.ingest_nmea(os.devnull, t0).empty  # Rohlog ohne einen einzigen Fix
+    finally:
         restore()
 
 

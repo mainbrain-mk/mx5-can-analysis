@@ -83,6 +83,27 @@ def test_parse_gga():
     assert gps_logger.parse_gga(GGA_FIX[:40]) is None  # abgeschnitten
 
 
+def test_read_fixes_drops_repeats_and_broken_lines():
+    gga_south_west = nmea("GNGGA,235959.000,5030.0000,S,01015.0000,W,1,21,0.61,59.8,M,44.7,M,,")
+    rmc_south_west = nmea("GNRMC,235959.000,A,5030.0000,S,01015.0000,W,10.000,0.00,061126,,,A")
+    after_midnight = nmea("GNRMC,000000.000,A,5030.0000,S,01015.0000,W,,0.00,071126,,,A")  # ohne Tempo und GGA
+    invalid = nmea("GNRMC,000001.000,V,,,,,,,071126,,,N")
+    no_fix_gga = nmea("GNGGA,000002.000,,,,,0,00,,,M,,M,,")
+    lines = [gga_south_west, rmc_south_west, RMC, gga_south_west, rmc_south_west,  # Wiederholung: faellt weg
+             after_midnight, invalid, no_fix_gga, RMC[:-1] + ("0" if RMC[-1] != "0" else "1"), RMC[:30]]
+    with tempfile.NamedTemporaryFile("w", suffix=".nmea", delete=False) as fh:
+        fh.writelines(gps_logger.format_line(1794000000.0, l) for l in lines)
+    fixes = gps_logger.read_fixes(fh.name)
+    os.remove(fh.name)
+    assert len(fixes) == 3, fixes
+    t, lat, lon, height, kmh = fixes[0]
+    assert t == 1794009599.0, t  # 06.11.2026 23:59:59 UTC
+    assert lat == -50.5 and lon == -10.25
+    assert abs(height - 104.5) < 1e-9 and abs(kmh - 18.52) < 1e-9
+    assert fixes[1][3] is None and fixes[1][4] == 0.0  # RMC ohne GGA: Hoehe fehlt
+    assert fixes[2][0] == 1794009600.0 and fixes[2][3] is None and fixes[2][4] is None  # Datum aus RMC
+
+
 def test_format_line_matches_candump_timestamp():
     assert gps_logger.format_line(1794481265.5, "$X*00") == "(1794481265.500000) $X*00\n"
 
@@ -216,6 +237,7 @@ if __name__ == "__main__":
     test_parse_channel()
     test_checksum()
     test_parse_gga()
+    test_read_fixes_drops_repeats_and_broken_lines()
     test_format_line_matches_candump_timestamp()
     test_session_records_every_line_and_reports_status_after_disconnect()
     test_no_data_writes_no_file_and_keeps_connection()
