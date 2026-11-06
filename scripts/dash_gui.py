@@ -72,7 +72,9 @@ SIM_TRIGGER_PATH = "/tmp/mx5_sim_active"
 # Schleifenbedingung Trigger-Datei: can_backend.py loescht sie, wenn can0 kommt (und killt canplayer).
 # -s 5 ueberspringt Luecken >5 s und synchronisiert auch bei Uhrspruengen rueckwaerts neu (auf dem Pi
 # mit canplayer 2020.11 geprueft). sleep 1: kein Leerlauf-Karussell, falls canplayer sofort scheitert.
-SIM_LOOP_SH = 'while [ -e "$1" ]; do zcat -- "$2" | canplayer -s 5 vcan0=can0; sleep 1; done'
+# zcat -f spielt auch ungepackte .log ab; hat der Packdienst sie waehrend der Sim gepackt, die .gz nehmen
+SIM_LOOP_SH = ('while [ -e "$1" ]; do p="$2"; [ -e "$p" ] || p="$p.gz"; '
+               'zcat -f -- "$p" | canplayer -s 5 vcan0=can0; sleep 1; done')
 # Log-Liste neu einlesen, solange der Sim-Knopf sichtbar ist: der Packdienst legt die .gz der letzten Fahrt
 # erst ~10 min nach dem Boot an, das Dash steht dann schon (16.10.2026: nur das erste Log des Tages da).
 SIM_LOGS_REFRESH_S = 2.0
@@ -1436,9 +1438,13 @@ class SimController:
     def list_logs():
         """-> [(Pfad, Bytes)], neuestes zuerst. Nach Name statt mtime: die mtimes alter No-RTC-Logs
         sind teils Tage daneben, die Namen stimmen seit der RTC (28.09.). Leere Stummel (50-Byte-gzip
-        ohne Frames, z.B. 11.09.) fliegen raus - canplayer haette nichts abzuspielen."""
+        ohne Frames, z.B. 11.09.) fliegen raus - canplayer haette nichts abzuspielen.
+        Auch ungepackte .log (06.11.2026): Pi nach der Fahrt gleich aus, der Packdienst kommt erst 10 min
+        nach dem naechsten Boot - bis dahin fehlte die ganze letzte Fahrt. Gibt es beide, gewinnt die .gz."""
         logs = []
-        for path in sorted(glob.glob(os.path.join(LOG_DIR, "candump-*.log.gz")), reverse=True):
+        paths = {p.removesuffix(".gz"): p for p in sorted(glob.glob(os.path.join(LOG_DIR, "candump-*.log*")))
+                 if p.endswith((".log", ".log.gz"))}  # .log < .log.gz: die .gz ueberschreibt
+        for path in (paths[k] for k in sorted(paths, reverse=True)):
             try:
                 size = os.path.getsize(path)
             except OSError:  # zwischen glob und stat weggepackt/geloescht
@@ -1537,6 +1543,13 @@ class StatusScreen(Screen):
                          on_release=lambda b: self._select_sim_log(b.text))
                 self.sim_list.add_widget(row)
                 self._sim_rows[label] = row
+        # Gerade gepackt (06.11.2026): gleiches Log, nur die MB-Zahl im Text ist kleiner - Auswahl mitnehmen
+        if self.sim_choice is not None and self.sim_choice not in self._sim_logs:
+            stamp = self.sim_choice.rsplit("   ", 1)[0]
+            same = next((label for label in self._sim_logs if label.rsplit("   ", 1)[0] == stamp), None)
+            if same is not None:
+                old_newest = same if self.sim_choice == old_newest else old_newest
+                self.sim_choice = same
         # Stand die Auswahl auf dem neuesten Log (Standard), folgt sie einem neu gepackten; eine bewusst
         # gewaehlte aeltere bleibt stehen.
         if self.sim_choice not in self._sim_logs or self.sim_choice == old_newest:
