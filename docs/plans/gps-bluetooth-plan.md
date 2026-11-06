@@ -113,8 +113,19 @@ Handy OnePlus Nord CE5, App GPS NMEA Tether, Pi 4 mit Kernel 6.12.109. Herleitun
   dann ist der Dienst etwa 24 s weg.
 - **Neustart bestanden:** Das Pairing überlebt, der App-Dienst bleibt ohne Eingriff am Handy erreichbar,
   auch unter Kernel 6.12.115.
-- **Offen für Phase 1:** Verhalten am Kanal-Ende (30), Parallelbetrieb mit verbundenem Thermometer
-  (bisher nur dessen Suchlauf).
+
+## Ergebnisse Phase 1 (06.11.2026)
+
+Logger und Dash-Feld laufen auf dem Pi (`ef8122e`), Herleitung im Logbuch.
+
+- **Trennungen:** Bluetooth aus und an, App-Neustart und getrennte Verbindung erholen sich ohne Eingriff am
+  Pi, nach 25–44 s. Nach Kanal 30 geht es bei 2 weiter.
+- **Neustart:** Der Dienst startet von selbst und verbindet sich.
+- **Dash:** Alle Zustände auf dem echten Display gesehen, außer dem grauen `GPS  --`. Kein Fehlalarm im 3-Minuten-Test.
+- **Zwei Logger-Fehler behoben:** wiederholter alter Fix galt als frisch, Schreibtakt lief gegen die Daten.
+
+**Für Phase 2 zu erledigen:** ganze Fahrt mit gesperrtem Handy, Einlesen mit Verwerfen wiederholter GPS-Zeiten und
+Höhenkorrektur, Abholen der `.nmea` vom Pi, Parallelbetrieb mit verbundenem Thermometer.
 
 ## Annahmen
 

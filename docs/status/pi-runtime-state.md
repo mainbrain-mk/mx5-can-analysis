@@ -11,6 +11,9 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
+**Nachtrag 2026-11-06:** `deployed` = Kopf von Branch `gps-bluetooth-2026-11-06` (`ef8122e`, noch nicht in `main`). Handy per
+Bluetooth gekoppelt, Schlüssel in der Basisschicht. Nach dem Neustart: keine failed units, `/media/root-ro` ro.
+
 ## Hardware
 
 Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.115 (seit 06.11.). DS3231-RTC seit 28.09.
@@ -32,6 +35,7 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 | └ `tpms_poller.py --interval 120` (TPMS, Öl, Lambda/ETC/Klopfen per OBD/UDS) | dito | Zündung an | landet im candump |
 | `canlogs-pack.timer` → `canlogs-pack.service` (`session_logger.py --pack`) | `timers.target` | 10 min nach dem Boot, dann alle 15 min | Journal |
 | `wlan-watchdog.timer` | `timers.target` | alle 15 s | – |
+| `gps-logger.service` → `gps_logger.py` (Handy-GPS per Bluetooth, seit 06.11.; Handy-Adresse in `gps_phone.env`) | `multi-user.target` | immer, schreibt sobald die App sendet | `gps-*.nmea`, `/tmp/mx5_gps_status.json`, Journal |
 
 - **Packen:** nur `candump-*.log` und nur, solange kein candump läuft. Fährt man währenddessen los, stoppt
   `session_logger` den Packdienst, die Rohdatei bleibt heil. Ein 600-MB-Log braucht ~1 min.

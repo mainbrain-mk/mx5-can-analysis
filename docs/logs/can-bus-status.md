@@ -6286,3 +6286,29 @@ Classic SPP), der Pi baut die Verbindung auf. Noch kein Logger-Code, Messung mit
   keine fehlgeschlagenen Units, `can_backend`/`dash_gui`/`bbq.service` laufen. Das Handy ist ohne neues Pairing gekoppelt, die Verbindung
   steht nach 2 s (Kanal 16). 30,6 s: 778 Zeilen, alle Prüfsummen gültig, RMC 1,01/s, Empfangsabstand max 1195 ms, 19–26 Satelliten, HDOP ab 0,51.
   Der App-Dienst überlebt den Neustart des Pi ohne Eingriff am Handy. Damit ist auch der Neustart aus dem Mono-Eintrag oben erledigt.
+
+## Handy-GPS per Bluetooth: Phase 1, Logger und Dash-Feld (06.11.2026)
+
+`gps_logger.py` als `gps-logger.service`, Rohdaten in `canlogs/gps-*.nmea`, Zustand über `/tmp/mx5_gps_status.json` im Dash-Feld
+(`gps_status()`). Noch nicht im Datalake, das ist Phase 2. Stand auf dem Pi: `ef8122e`.
+- **Fehler 1, gefunden im Standort-Test:** Bei ausgeschaltetem Standort sendet die App alle 5 s denselben Fix erneut, RMC-Status `A`,
+  GGA-Qualität 1 (siebenmal GPS-Zeit 12:29:34). Die erste Fassung wertete jede gültige Zeile als Lebenszeichen, das Feld sprang
+  zwischen grün und gelb. Jetzt ist nur ein GGA mit neuer GPS-Zeit frisch. Das Rohlog behält die Wiederholungen, **beim Einlesen in
+  Phase 2 müssen sie wegfallen.**
+- **Fehler 2, gefunden im Kanal-Test:** Der 1-s-Schreibtakt der Statusdatei lief gegen die 1-Hz-Daten, ein Schreibvorgang fiel
+  gelegentlich aus (Datei 1,93 s alt, Fix 3,008 s alt, Schwelle 3 s). Folge: kurzes „kein Fix“ im Dash, einmal im Standort-Test und zweimal
+  in 17 Minuten Kanal-Test. Jetzt wird nach jedem Paket geschrieben. Dauertest danach: 719 Proben in 3 min, kein Abfall von grün, Fix
+  höchstens 1,14 s alt, Datei höchstens 0,99 s.
+- **Trennungen, alle ohne Eingriff am Pi:** Bluetooth am Handy aus und an 30 s, App beendet und neu gestartet 25 s, `bluetoothctl disconnect`
+  42–44 s (Wartezeit `NO_SERVICE_RETRY_S` = 15 s). Kanal: 16 Runden von 13 bis 30, danach weiter bei 2. Nach einem Bluetooth-Neustart am
+  Handy fängt die Nummer auch tiefer an (17 auf 7). Das Kanal-Ende ist damit kein Risiko.
+- **Dash:** Grün, gelb `kein Fix`, gelb bei HDOP 7,8 und rot `keine Verbindung` auf dem echten Display per Screenshot gesehen, in der
+  Simulation. Die Fußzeile gibt es nur im Fahrt-Screen. Kosten: Datei lesen und parsen 75 µs bei 4 Hz, Logger 0,4 % CPU. Die Dash-Latenz
+  selbst ist nicht neu gemessen.
+- **Neustart:** Der Dienst startet aus der Basisschicht von selbst. Der erste Versuch fand 2 s nach dem Start keinen Dienst, 18 s später stand
+  die Verbindung. `/media/root-ro` blieb `ro`.
+- **Falle beim Einrichten:** Neue Dateien der Basisschicht sieht das laufende Overlay erst nach dem Neustart, also zusätzlich live installieren
+  (`SETUP.md`).
+- **Falle `pkill -f`:** Das Muster passt auch auf die eigene SSH-Befehlszeile und beendet die eigene Shell. `[p]ython3 ...` schreiben.
+- Offen für Phase 2: ganze Fahrt mit gesperrtem OnePlus, Qualität bei Bewegung, Einlesen, Abholen der `.nmea`, Parallelbetrieb mit
+  verbundenem Thermometer. Die drei `gps-2026-11-06_*.nmea` auf dem Stick sind Testdaten vom Stand am Haus.
