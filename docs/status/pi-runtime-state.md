@@ -13,7 +13,7 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 
 ## Hardware
 
-Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.109. DS3231-RTC seit 28.09.
+Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.115 (seit 06.11.). DS3231-RTC seit 28.09.
 CANable 2.0 an `can0`, steckt nur im Auto. SD-Karte 64 GB mit overlayroot, also ro und mit RAM-Overlay.
 `/home/pi/canlogs` liegt seit 10.10. auf einem SanDisk Ultra Flair 128 GB (ext4, Label `canlogs`) im blauen
 USB-3-Port, `write()` max. 0,02 s. Der alte USB-2.0-Werbestick hing beim Schreiben bis 3 s, er ist als Backup

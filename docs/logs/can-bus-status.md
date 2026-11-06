@@ -6245,3 +6245,17 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   MB-Angabe ungepackter Logs ist die Rohgröße, etwa 8× die der `.gz`.
 - Nachtrag: Beim Packen ändert sich die MB-Zahl im Listentext. Eine gewählte ältere Fahrt sprang dadurch auf die
   neueste zurück. `_refresh_sim_logs()` nimmt die Auswahl jetzt über Datum und Uhrzeit mit.
+
+## Pi: Mono-Quelle entfernt, apt-Updates, Kernel 6.12.115 (06.11.2026)
+
+- `apt update` meldete das Mono-Repo: kein arm64 und Schlüssel im alten `trusted.gpg`. Mono selbst kommt aus Debian
+  Bookworm und bleibt installiert. `mono-official-stable.list` und `/etc/apt/trusted.gpg` (einziger Schlüssel: Xamarin)
+  sind in SD-Basis und Overlay gelöscht.
+- 84 Updates + 6 neue Pakete nach dem Rezept vom 30.09. in die SD-Basis gespielt (`--force-confold`, 7,5 min, nichts
+  entfernt). In der Basis steht danach 0 offen. `initramfs8` und `kernel8.img` sind bitgleich zu 6.12.115, beide
+  initramfs enthalten overlayroot. Sicherung als `*.6.12.109` auf `/boot/firmware`.
+- Das Overlay zeigt bis zum Neustart weiter 84 offene Updates, seine `dpkg/status` weicht von der Basis ab.
+- `/media/root-ro` blieb danach `rw`, `remount,ro` scheitert mit EBUSY: Das python3 von `can_backend`/`dash_gui` hält
+  das ersetzte `/usr/bin/python3.11` offen (`lsof +L1`), ext4 lässt dann kein ro zu. Das erklärt vermutlich auch den
+  Fund vom 26.09. teilweise (dort kein Halter gefunden, aber ohne `+L1`). Der Neustart behebt es.
+- Stand beim Eintrag: Neustart steht aus, 6.12.115 ist noch nicht gebootet.
