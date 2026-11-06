@@ -16,8 +16,8 @@ Gemessen in Phase 0 (06.11.2026), daraus folgt die Schleife unten:
   - Standort aus: Die App wiederholt alle 5 s den letzten Fix unveraendert (update_status()). Das
     Rohlog behaelt auch das, beim Einlesen muessen Saetze mit bekannter GPS-Zeit wegfallen.
 
-Fuer die Fusszeile im Dash (gps_status() in dash_gui.py) ersetzt der Dienst einmal pro Sekunde
-atomar eine Statusdatei in /tmp. Zeiten dort in time.monotonic(), damit Uhrspruenge nichts
+Fuer die Fusszeile im Dash (gps_status() in dash_gui.py) ersetzt der Dienst nach jedem Datenpaket,
+mindestens aber einmal pro Sekunde atomar eine Statusdatei in /tmp. Zeiten dort in time.monotonic(), damit Uhrspruenge nichts
 ausmachen. Der Dienst haengt weder vom Dash noch von can_backend.py ab.
 """
 import functools
@@ -168,7 +168,9 @@ def read_session(sock, recorder, status_path=STATUS_PATH, wall=time.time, mono=t
                     if line:
                         recorder.write(t, line)
                         update_status(status, line, mono())
-            if mono() >= next_status:
+            # Auch nach jedem Paket: Nur im 1-s-Takt liefe er gegen die 1-Hz-Daten, ein Fix sah dann
+            # gelegentlich 3 s alt aus und das Dash blitzte "kein Fix" (gemessen 06.11.2026).
+            if data or mono() >= next_status:
                 write_status(status, mono(), status_path)
                 next_status = mono() + STATUS_INTERVAL_S
     finally:

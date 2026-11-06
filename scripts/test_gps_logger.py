@@ -123,6 +123,30 @@ def test_status_during_session():
     assert seen[0]["last_fix_mono"] is not None
 
 
+def test_status_is_written_after_each_packet_not_only_on_the_timer():
+    """1-Hz-Daten gegen 1-s-Schreibtakt: Pakete knapp vor Ablauf des Takts durften nicht ausfallen,
+    sonst sah ein Fix im Dash gelegentlich 3 s alt aus."""
+    tmp = tempfile.mkdtemp()
+    status_path = os.path.join(tmp, "status.json")
+    now = [100.0]
+    ages = []
+    second = nmea("GNGGA,112106.000,5000.0000,N,01000.0000,E,1,21,0.61,59.8,M,44.7,M,,")
+    packets = [f"{GGA_FIX}\r\n".encode(), f"{second}\r\n".encode(), b""]
+
+    class Probe(FakeSocket):
+        def recv(self, n):
+            now[0] += 0.98  # jedes Paket kurz vor Ablauf von STATUS_INTERVAL_S
+            with open(status_path) as fh:
+                s = json.load(fh)
+            if s["last_fix_mono"] is not None:
+                ages.append(now[0] - s["last_fix_mono"])
+            return super().recv(n)
+
+    gps_logger.read_session(Probe(packets), gps_logger.Recorder(tmp), status_path,
+                            wall=lambda: 1794481265.5, mono=lambda: now[0])
+    assert len(ages) == 2 and max(ages) < 1.0, ages  # schon der erste Fix steht vor dem zweiten Paket in der Datei
+
+
 def test_repeated_fix_is_not_fresh():
     """Standort aus: Die App sendet alle 5 s denselben Fix erneut, Status "gueltig"."""
     status = gps_logger.new_status(connected=True)
@@ -175,6 +199,7 @@ if __name__ == "__main__":
     test_session_records_every_line_and_reports_status_after_disconnect()
     test_no_data_writes_no_file_and_keeps_connection()
     test_status_during_session()
+    test_status_is_written_after_each_packet_not_only_on_the_timer()
     test_repeated_fix_is_not_fresh()
     test_oversized_line_is_dropped()
     test_cycle_waits_according_to_outcome_and_reconnect_keeps_file()
