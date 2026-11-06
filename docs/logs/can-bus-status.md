@@ -6259,3 +6259,30 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   das ersetzte `/usr/bin/python3.11` offen (`lsof +L1`), ext4 lässt dann kein ro zu. Das erklärt vermutlich auch den
   Fund vom 26.09. teilweise (dort kein Halter gefunden, aber ohne `+L1`). Der Neustart behebt es.
 - Stand beim Eintrag: Neustart steht aus, 6.12.115 ist noch nicht gebootet.
+
+## Handy-GPS per Bluetooth auf dem Pi: Phase 0 (06.11.2026)
+
+Konzept in [`plans/gps-bluetooth-plan.md`](../plans/gps-bluetooth-plan.md). OnePlus Nord CE5 mit GPS NMEA Tether (Bluetooth
+Classic SPP), der Pi baut die Verbindung auf. Noch kein Logger-Code, Messung mit Einmal-Skripten über Python-RFCOMM-Sockets.
+- Pairing vom Pi aus. Das `NoInputNoOutput`-Agent ließ sich neben dem Standard-Agent von `bluetoothctl` nicht registrieren,
+  der Pi fragt dann selbst nach dem Code. Ergebnis: authentifizierter Schlüssel (`Type=8`).
+- Der Schlüssel liegt erst nach dem Kopieren in die Basisschicht dauerhaft (`SETUP.md`, „Handy-GPS“); der Neustart-Test steht aus.
+- Der Dienst heißt „GPS NMEA Tether“. `sdptool browse` zeigt ihn nicht, weil er nicht in der öffentlichen Browse-Gruppe steht;
+  `sdptool search --bdaddr <mac> 0x1101` findet ihn.
+- **Ohne Fix keine Daten:** Die Verbindung steht, es kommt aber nichts (erste Versuche: 3 s Timeout, einmal Reset durch die App).
+- **Kanal wechselt:** Nach jeder Trennung lauscht die App auf neuer Nummer, gesehen 9, 10, 11, 13, 14, 15. Direkt nach einer Trennung
+  meldet SDP noch den alten Kanal, dort kommt `Connection reset`/`refused`. Danach ist der Dienst etwa 24 s weg, in Summe
+  rund 30 s bis zur nächsten Verbindung. Was am Ende des Bereichs (30) passiert, ist offen.
+- Messung stehend am Haus, Bildschirm aus, 60,8 s: 1460 Zeilen, alle Prüfsummen gültig, 1,48 kB/s. RMC 0,99/s mit 60 verschiedenen
+  Zeitstempeln, alle `.000`, Empfangsabstand Median 1000 ms, max 1219 ms. **Trotz App-Einstellung 5 Hz also 1 Hz.** Die Sätze
+  (GN-Talker, GSV mit Signalstärke) sehen nach Chip-Rohdaten aus; ob der Chip mehr kann, klärt das nicht.
+- Inhalt: GGA, RMC, VTG, GSA, GSV für GPS/GLONASS/Galileo/BeiDou, 16–21 genutzte Satelliten, HDOP ab 0,61, kein GST
+  (also keine Genauigkeit in Metern). Geoid-Abstand 44,7 m in GGA, bestätigt die nötige Höhenkorrektur gegenüber den GPX
+  („Altitudes = Raw“). Höhe anfangs 144,6 m, bei gutem Fix 59,8 m. Im Stand bleibt die Position völlig konstant.
+- `bbq.service` lief währenddessen und suchte alle 20 s nach dem ausgeschalteten Thermometer, ohne Wirkung auf die Daten.
+  Mit verbundenem Thermometer ist das noch nicht getestet.
+- Das Dash-Feld `GPS  -- (kein Empfaenger)` wird Teil von Phase 1, Zustände im Plan.
+- **Neustart-Test bestanden (12:36):** Pi nach 42 s erreichbar, jetzt Kernel 6.12.115, `/media/root-ro` wieder `ro`, `dpkg --audit` leer,
+  keine fehlgeschlagenen Units, `can_backend`/`dash_gui`/`bbq.service` laufen. Das Handy ist ohne neues Pairing gekoppelt, die Verbindung
+  steht nach 2 s (Kanal 16). 30,6 s: 778 Zeilen, alle Prüfsummen gültig, RMC 1,01/s, Empfangsabstand max 1195 ms, 19–26 Satelliten, HDOP ab 0,51.
+  Der App-Dienst überlebt den Neustart des Pi ohne Eingriff am Handy. Damit ist auch der Neustart aus dem Mono-Eintrag oben erledigt.
