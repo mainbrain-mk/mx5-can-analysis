@@ -1,0 +1,19 @@
+[Unit]
+Description=MX-5 Handy-GPS per Bluetooth mitloggen
+After=bluetooth.service
+Wants=bluetooth.service
+RequiresMountsFor=/home/pi/canlogs
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/canlogs
+# Enthaelt GPS_PHONE_MAC=<Bluetooth-Adresse>, liegt auf dem Stick statt im Repo
+EnvironmentFile=/home/pi/canlogs/gps_phone.env
+ExecStart=/home/pi/canlogs/venv/bin/python3 /home/pi/canlogs/gps_logger.py
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

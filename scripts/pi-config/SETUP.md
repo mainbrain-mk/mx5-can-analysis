@@ -220,3 +220,16 @@ sudo tar -C /var/lib/bluetooth/<ADAPTER> -c <HANDY> | sudo overlayroot-chroot sh
 ```
 Die Datei `info` enthält den Schlüssel, also nicht ausgeben. Gegenprobe: `sha256sum` gegen
 `/media/root-ro/var/lib/bluetooth/...`.
+
+Dienst `gps-logger.service` (`scripts/gps_logger.py`), nach dem Deploy einmalig, die Unit in EINEM Aufruf:
+```
+cd /home/pi/canlogs
+echo "GPS_PHONE_MAC=<HANDY>" > gps_phone.env
+ln -s repo/scripts/gps_logger.py gps_logger.py
+ln -s repo/scripts/test_gps_logger.py test_gps_logger.py
+cat repo/scripts/pi-config/gps-logger.service | sudo overlayroot-chroot sh -c \
+  "cat > /etc/systemd/system/gps-logger.service && systemctl enable gps-logger.service"
+sudo systemctl daemon-reload && sudo systemctl start gps-logger.service
+findmnt -no OPTIONS /media/root-ro
+```
+Rohdaten: `canlogs/gps-*.nmea`, Zustand fürs Dash: `/tmp/mx5_gps_status.json`, Meldungen: `journalctl -u gps-logger`.
