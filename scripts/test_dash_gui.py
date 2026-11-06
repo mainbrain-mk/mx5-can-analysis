@@ -539,6 +539,46 @@ def test_sim_log_choice_newest_first_without_stubs():
         assert thread.call_args.kwargs["args"] == (os.path.join(tmp, "candump-2026-10-04_092939.log.gz"),)
 
 
+def test_sim_log_list_includes_unpacked_logs():
+    """06.11.2026: Die Fahrten vom Vortag lagen noch als .log da (Packdienst erst 10 min nach dem Boot) und
+    fehlten in der Liste. Ungepackte zaehlen mit; gibt es kurz beides (.gz fertig, .log noch nicht geloescht),
+    nur einmal und die .gz. .gz.tmp vom laufenden Packen nicht."""
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("candump-2026-11-04_163818.log.gz", "candump-2026-11-05_080335.log",
+                     "candump-2026-11-05_173353.log", "candump-2026-11-05_173353.log.gz",
+                     "candump-2026-11-05_173353.log.gz.tmp"):
+            with open(os.path.join(tmp, name), "wb") as f:
+                f.write(b"x" * 5000)
+        with mock.patch.object(dash_gui, "LOG_DIR", tmp):
+            names = [os.path.basename(p) for p, _ in dash_gui.SimController.list_logs()]
+    assert names == ["candump-2026-11-05_173353.log.gz", "candump-2026-11-05_080335.log",
+                     "candump-2026-11-04_163818.log.gz"]
+    assert dash_gui.sim_log_label("/x/candump-2026-11-05_080335.log", 92e6) == "05.11.2026   08:03:35   92 MB"
+
+
+def test_sim_loop_plays_raw_log_and_falls_back_to_packed():
+    """Die Sim-Schleife spielt ungepackte Logs ab und nimmt die .gz, wenn der Packdienst die Rohdatei
+    zwischendurch ersetzt hat."""
+    import gzip
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = os.path.join(tmp, "candump-x.log")
+        with gzip.open(raw + ".gz", "wb") as f:
+            f.write(b"packed\n")
+        cmd = dash_gui.SIM_LOOP_SH.replace("canplayer -s 5 vcan0=can0", "cat").replace("sleep 1", "rm -f \"$1\"")
+        trigger = os.path.join(tmp, "trigger")
+        open(trigger, "w").close()
+        with open(raw, "w") as f:
+            f.write("raw\n")
+        assert subprocess.run(["sh", "-c", cmd, "sh", trigger, raw], capture_output=True).stdout == b"raw\n"
+        os.remove(raw)
+        open(trigger, "w").close()
+        assert subprocess.run(["sh", "-c", cmd, "sh", trigger, raw], capture_output=True).stdout == b"packed\n"
+
+
 def test_sim_log_list_picks_up_logs_packed_after_dash_start():
     """16.10.2026: Das Dash las die Liste beim Boot einmal ein, der Packdienst legte die .gz der letzten Fahrt
     erst 10 min spaeter an - sie fehlte, solange kein can0 kam. Jetzt wird nachgelesen; die Standard-Auswahl
@@ -850,6 +890,8 @@ if __name__ == "__main__":
     test_sim_start_twice_at_once_starts_one_canplayer()
     test_sim_loop_replays_whole_log_until_stopped()
     test_sim_log_choice_newest_first_without_stubs()
+    test_sim_log_list_includes_unpacked_logs()
+    test_sim_loop_plays_raw_log_and_falls_back_to_packed()
     test_sim_log_list_picks_up_logs_packed_after_dash_start()
     test_sim_stop_button_appears_on_drive_screen_only_while_sim_runs()
     test_gear_display_turns_baby_blue_when_clutch_not_closed()
