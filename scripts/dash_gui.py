@@ -112,14 +112,14 @@ def clock_source(ntp_path=NTP_SYNC_PATH, rtc_path=RTC_EPOCH_PATH):
 def gps_status(logging, path=GPS_STATUS_PATH, now=None):
     """-> (Fusszeilen-Text, Farbe). Fehlt die Datei oder ist sie alt, laeuft gps_logger.py nicht:
     gilt wie "keine Verbindung", rot nur waehrend ein Log laeuft (sonst stoert es zuhause). Die App
-    sendet ohne Fix gar nichts, "kein Fix" zeigt sich also an ausbleibenden Saetzen. Nur read, kein
-    Fork, wie clock_source()."""
+    sendet ohne Fix nichts oder wiederholt den alten, "kein Fix" zeigt sich also am Alter des letzten
+    neuen Fix (last_fix_mono). Nur read, kein Fork, wie clock_source()."""
     now = time.monotonic() if now is None else now
     try:
         with open(path) as fh:
             s = json.load(fh)
         connected = s["connected"] and now - s["written_mono"] <= GPS_STALE_S
-        last = s["last_sentence_mono"]
+        last = s["last_fix_mono"]
         receiving = s["fix"] and last is not None and now - last <= GPS_STALE_S
         sats, hdop = s["sats"], s["hdop"]
     except (OSError, ValueError, KeyError, TypeError):

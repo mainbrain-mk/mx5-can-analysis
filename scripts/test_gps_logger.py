@@ -120,7 +120,22 @@ def test_status_during_session():
     gps_logger.read_session(Probe([f"{GGA_FIX}\r\n".encode(), socket.timeout]), gps_logger.Recorder(tmp), status_path,
                             wall=lambda: 1794481265.5, mono=lambda: next(clock))
     assert seen[0]["connected"] and seen[0]["fix"] and seen[0]["sats"] == 21 and seen[0]["hdop"] == 0.61
-    assert seen[0]["last_sentence_mono"] is not None
+    assert seen[0]["last_fix_mono"] is not None
+
+
+def test_repeated_fix_is_not_fresh():
+    """Standort aus: Die App sendet alle 5 s denselben Fix erneut, Status "gueltig"."""
+    status = gps_logger.new_status(connected=True)
+    gps_logger.update_status(status, GGA_FIX, 100.0)
+    assert status["last_fix_mono"] == 100.0 and status["fix"]
+    gps_logger.update_status(status, RMC, 101.0)  # andere Saetze zaehlen nicht
+    gps_logger.update_status(status, GGA_FIX, 105.0)  # gleiche GPS-Zeit
+    assert status["last_fix_mono"] == 100.0
+    next_second = nmea("GNGGA,112106.000,5000.0000,N,01000.0000,E,1,21,0.61,59.8,M,44.7,M,,")
+    gps_logger.update_status(status, next_second, 106.0)
+    assert status["last_fix_mono"] == 106.0
+    gps_logger.update_status(status, GGA_NOFIX, 107.0)
+    assert not status["fix"]
 
 
 def test_oversized_line_is_dropped():
@@ -160,6 +175,7 @@ if __name__ == "__main__":
     test_session_records_every_line_and_reports_status_after_disconnect()
     test_no_data_writes_no_file_and_keeps_connection()
     test_status_during_session()
+    test_repeated_fix_is_not_fresh()
     test_oversized_line_is_dropped()
     test_cycle_waits_according_to_outcome_and_reconnect_keeps_file()
     print("ok")

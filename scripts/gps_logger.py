@@ -13,6 +13,8 @@ Gemessen in Phase 0 (06.11.2026), daraus folgt die Schleife unten:
   - Direkt nach einer Trennung meldet SDP noch den alten Kanal (Reset/Refused), danach ist der
     Dienst etwa 24 s weg.
   - Ohne GPS-Fix steht die Verbindung, es kommen aber keine Daten. Das ist kein Abbruch.
+  - Standort aus: Die App wiederholt alle 5 s den letzten Fix unveraendert (update_status()). Das
+    Rohlog behaelt auch das, beim Einlesen muessen Saetze mit bekannter GPS-Zeit wegfallen.
 
 Fuer die Fusszeile im Dash (gps_status() in dash_gui.py) ersetzt der Dienst einmal pro Sekunde
 atomar eine Statusdatei in /tmp. Zeiten dort in time.monotonic(), damit Uhrspruenge nichts
@@ -118,15 +120,21 @@ def write_status(status, mono_now, path=STATUS_PATH):
 
 
 def new_status(connected):
-    return {"connected": connected, "fix": False, "sats": None, "hdop": None, "last_sentence_mono": None}
+    return {"connected": connected, "fix": False, "sats": None, "hdop": None, "gps_time": None, "last_fix_mono": None}
 
 
 def update_status(status, line, mono_now):
-    if checksum_ok(line):
-        status["last_sentence_mono"] = mono_now
+    """Frisch ist nur ein GGA mit neuer GPS-Zeit: Bei ausgeschaltetem Standort sendet die App alle
+    5 s denselben alten Fix erneut, mit Status "gueltig" (gemessen 06.11.2026). Saetze allein
+    sagen also nichts aus."""
     gga = parse_gga(line)
-    if gga:
-        status["fix"], status["sats"], status["hdop"] = gga
+    if not gga:
+        return
+    status["fix"], status["sats"], status["hdop"] = gga
+    gps_time = line.split(",")[1]
+    if gps_time != status["gps_time"]:
+        status["gps_time"] = gps_time
+        status["last_fix_mono"] = mono_now
 
 
 def read_session(sock, recorder, status_path=STATUS_PATH, wall=time.time, mono=time.monotonic):

@@ -67,12 +67,13 @@ Er zeigt künftig den Zustand des Loggers, damit ein Ausfall während der Fahrt 
 |---|---|---|
 | Keine Verbindung, kein Log läuft | `GPS  --` | grau |
 | Keine Verbindung, Log läuft | `GPS  keine Verbindung` | rot |
-| Verbunden, aber seit über 3 s keine Sätze | `GPS  kein Fix` | Warnfarbe |
+| Verbunden, aber seit über 3 s kein neuer Fix | `GPS  kein Fix` | Warnfarbe |
 | Fix, HDOP über 2,0 | `GPS  9 Sat  HDOP 2.4` | Warnfarbe |
 | Fix, HDOP bis 2,0 | `GPS  21 Sat  HDOP 0.6` | grün |
 
-Die App sendet ohne Fix gar nichts (gemessen 06.11.), „kein Fix“ lässt sich daher nur an ausbleibenden
-Sätzen erkennen. Die HDOP-Schwelle ist ein Startwert und wird nach der Testfahrt nachgestellt.
+Die App sendet ohne Fix nichts oder wiederholt bei ausgeschaltetem Standort alle 5 s den alten Fix mit
+Status „gültig“ (gemessen 06.11.). „Kein Fix“ heißt deshalb: seit über 3 s kein GGA mit neuer GPS-Zeit.
+Das Einlesen in Phase 2 muss Sätze mit bereits bekannter GPS-Zeit verwerfen. Die HDOP-Schwelle ist ein Startwert und wird nach der Testfahrt nachgestellt.
 
 Datenweg: Der Logger ersetzt etwa einmal pro Sekunde atomar eine kleine Statusdatei in `/tmp`
 (verbunden, Satelliten, HDOP, Zeitpunkt in `time.monotonic()`), wie schon `SIM_TRIGGER_PATH` dort liegt.

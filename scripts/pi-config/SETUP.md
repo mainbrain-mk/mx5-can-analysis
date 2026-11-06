@@ -229,6 +229,8 @@ ln -s repo/scripts/gps_logger.py gps_logger.py
 ln -s repo/scripts/test_gps_logger.py test_gps_logger.py
 cat repo/scripts/pi-config/gps-logger.service | sudo overlayroot-chroot sh -c \
   "cat > /etc/systemd/system/gps-logger.service && systemctl enable gps-logger.service"
+# Das laufende Overlay sieht die neue Datei der Basisschicht erst nach dem Neustart, also auch live:
+sudo install -m 644 repo/scripts/pi-config/gps-logger.service /etc/systemd/system/gps-logger.service
 sudo systemctl daemon-reload && sudo systemctl start gps-logger.service
 findmnt -no OPTIONS /media/root-ro
 ```
