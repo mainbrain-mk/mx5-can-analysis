@@ -104,7 +104,7 @@ def test_unmapped_channels():
 
 
 def test_drivetrain_ratio():
-    data = [{"file": "2026-01-01 000000.dlg", "a_measured_ms2": 1.0, "a_model_ms2": 2.0}]
+    data = [{"file": "2026-01-01 000000.dlg", "gear": 3, "a_measured_ms2": 1.0, "a_model_ms2": 2.0}]
     tmp = with_results_dir({"drivetrain_model_validation_summary.json": data})
     pc.RESULTS_DIR, orig = tmp, pc.RESULTS_DIR
     findings = pc.check_drivetrain_ratio(["2026-01-01 000000"])
@@ -112,10 +112,14 @@ def test_drivetrain_ratio():
     cleanup(tmp)
     assert len(findings) == 1, findings
 
-    data_ok = [{"file": "2026-01-01 000000.dlg", "a_measured_ms2": pc.DRIVETRAIN_RATIO_REFERENCE, "a_model_ms2": 1.0}]
+    # Gang 1 und 6 zaehlen nicht, auch wenn sie abweichen und in der Mehrheit sind
+    data_ok = [{"file": "2026-01-01 000000.dlg", "gear": 3, "a_measured_ms2": pc.DRIVETRAIN_RATIO_REFERENCE, "a_model_ms2": 1.0},
+               {"file": "2026-01-01 000000.dlg", "gear": 6, "a_measured_ms2": 1.3, "a_model_ms2": 1.0},
+               {"file": "2026-01-01 000000.dlg", "gear": 1, "a_measured_ms2": 0.7, "a_model_ms2": 1.0}]
     tmp2 = with_results_dir({"drivetrain_model_validation_summary.json": data_ok})
     pc.RESULTS_DIR, orig = tmp2, pc.RESULTS_DIR
     assert pc.check_drivetrain_ratio(["2026-01-01 000000"]) == []
+    assert pc.drivetrain_ratios(data_ok, ["2026-01-01 000000"]) == [pc.DRIVETRAIN_RATIO_REFERENCE]
     pc.RESULTS_DIR = orig
     cleanup(tmp2)
 

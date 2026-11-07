@@ -948,8 +948,7 @@ def main():
             can_vibration[log_id] = r
 
     dt_data = load_json("drivetrain_model_validation_summary.json") or []
-    dt_ratios = [e["a_measured_ms2"] / e["a_model_ms2"] for e in dt_data
-                 if e.get("file", "").removesuffix(".dlg") in analysis_logs and e.get("a_model_ms2")]
+    dt_ratios = pipeline_checks.drivetrain_ratios(dt_data, analysis_logs)
     drivetrain = {"median_ratio": statistics.median(dt_ratios) if dt_ratios else None, "n": len(dt_ratios)}
 
     ts_data = load_json("top_speed_validation_summary.json") or []
