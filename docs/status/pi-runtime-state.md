@@ -17,6 +17,8 @@ Bluetooth gekoppelt, Schlüssel in der Basisschicht. Nach dem Neustart: keine fa
 **Nachtrag 2026-11-08:** `deployed` = `3eff2b3` (Branch `spreewaldring-streckenmodell-2026-11-07`, noch nicht in `main`):
 Editor-Simulation aufs Dash, `can_backend.py` lauscht zusätzlich auf UDP 51235. Kivy- und Backend-Tests auf dem Pi grün,
 Wiedergabe am Display geprüft.
+**Nachtrag 2026-11-08 (2):** `deployed` = `731d0e8`, nur `can_backend.py` neu gestartet: Motorlast und Drosselklappe aus
+der Editor-Simulation, am Display geprüft (Teilgas 21 %/Last 28 %, VMAX = Maximum der gesendeten Werte).
 
 ## Hardware
 
