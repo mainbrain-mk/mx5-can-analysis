@@ -102,7 +102,8 @@ EINSCHRAENKUNGEN:
     N~5761.6km, deutlich suedlich davon, NICHT abgedeckt. Versuch, die
     naheliegende Kachel `als_33409-5761.zip` direkt zu laden, ergab 404 -
     offen, ob echte Datenluecke oder falsche Namenskonvention an dieser
-    Stelle, nicht weiter verfolgt.
+    Stelle, nicht weiter verfolgt. NACHTRAG 07.11.2026: Kachel jetzt da
+    (dgm_33409-5761.zip aus DGM-XYZ), siehe vehicle-dynamics-track.md.
   - Kein Bezug zu den bisherigen 56 Fahrt-Logs - diese decken alle die
     Berlin-Brandenburg-Alltagsschleife (und die Suedtirol-Rueckfahrt) ab,
     NICHT den Spreewaldring. Diese Rekonstruktion ist eigenstaendig, dient

@@ -17,8 +17,8 @@ vorhandene/validierte Bausteine):
 
   1. **Kurvengeschwindigkeits-Grenze** pro Streckenpunkt:
      v_kurve(s) = sqrt(mu_lat * g * R(s)), mit R(s) aus der
-     orthofoto-verfeinerten, geglaetteten Streckenmittellinie
-     (`spreewaldring_track.py`) und mu_lat aus der Reifen-Literatur-
+     Streckenmittellinie (seit 07.11.2026 aus
+     `spreewaldring_track_model.py`, vorher `spreewaldring_track.py`) und mu_lat aus der Reifen-Literatur-
      Bandbreite (Nankang NS-R2 Semi-Slick, siehe Memory "mx5-tires",
      TIRE_MU_RANGE).
   2. **Beschleunigungs-Einhuellende** a_accel(v) = das Maximum ueber alle
@@ -92,6 +92,7 @@ Aufruf: .venv/bin/python scripts/spreewaldring_lap_simulation.py
 """
 import os
 import json
+from collections import namedtuple
 
 import numpy as np
 import matplotlib
@@ -99,10 +100,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from drivetrain_model_validation import MASS_KG, G, GEAR_RATIOS
-from performance_simulation import accel, TRACTION_MAX_FORCE_N
+from performance_simulation import accel, coast_accel, ATTACK_SHIFT_S, TRACTION_MAX_FORCE_N
 
 RESULTS_DIR = "results"
-TRACK_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_summary.json")
+TRACK_MODEL_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_model.json")  # spreewaldring_track_model.py
+VEHICLE_MODEL_PATH = os.path.join(RESULTS_DIR, "mx5_vehicle_model.json")          # mx5_vehicle_model.py
 
 TIRE_MU_RANGE = (1.0, 1.3)  # siehe Memory "mx5-tires" (Nankang NS-R2 Semi-Slick)
 N_PASSES = 2                # Wiederholungen des Vorwaerts-/Rueckwaerts-Paars fuer Konvergenz
@@ -110,20 +112,55 @@ V_MIN_MS = 5.0               # numerische Untergrenze (vermeidet Division/sqrt-P
 
 
 def load_track():
-    with open(TRACK_SUMMARY_PATH, encoding="utf-8") as f:
-        d = json.load(f)
-    r = d["orthophoto_refinement"]
-    s = np.array(r["s_m_refined"])
-    radius = np.array([1e6 if x is None else x for x in r["radius_m_refined"]])
-    points = np.array(r["track_points_utm33_refined"])
-    total_len = r["total_length_m_refined"]
+    """Hauptschleife aus dem Streckenmodell (seit 07.11.2026, vorher Mittellinie aus spreewaldring_track.py,
+    deren Radien durch Wackeln oft zu klein waren). Hoehe und Querneigung stehen im Modell, gerechnet wird
+    weiter in der Ebene."""
+    with open(TRACK_MODEL_PATH, encoding="utf-8") as f:
+        r = json.load(f)["segments"]["main_loop"]
+    s = np.array(r["s_m"])
+    radius = np.array([1e6 if x is None else x for x in r["radius_m"]])
+    points = np.array(r["center"])
+    total_len = r["length_2d_m"]
     return s, radius, points, total_len
 
 
-def accel_envelope(v_ms):
+# Grip-Ellipse [g], VehicleSpeed->wahre Geschwindigkeit, Zugkraftluecke [s] je (Gang, Gang)
+Vehicle = namedtuple("Vehicle", "name lat_g accel_g brake_g speed_factor shift_s")
+
+
+def load_vehicles():
+    """Aus den Logs bestimmte Fahrzeugmodelle je Reifensatz, plus der Name des aktuellen Satzes."""
+    with open(VEHICLE_MODEL_PATH, encoding="utf-8") as f:
+        m = json.load(f)
+    shift_s = {tuple(int(g) for g in pair.split("-")): s["gap_s"] for pair, s in m["shift_gaps"].items()}
+    shift_s.update({(b, a): s for (a, b), s in list(shift_s.items())})  # Rueckschaltung: nicht gemessen, gleiche Luecke
+    vehicles = {tyre: Vehicle(tyre, t["lat_g"], t["accel_g"], t["brake_g"], t["speed_true_factor"], shift_s)
+                for tyre, t in m["tyres"].items()}
+    return vehicles, m["default_tyre"]
+
+
+def literature_vehicle(mu):
+    """Fruehere Annahme: isotroper Kreis, ATTACK-Schaltzeiten, VehicleSpeed als wahres Tempo."""
+    shift_s = dict(ATTACK_SHIFT_S)
+    shift_s.update({(b, a): s for (a, b), s in ATTACK_SHIFT_S.items()})
+    return Vehicle(f"mu={mu}", mu, mu, mu, 1.0, shift_s)
+
+
+def accel_true(v_ms, gear, speed_factor):
+    """Beschleunigung und Drehzahl bei wahrer Geschwindigkeit. Das Antriebsmodell rechnet in VehicleSpeed, die Strecke
+    in echten Metern: v und a werden umgerechnet, die Modellparameter bleiben (performance-model.md, Punkt 9)."""
+    a, rpm = accel(v_ms / speed_factor, gear, f_max=TRACTION_MAX_FORCE_N)
+    return a * speed_factor, rpm
+
+
+def coast_true(v_ms, speed_factor):
+    return coast_accel(v_ms / speed_factor) * speed_factor
+
+
+def accel_envelope(v_ms, speed_factor=1.0):
     """Beste erreichbare Beschleunigung ueber alle 6 Gaenge (traktions-
     begrenztes Modell, siehe Docstring)."""
-    return max(accel(v_ms, gear, f_max=TRACTION_MAX_FORCE_N)[0] for gear in GEAR_RATIOS)
+    return max(accel_true(v_ms, gear, speed_factor)[0] for gear in GEAR_RATIOS)
 
 
 def _lon_limit(v, radius_pt, a_lat_max, a_lon_max, accel_cap, friction_circle):
@@ -142,7 +179,7 @@ def _lon_limit(v, radius_pt, a_lat_max, a_lon_max, accel_cap, friction_circle):
 
 
 def simulate_lap(s, radius, mu_lat, n_passes=N_PASSES, friction_circle=False,
-                  a_accel_max_g=None, a_brake_max_g=None):
+                  a_accel_max_g=None, a_brake_max_g=None, speed_factor=1.0):
     """mu_lat bestimmt die Kurvengeschwindigkeit UND (per Default) laengs
     Beschleunigen/Bremsen (isotroper Kreis). a_accel_max_g/a_brake_max_g
     ueberschreiben nur die Laengsgrenzen (echte Ellipse) - z.B. mit den
@@ -169,12 +206,12 @@ def simulate_lap(s, radius, mu_lat, n_passes=N_PASSES, friction_circle=False,
         v_fwd = v.copy()
         for i in range(1, n):
             a = _lon_limit(v_fwd[i - 1], radius_o[i - 1], a_lat_max, a_accel_max,
-                            accel_envelope(v_fwd[i - 1]), friction_circle)
+                            accel_envelope(v_fwd[i - 1], speed_factor), friction_circle)
             v_max_accel = np.sqrt(v_fwd[i - 1] ** 2 + 2 * a * ds_o[i - 1])
             v_fwd[i] = min(v_corner_o[i], v_max_accel)
         # Schlusspunkt -> Startpunkt schliessen (Rundkurs)
         a = _lon_limit(v_fwd[-1], radius_o[-1], a_lat_max, a_accel_max,
-                        accel_envelope(v_fwd[-1]), friction_circle)
+                        accel_envelope(v_fwd[-1], speed_factor), friction_circle)
         v_max_accel = np.sqrt(v_fwd[-1] ** 2 + 2 * a * ds_o[-1])
         v_fwd[0] = min(v_corner_o[0], v_max_accel, v_fwd[0])
 
@@ -197,7 +234,8 @@ def simulate_lap(s, radius, mu_lat, n_passes=N_PASSES, friction_circle=False,
     return v_final, lap_time_s
 
 
-def find_corner_min_speeds(s, radius, v, corner_radius_max=100.0, merge_gap_m=30.0, step_m=3.0):
+def find_corner_min_speeds(s, radius, v, corner_radius_max=100.0, merge_gap_m=30.0):
+    step_m = float(np.median(np.diff(s)))
     mask = radius < corner_radius_max
     runs = []
     in_run = False
@@ -254,7 +292,7 @@ def plot_speed_trace(s, v_by_scenario, out_path):
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     s, radius, points, total_len = load_track()
-    print(f"Strecke: {total_len:.1f} m, {len(s)} Punkte (orthofoto-verfeinert, geglaettet)")
+    print(f"Strecke: {total_len:.1f} m, {len(s)} Punkte (spreewaldring_track_model.py)")
     print(f"Reifen-mu-Bandbreite: {TIRE_MU_RANGE} (siehe Memory 'mx5-tires', Nankang NS-R2)")
 
     scenarios = [("konservativ (mu=1.0)", TIRE_MU_RANGE[0], False, None, None),
@@ -262,23 +300,17 @@ def main():
                  ("konservativ (mu=1.0, Kraftkreis)", TIRE_MU_RANGE[0], True, None, None),
                  ("optimistisch (mu=1.3, Kraftkreis)", TIRE_MU_RANGE[1], True, None, None)]
 
-    tc_path = os.path.join(RESULTS_DIR, "can_traction_circle_summary.json")
-    if os.path.exists(tc_path):
-        with open(tc_path, encoding="utf-8") as f:
-            tc = json.load(f)
-        print(f"Gemessener Kraftkreis ({tc['n_samples']} Samples, {tc['n_logs']} CAN-Logs): "
-              f"max_lat={tc['max_lat_g']:.2f}g, max_accel={tc['max_accel_g']:.2f}g, max_brake={tc['max_brake_g']:.2f}g "
-              "- ACHTUNG: Alltagsfahrten, keine Grenzwertmessung (siehe can_traction_circle.py-Docstring), "
-              "Szenario darunter ist deshalb vermutlich zu konservativ/langsam")
-        scenarios.append(("gemessen (Kraftkreis, Alltagsfahrten-Untergrenze)", tc["max_lat_g"], True,
-                           tc["max_accel_g"], tc["max_brake_g"]))
-    else:
-        print(f"Kein gemessener Kraftkreis gefunden ({tc_path}) - scripts/can_traction_circle.py zuerst laufen lassen")
+    scenarios = [(*sc, 1.0) for sc in scenarios]
+    vehicles, _ = load_vehicles()
+    for name, veh in vehicles.items():
+        print(f"Aus den Logs, {name}: quer {veh.lat_g:.2f}g, beschl. {veh.accel_g:.2f}g, bremsen {veh.brake_g:.2f}g "
+              "- Alltagsfahrten, Untergrenze statt Reifenlimit (mx5_vehicle_model.py)")
+        scenarios.append((f"gemessen {name}", veh.lat_g, True, veh.accel_g, veh.brake_g, veh.speed_factor))
 
     results = {}
-    for label, mu, fc, a_accel_g, a_brake_g in scenarios:
-        v, lap_time = simulate_lap(s, radius, mu, friction_circle=fc,
-                                    a_accel_max_g=a_accel_g, a_brake_max_g=a_brake_g)
+    for label, mu, fc, a_accel_g, a_brake_g, speed_factor in scenarios:
+        v, lap_time = simulate_lap(s, radius, mu, friction_circle=fc, a_accel_max_g=a_accel_g,
+                                    a_brake_max_g=a_brake_g, speed_factor=speed_factor)
         v_max = v.max() * 3.6
         v_mean = total_len / lap_time * 3.6
         print(f"\n--- Szenario: {label} ---")

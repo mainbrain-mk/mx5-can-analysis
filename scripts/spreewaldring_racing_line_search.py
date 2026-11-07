@@ -42,6 +42,9 @@ import numpy as np
 HTML_PATH = "results/spreewaldring_racing_line_editor.html"
 OUT_JSON = "results/spreewaldring_racing_line_search_result.json"
 
+# VERALTET: eigener Physik-Port, Referenz und Bearbeitungen gehoeren zur alten Geometrie (Punktindizes). Die
+# Portvalidierung schlug schon vor der Umstellung fehl (07.11.2026: 1,14 s). Seit dem 07.11.2026 rechnet der Editor in
+# Python und schreibt die gelesene HTML-Datei nicht mehr. Fuer eine neue Suche direkt spreewaldring_racing_line_editor.py nutzen.
 USER_LAPTIME_ZEITOPTIMAL = 101.06450049490951
 USER_EDITS = [
     {"index": 144, "value": -3.8009877908287146, "radius": 45},

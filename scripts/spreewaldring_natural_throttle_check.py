@@ -29,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from spreewaldring_track import RESULTS_DIR, RESAMPLE_STEP_M, CURVATURE_WINDOW_M, compute_curvature_radius
-from spreewaldring_racing_line_optimal import simulate_lap_combined_friction
+from spreewaldring_racing_line_optimal import simulate_lap_combined_friction, VEHICLE
 
 CORNERS_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_corners_summary.json")
 
@@ -37,7 +37,6 @@ CORNERS_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_corn
 K1, K2 = 0.020555, 0.0000272   # results/steering_lateral_model_summary.json
 APP_A, APP_B = 38.4, 2.4          # Kurve-1-Regression, siehe partial_throttle_calibration.py
 CALIBRATED_RATE_RANGE_DEG_S = (-13.8, 24.3)  # beobachteter Bereich in Kurve 1
-MU = 1.0
 
 
 def steer_from_radius(radius_m):
@@ -64,8 +63,8 @@ def main():
     s_arr = np.concatenate([[0], np.cumsum(ds)])[:-1]
     radius = compute_curvature_radius(points, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
 
-    v, lap_time, _ = simulate_lap_combined_friction(points, MU)
-    print(f"Rundenzeit Referenzlinie (mu={MU}): {lap_time:.2f}s")
+    v, lap_time, _ = simulate_lap_combined_friction(points, VEHICLE)
+    print(f"Rundenzeit Referenzlinie ({VEHICLE.name}): {lap_time:.2f}s")
 
     steer_abs = steer_from_radius(radius)
     # d|steer|/ds per zentrale Differenz (zyklisch), dann *v = d|steer|/dt.
