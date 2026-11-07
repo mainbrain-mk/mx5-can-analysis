@@ -6841,3 +6841,28 @@ Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.13 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=18).
 - shift_record: Neue Bestzeit 4 -> 3 (downshift): 1.06s (vorher 1.10s), candump-2026-11-03_080944 @ t=1839.0s.
+
+## Automatischer Lauf: 7 neue CAN-Logs uebernommen (2026-11-06)
+
+- `candump-2026-11-05_080335`, Masse=1189.1kg (Tank ~40.4 l (CAN Fuel_Tank Median 34.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_082051`, Masse=1187.6kg (Tank ~38.4 l (CAN Fuel_Tank Median 32.2 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_163224`, Masse=1187.0kg (Tank ~37.5 l (CAN Fuel_Tank Median 31.4 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_171842`, Masse=1260.0kg (Tank ~34.9 l (CAN Fuel_Tank Median 29.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-05_173353`, Masse=1261.3kg (Tank ~36.7 l (CAN Fuel_Tank Median 30.6 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-06_145524`, Masse=1259.2kg (Tank ~33.8 l (CAN Fuel_Tank Median 28.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-06_150333`, Masse=1228.8kg (Tank ~36.7 l (CAN Fuel_Tank Median 30.6 roh), Beifahrer 57% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.10 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=11).
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (rechts): 1.15g (vorher 1.12g), candump-2026-11-05_173353 @ t=82.5s, v=41km/h - unverifizierter Kandidat, manuell pruefen.
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-11-07)
+
+- `candump-2026-11-07_110336`, Masse=1258.4kg (Tank ~32.7 l (CAN Fuel_Tank Median 27.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_120740`, Masse=1257.5kg (Tank ~31.6 l (CAN Fuel_Tank Median 26.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_125728`, Masse=1256.9kg (Tank ~30.7 l (CAN Fuel_Tank Median 25.2 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.07 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=17).

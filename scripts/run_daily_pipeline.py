@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 import can_log_parser
-from build_datalake import KNOWN_CAN_LOG_DUPLICATES
+from build_datalake import KNOWN_CAN_LOG_DUPLICATES, _can_log_duration_s
 from datalake_channels import log_key
 import gps_logger
 import pipeline_checks
@@ -164,16 +164,7 @@ def _can_log_span(log_id):
     """(Start, Ende) als Epoch: Start aus dem (ggf. korrigierten) Namen, Dauer aus erster/letzter
     candump-Zeile - der Name ist nach einer Uhrkorrektur verlaesslicher als die Frames."""
     start = datetime.strptime(log_id, "candump-%Y-%m-%d_%H%M%S").replace(tzinfo=LOCAL_TZ).timestamp()
-    stamps = []
-    with open(os.path.join(CAN_DIR, f"{log_id}.log"), "rb") as f:
-        head = f.readline()
-        f.seek(max(0, os.path.getsize(f.name) - 4096))
-        for line in [head, *f.read().splitlines()]:
-            try:
-                stamps.append(_candump_ts_us(line.decode()) / 1e6)
-            except (ValueError, UnicodeDecodeError):
-                pass  # abgeschnittene Zeile
-    return start, start + (max(stamps) - stamps[0] if stamps else 0)
+    return start, start + _can_log_duration_s(os.path.join(CAN_DIR, f"{log_id}.log"))
 
 
 @functools.lru_cache(maxsize=None)

@@ -320,6 +320,12 @@ def test_find_matching_nmea_counts_fixes_and_gpx_wins():
         assert rdp._find_matching_gpx("candump-2026-11-06_133000") == "gps-2026-11-06_133000.nmea"
         assert rdp._find_matching_gpx("candump-2026-11-06_134000") is None
 
+        # Stromverlust: abgeschnittene Zeile und mehr Nullbytes, als ein Block am Dateiende fasst (07.11.)
+        write_can("candump-2026-11-06_125958", 10)
+        with open(os.path.join(tmp, "candump-2026-11-06_125958.log"), "ab") as f:
+            f.write(b"(17940" + b"\0" * 200_000)
+        assert rdp._find_matching_gpx("candump-2026-11-06_125958") == "gps-2026-11-06_130000.nmea"
+
         with open(os.path.join(tmp, "20261106-125900.gpx"), "w") as f:
             f.write("<trkpt><time>2026-11-06T11:59:00Z</time><speed>10.0</speed></trkpt>\n"
                     "<trkpt><time>2026-11-06T12:05:00Z</time><speed>10.0</speed></trkpt>\n")

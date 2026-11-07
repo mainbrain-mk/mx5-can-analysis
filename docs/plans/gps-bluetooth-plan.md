@@ -132,19 +132,20 @@ Höhenkorrektur, Abholen der `.nmea` vom Pi, Parallelbetrieb mit verbundenem The
 
 ## Ergebnisse Phase 2 (06.11.2026)
 
-Code fertig und an echten Dateien geprüft, die Prüfung über eine ganze Fahrt steht aus (geplant 09.11.). Herleitung im Logbuch.
+Code fertig und an drei ganzen Fahrten geprüft (07.11.). Herleitung im Logbuch.
 
 - **Abholen:** `run_daily_pipeline.py` holt neue und gewachsene `gps-*.nmea` vom Pi.
 - **Einlesen:** `ingest_nmea()` liefert dieselben vier Kanäle wie die GPX, wiederholte GPS-Zeiten fallen weg.
 - **Zuordnung:** GPX zuerst, sonst das Rohlog mit den meisten Fixes in der Zeit des Logs.
 - **Höhe:** GPX ist auf das Ellipsoid bezogen (49,1 m über GGA bei 44,7 m Geoid-Abstand), das Einlesen rechnet entsprechend um.
-- **Zeit:** Bluetooth-Latenz rund 0,2 s. Das RMC-Tempo läuft dem CAN-Tempo in der Stadt rund 4,5 s nach und bleibt beim Anfahren lange zu niedrig. Die Zeitachse bleibt die GPS-Zeit.
+- **Handy-Lage:** aufs Armaturenbrett legen. Dort 100 % Fixe, 31 Satelliten, HDOP 0,5, in der Mittelkonsole 93–98 %, 9–10 Satelliten, Ausfälle bis 55 s.
+- **Zeit:** Bluetooth-Latenz rund 0,2 s. Auf dem Armaturenbrett läuft das RMC-Tempo dem CAN-Tempo nicht nach (−0,5 s, das ist der Uhrversatz des Pi), in der Konsole 1,75–4,5 s. Die Zeitachse bleibt die GPS-Zeit.
+- **`VehicleSpeed`:** 2,9 % über GPS bestätigt (1,0286, 20–180 km/h), trotz nominell 0,9 % größerer Winterreifen.
+- **HDOP:** Dash-Schwelle 2,0 bleibt, sie warnt zuverlässig vor schlechter Lage. Kein HDOP-Filter beim Einlesen, er fängt die Sprünge nicht.
 
 **Noch offen:**
-- Abweichung von 2,9 % gegen `VehicleSpeed`: Das bisherige Fahrtstück ist zu kurz und zu langsam (212 s, bis 42 km/h).
-- Versatz bei höherem Tempo.
-- HDOP-Schwelle im Dash.
 - Vergleich gegen GPX: seit 04.10. liegt keine neue im Drive.
+- Uhrversatz je Boot (bis rund 0,6 s), Ursache nur vermutet.
 
 ## Annahmen
 

@@ -366,7 +366,8 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
    Der Faktor hing nicht von der Geschwindigkeit ab, sondern vom Gang: Die fehlende Drehträgheit (J_e = 0,143 kg·m²) macht im 2. Gang ~11 % der Masse aus, im 6. Gang ~1 %. Deshalb passte der Faktor im mittleren Tempo und das unkorrigierte Modell bei Vmax. Offen bleibt der 6. Gang, wo die Messung über dem Modell liegt (Abschnitt 6).
 
 9. **Geschwindigkeitsrahmen auf GPS umstellen (Entscheidung offen)**  
-   `VehicleSpeed` liest 2,9 % zu hoch (siehe Kurzfazit). Vorschlag: eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle beim Laden von `VehicleSpeed` einführen, r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen, danach Gang-4-, Vmax-, Ausroll- und μ-Validierung neu laufen lassen. Bis dahin absolute Werte mit 0,971 (v, a) bzw. 0,943 (μ) umrechnen.
+   `VehicleSpeed` liest 2,9 % zu hoch (siehe Kurzfazit). Vorschlag: eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle beim Laden von `VehicleSpeed` einführen, r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen, danach Gang-4-, Vmax-, Ausroll- und μ-Validierung neu laufen lassen. Bis dahin absolute Werte mit 0,971 (v, a) bzw. 0,943 (μ) umrechnen.  
+   Unabhängig bestätigt am 07.11.2026 mit Handy-GPS auf dem Armaturenbrett und Winterreifen: `0x202`/GPS 1,0286 (n=332, 20–180 km/h; 1,032 bei 20–80, 1,025 bei 140–200 km/h). Nominell wären mit dem größeren Reifen rund 2,0 % zu erwarten, der Grund ist offen. Herleitung: `logs/can-bus-status.md`, „Handy-GPS: drei Fahrten am 07.11.“.
 
 ## 13. Empfohlene Verwendung außerhalb des Agenten
 

@@ -6392,3 +6392,58 @@ Geoid-Abstand beträgt 44,7 m. Die Tracks streuen von 41 bis 58 m. `read_fixes()
 Das RMC-Tempo läuft also dem Positionstempo nach und bleibt beim Anfahren lange zu niedrig, vermutlich ein Filter und eine Totzone im Handy. Der Grund für den Rest des Versatzes ist offen.
 Bewusst nicht korrigiert: Zeitachse bleibt die GPS-Zeit. Für Versätze je Log gibt es `can_clock_offsets.json`. Der Verlauf passt, aber das Stück taugt nicht für die 2,9 %: CAN/GPS bei
 bestem Versatz 1,05, in diesem Tempo und mit dieser Dauer nicht aussagekräftig. Offen bis zur Fahrt am 09.11.
+
+
+## Handy-GPS: drei Fahrten am 07.11., Handy-Lage entscheidet, 2,9 % bestätigt (2026-11-07)
+
+Drei längere Fahrten, zusammen 104 min, bis 181 km/h. Das ersetzt die für den 09.11. geplante Prüfung. Handy in der Mittelkonsole, in der
+dritten Fahrt um 13:09:04 aufs Armaturenbrett hinter das Mazda-Display gelegt (nach oben nur die Frontscheibe). Das ergibt einen direkten
+Vergleich in derselben Fahrt. Journal nur vom letzten Boot erhalten: `data/pi-journal/journal-boot-2026-11-07_125703.txt`.
+
+**Bluetooth hielt durch.** Je Fahrt ein Rohlog, längste Empfangslücke 10,4 s, eine Wiederverbindung bräuchte 25–45 s. Der Dienst verband beim
+Boot nach 3 s. Das Journal der dritten Fahrt zeigt nur das Ende um 13:39:20 (`Connection reset by peer`, nach dem Fahrtende um 13:39:01).
+
+| Dritte Fahrt | Konsole (703 s) | Armaturenbrett (1816 s) |
+|---|---|---|
+| Fixe je Sekunde | 94,6 % | 100,0 % |
+| Satelliten (Median) | 9 | 31 |
+| HDOP (Median), Anteil über 2 | 1,42, 26,7 % | 0,50, 0,0 % |
+| RMC-Tempo gegen `0x202`: bester Versatz, r | −3,25 s, 0,930 | −0,5 s, 0,9997 |
+| Sprünge im Positionstempo über 30 km/h | 3 | 4, alle in den ersten 4 s nach dem Umlegen |
+
+Die Fahrten 1 und 2 (Konsole) hatten Ausfälle bis 55 s und 37 s, Abdeckung 93,0 und 97,5 %, Versatz je −1,75 s. Das lange Nachlaufen des
+RMC-Tempos vom 06.11. ist also vor allem Empfang, kein festes Verhalten des Handys. Die Lage am 06.11. ist nicht festgehalten.
+
+**Versatz:** Die −0,5 s auf dem Armaturenbrett erklärt schon die Pi-Uhr. Empfang minus GPS-Zeit lag dort bei −0,26 s, bei rund +0,25 s Bluetooth-Latenz
+geht die Uhr also rund 0,5 s nach. Mit gutem Empfang läuft das RMC-Tempo dem CAN-Tempo innerhalb der Auflösung von 0,25 s nicht nach, auch
+bei 100–180 km/h. Der Uhrversatz ist je Boot anders und in der Fahrt fast fest: Empfang minus GPS −0,12 / −0,39 / −0,26 s. Vermutung, nicht
+geprüft: Die RTC liefert beim Boot nur ganze Sekunden. Nicht korrigiert, 0,5 s sind bei 180 km/h 25 m.
+
+**2,9 % bestätigt.** `0x202` gegen RMC, nur Armaturenbrett, stationäre Stücke (±3 s unter 2 km/h Änderung, über 20 km/h), n = 332:
+
+| km/h (GPS) | n | CAN/GPS (Median) | CAN − GPS |
+|---|---|---|---|
+| 20–50 | 66 | 1,0324 | +1,2 km/h |
+| 50–80 | 164 | 1,0318 | +1,8 km/h |
+| 110–140 | 43 | 1,0285 | +3,4 km/h |
+| 140–200 | 57 | 1,0252 | +3,7 km/h |
+| alle | 332 | 1,0286 | |
+
+Das passt zu den alten 2,9 % (GPS/VS 0,971, also 1,030, 70 dlg-Logs). Bemerkenswert: Die alten Logs fuhren auf den NS-R2. Der Winterreifen ist nominell
+0,9 % größer (205/40 R17 596 mm, 195/50 R16 601 mm), bei einem radbasierten Signal wären also rund 2,0 % zu erwarten. Gemessen ist das nicht. Offen: echter Abrollumfang,
+und ob die leichte Abnahme mit dem Tempo real ist. Eine Fahrt, ein Tag, 80–110 km/h fehlt im guten Teil.
+
+**Schwache Fixe:** Status „gültig“ gibt es auch bei 3 Satelliten und HDOP 21 oder 99,99, die App schickt dann alle 5 s den alten Fix und danach
+gesammelt die Sätze ohne Fix (Status V, `read_fixes()` verwirft sie). Ein HDOP-Filter hilft nicht: Von 38 Sprüngen über 30 km/h im
+Positionstempo entfernt eine Schwelle von 5 nur 3 (bei 3,7 % weniger Fixen). Deshalb kein Filter gebaut. Die Dash-Schwelle 2,0 bleibt: Gerechnet aus den Rohlogs wäre sie in der Konsole 7–31 % der Zeit gelb gewesen, auf dem
+Armaturenbrett nie, sie warnt also genau bei schlechter Lage.
+
+**Korrektur Messung 06.11.:** `read_decoded(signals=["VehicleSpeed"])` liefert `0x202` und den Tachowert `0x25E` gemischt (derselbe Signalname), mein
+Prüfskript hat beide durcheinander interpoliert. Neu nur mit `0x202`: RMC −4,0 bis −4,5 s (statt −4,25 bis −4,75), r 0,962 wie gehabt, Positionstempo unverändert,
+CAN/GPS 1,056 statt 1,05. Am Befund ändert das nichts. `build_datalake.py` trennt beide korrekt.
+
+**Bug behoben:** Das erste Log bekam keine Zuordnung. Es endet nach dem Stromverlust mit 2,7 MB Nullbytes,
+`_can_log_span()` las nur die letzten 4 KB und kam auf 0 s Dauer. Jetzt nutzt es `_can_log_duration_s()` aus `build_datalake.py`, das die Nullbytes überspringt (die
+doppelte Logik entfällt, Test ergänzt, schlug ohne Fix fehl). Danach von Hand `pair_late_gpx()` und `build_datalake.py`. Nur dieses eine Log war betroffen. Im Datalake
+jetzt alle drei mit 2114 / 1406 / 2450 Fixen im CAN-Zeitraum, Höhe im Median 71–77 m. Nebenbei: Der erste Lauf wurde auf Wunsch abgebrochen, `pending_can_logs.json` hat
+den zweiten sauber aufsetzen lassen.

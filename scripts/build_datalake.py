@@ -884,12 +884,21 @@ def _dlg_gps_span(dlg_path):
 
 
 def _can_log_duration_s(can_path):
-    """Letzte minus erste candump-Zeit (nur Kopfzeile + letzte 4 KB gelesen)."""
+    """Letzte minus erste candump-Zeit (nur Kopfzeile + letzte 4 KB vor dem Ende gelesen). Nach
+    Stromverlust endet ein Log mit Nullbytes (candump-2026-11-07_110336: 2,7 MB), die zaehlen nicht."""
     stamps = []
     with open(can_path, "rb") as f:
         head = f.readline()
-        f.seek(max(0, os.path.getsize(can_path) - 4096))
-        for line in [head, *f.read().splitlines()]:
+        end = os.path.getsize(can_path)
+        while end > 0:
+            block = max(0, end - 65536)
+            f.seek(block)
+            data = f.read(end - block).rstrip(b"\0")
+            end = block + len(data)
+            if data:
+                break
+        f.seek(max(0, end - 4096))
+        for line in [head, *f.read(4096).splitlines()]:
             try:
                 stamps.append(float(line.split(b")", 1)[0].strip(b"(")))
             except ValueError:
