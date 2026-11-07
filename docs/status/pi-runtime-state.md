@@ -48,6 +48,12 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
   per `zcat | canplayer -s 5`, nichts landet in `/tmp`. Beenden über „SIMULATION BEENDEN“ in dessen Fußzeile.
   Die Trigger-Datei `/tmp/mx5_sim_active` enthält den Logpfad; der Tank startet mit dem Stand aus dem Tankbuch.
   Ein Dash-Neustart während der Simulation lässt sie verwaist weiterlaufen (Knopf weg): vorher beenden.
+- **Editor-Simulation** (seit 08.11.): Beim Abspielen im Ideallinien-Editor (`spreewaldring_racing_line_editor.py`
+  auf dem PC, Endpunkt `/api/dash`) kommen die angezeigten Werte per UDP auf Port **51235** (alle Adressen) in
+  `can_backend.py` an, etwa 16 Pakete/s. Solange sie jünger als 1 s sind, besteht der Snapshot nur aus ihnen:
+  Tempo (wahres Simulationstempo), Drehzahl, Gang, Gas, Bremse plus Bremslicht, Lenkrad. Alles andere zeigt das Dash
+  als „–“, die Fußzeile „EDITOR-SIMULATION“ und die Rundenzeit. Pause → nach 1 s wieder CAN. Mit echtem `can0`
+  (im Auto) nimmt das Backend nichts an. Ziel ist `MX5_DASH_HOST` (Standard `car`).
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht
   `pkill -f dash_gui.py`, das trifft auch die Schleife). `session_logger` startet beim nächsten Einstecken des
   Adapters, im Auto genügt `sudo systemctl restart can-logger`.

@@ -21,10 +21,12 @@ Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_editor.py [--port 873
 Dann im Browser: http://127.0.0.1:8732/
 """
 import argparse
+import functools
 import json
 import math
 import os
 import re
+import socket
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -44,6 +46,12 @@ START_LINE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_o
 
 DEFAULT_PORT = 8732
 MAX_REQUEST_BYTES = 5_000_000
+# Wiedergabe auf dem Dash im Auto (08.11.2026): beim Abspielen gehen die angezeigten Werte per UDP an
+# can_backend.py (EDITOR_FEED_PORT) auf dem Pi, das Dash zeigt dann nur sie.
+DASH_HOST = os.environ.get("MX5_DASH_HOST", "car")
+DASH_FEED_PORT = 51235
+DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t")
+_dash_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 MU_FIXED = 1.0           # Literatur-Vergleich im Fahrzeugmodell-Umschalter
 BASE_ALPHA = 0.15        # wie in spreewaldring_racing_line_optimal.py
 INNER_STEPS = 80         # wie in spreewaldring_racing_line_optimal.py
@@ -390,8 +398,23 @@ class Editor:
         return HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False))
 
 
+@functools.lru_cache(maxsize=1)
+def dash_address():
+    return socket.gethostbyname(DASH_HOST), DASH_FEED_PORT  # einmal aufloesen, der Dienst ist einfaedig
+
+
+def send_to_dash(req):
+    msg = {k: float(req[k]) for k in DASH_FIELDS if req.get(k) is not None}
+    try:
+        _dash_sock.sendto(json.dumps(msg).encode("utf-8"), dash_address())
+    except OSError as err:  # Pi aus oder nicht im Netz: Editor laeuft weiter
+        return {"ok": False, "error": str(err)}
+    return {"ok": True}
+
+
 def make_handler(editor):
-    routes = {"/api/solve": editor.solve, "/api/simulate": editor.simulate, "/api/preview": editor.preview}
+    routes = {"/api/solve": editor.solve, "/api/simulate": editor.simulate, "/api/preview": editor.preview,
+              "/api/dash": send_to_dash}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -1386,6 +1409,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   // ---------- Fahrsimulation (Echtzeit-Wiedergabe entlang der Runde) ----------
   const sim_ = {playing:false, t:0, speed:1, lastTs:null};
+  let dashState = null, dashBusy = false, dashSentAt = 0;  // siehe sendDash()
+  const DASH_SEND_MS = 50;
 
   // Reine Anzeige-Zugabe (Nutzerwunsch 09.09.2026): die allererste Wiedergabe
   // nach einem Seiten-Reload zeigt einen stehenden Start (v=0 an der
@@ -1515,6 +1540,20 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const roadWheelDeg = Math.atan(WHEELBASE_M/Math.max(lastSim.radius[i],1)) * 180/Math.PI * turnSign;
     const wheelDeg = Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
     document.getElementById('wheelRotor').style.transform = `rotate(${wheelDeg}deg)`;
+    dashState = {speed_kmh: (standingStart ? standingStart.v : lastSim.vFinal[i])*3.6,
+                 rpm: standingStart ? standingStart.rpm : lastSim.rpm[i],
+                 gear: standingStart ? standingStart.gear : lastSim.gear[i],
+                 throttle_pct: throttlePct, brake_pct: brakePct,
+                 steer_deg: -wheelDeg,  // Dash: links positiv, hier rechts positiv
+                 lap_t: standingStart ? null : sim_.t};
+  }
+
+  // Waehrend der Wiedergabe gehen die angezeigten Werte ueber den Dienst ans Dash im Auto (/api/dash).
+  // Eine Anfrage zugleich, hoechstens DASH_SEND_MS-Takt; bei Pause verstummt das Dash nach 1 s von selbst.
+  function sendDash(ts){
+    if (!dashState || dashBusy || ts - dashSentAt < DASH_SEND_MS) return;
+    dashBusy = true; dashSentAt = ts;
+    api('/api/dash', dashState).catch(()=>{}).finally(()=>{ dashBusy = false; });
   }
 
   function simFrame(ts){
@@ -1530,6 +1569,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     sim_.lastTs = ts;
     draw();
+    sendDash(ts);
     requestAnimationFrame(simFrame);
   }
 

@@ -6447,3 +6447,21 @@ CAN/GPS 1,056 statt 1,05. Am Befund ändert das nichts. `build_datalake.py` tren
 doppelte Logik entfällt, Test ergänzt, schlug ohne Fix fehl). Danach von Hand `pair_late_gpx()` und `build_datalake.py`. Nur dieses eine Log war betroffen. Im Datalake
 jetzt alle drei mit 2114 / 1406 / 2450 Fixen im CAN-Zeitraum, Höhe im Median 71–77 m. Nebenbei: Der erste Lauf wurde auf Wunsch abgebrochen, `pending_can_logs.json` hat
 den zweiten sauber aufsetzen lassen.
+
+## Dash zeigt die Editor-Simulation (2026-11-08)
+
+Nutzerwunsch: Beim Play im Ideallinien-Editor sollen die Simulationsdaten auf dem Dash im Auto erscheinen. Was die
+Simulation nicht rechnet, wird nicht dargestellt.
+
+- **Weg:** Editor-Seite → `/api/dash` des Editor-Dienstes (höchstens alle 50 ms, eine Anfrage zugleich) → UDP an
+  `car:51235` → `can_backend.py` (`editor_feed()`) → wie bisher Snapshot auf 127.0.0.1:51234 → `dash_gui.py`. Das Dash
+  bleibt reiner Empfänger, das Backend entscheidet, welche Quelle gilt.
+- **Inhalt:** `speed_kmh` (wahres Simulationstempo, wie im Editor, also nicht der um 2,9 % zu hohe Tacho), `rpm`,
+  `gear`, `throttle_pct`, `brake_pct` (daraus Bremslicht), `steer_deg` (Ackermann-Anzeige des Editors, links positiv),
+  `lap_t`. Nur diese Schlüssel kommen in den Snapshot, alle anderen Kacheln zeigen „–“, der Tank wird nicht aus
+  dem alten Stand nachgeführt, VMAX gilt je Wiedergabe.
+- **Sicherheit:** Mit echtem `can0` verwirft das Backend jede Editor-Nachricht, eine Fahrt kann also nicht
+  überschrieben werden. Nur bekannte Größen als endliche Zahlen werden übernommen.
+- **Geprüft (PC):** Test `test_editor_feed_replaces_can_values_only_while_fresh`; 60 Pakete vom Editor-Dienst kamen
+  auf dem Pi an (Probe-Empfänger, 17/s); bei der Wiedergabe gingen in 9 s 147 Pakete raus, die Werte stimmten mit
+  der Editor-Anzeige überein. Kivy-Tests und Anzeige auf dem Pi stehen bis zum Deploy aus.
