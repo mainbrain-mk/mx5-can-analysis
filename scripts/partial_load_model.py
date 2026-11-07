@@ -125,21 +125,23 @@ def _interp_or_default(t_common, ch_df, default):
     return np.full(len(t_common), default)
 
 
-def load_fit_points(con, log_ids):
+def load_fit_points(con, log_ids, x_channel="ETC_ACT"):
     """Baut den gefilterten (ETC, RPM) -> ActualEnginePercentTorque
-    Datensatz ueber alle Logs mit diesem Kanal (siehe Docstring, Schritt 1), je Log gecacht."""
+    Datensatz ueber alle Logs mit diesem Kanal (siehe Docstring, Schritt 1), je Log gecacht.
+    x_channel="APP": dasselbe ueber dem Gaspedal statt der Drosselklappe (08.11.2026, Pedal fuer die Rundensimulation)."""
+    name = "partial_load_fit_points" if x_channel == "ETC_ACT" else f"partial_load_fit_points_{x_channel}"
     rows = []
     for log_id in log_ids:
-        rows += cached(con, "partial_load_fit_points", log_id, lambda: _fit_points_for_log(con, log_id),
+        rows += cached(con, name, log_id, lambda: _fit_points_for_log(con, log_id, x_channel),
                        PARTIAL_LOAD_CACHE_DEPS)
     return rows
 
 
-def _fit_points_for_log(con, log_id):
+def _fit_points_for_log(con, log_id, x_channel="ETC_ACT"):
     rows = []
     pt = load_channel(con, log_id, PT_CHANNEL)
     rp = load_channel(con, log_id, "EngineRPM")
-    etc = load_channel(con, log_id, "ETC_ACT")
+    etc = load_channel(con, log_id, x_channel)
     if len(pt) < 10 or len(rp) < 10 or len(etc) < 10:
         return rows
     sp = load_channel(con, log_id, "VehicleSpeed")
@@ -417,14 +419,14 @@ def plot_validation(segments, out_path):
     plt.close(fig)
 
 
-def build_kennfeld_predictor(db_path=DB_PATH):
+def build_kennfeld_predictor(db_path=DB_PATH, x_channel="ETC_ACT"):
     """Baut das (ETC,RPM)->Prozent-Drehmoment-Kennfeld aus dem Datalake und
     liefert (predict_fn, bins) - fuer die Wiederverwendung durch andere
     Skripte (siehe performance_simulation.py), ohne die komplette
     Validierung/Plots von main() erneut auszufuehren."""
     con = duckdb.connect(db_path, read_only=True)
     pt_log_ids = logs_with(con, PT_CHANNEL)  # Handy-OBD oder CAN 0x167, siehe datalake_channels.py
-    rows = load_fit_points(con, pt_log_ids)
+    rows = load_fit_points(con, pt_log_ids, x_channel)
     con.close()
     bins = robust_bins(rows)
     return fit_surface(bins), bins

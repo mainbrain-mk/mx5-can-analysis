@@ -55,7 +55,8 @@ einer Powerbank. Eine USV ist geplant, siehe Logbuch 10.10. „USV-Recherche“.
 - **Editor-Simulation** (seit 08.11.): Beim Abspielen im Ideallinien-Editor (`spreewaldring_racing_line_editor.py`
   auf dem PC, Endpunkt `/api/dash`) kommen die angezeigten Werte per UDP auf Port **51235** (alle Adressen) in
   `can_backend.py` an, etwa 16 Pakete/s. Solange sie jünger als 1 s sind, besteht der Snapshot nur aus ihnen:
-  Tempo (wahres Simulationstempo), Drehzahl, Gang, Gas, Bremse plus Bremslicht, Lenkrad. Alles andere zeigt das Dash
+  Tempo (wahres Simulationstempo), Drehzahl, Gang, Gas, Bremse plus Bremslicht, Lenkrad, seit 08.11. auch Motorlast und
+  Drosselklappe (rückgerechnet, im Limiter blinkt der Schaltblitz blau). Alles andere zeigt das Dash
   als „–“, die Fußzeile „EDITOR-SIMULATION“ und die Rundenzeit. Pause → nach 1 s wieder CAN. Mit echtem `can0`
   (im Auto) nimmt das Backend nichts an. Ziel ist `MX5_DASH_HOST` (Standard `car`).
 - Neustart nach einem Deploy: nur die Python-PID beenden, `respawn.sh` startet nach 2 s neu (nicht

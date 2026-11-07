@@ -88,7 +88,12 @@ die streckenbezogenen Themen.
   den gerechneten Gang. **ECU-Soft-Limiter (08.11.):** ab Gang 1–4 7303/7377/7146/7194 U/min (Gang 5/6 wie 4,
   ohne Daten) fällt das Moment linear auf 0, über 30 U/min (Gang 1/2) bzw. 230 U/min (Gang 3–6), aus 32 Eingriffen in
   68 Vollgaszügen (`ecu_limiter_events.py`). Kostet auf der alternierenden Linie 0,05 s: der Plan schaltet 3→4 früher.
-  Im 2. Gang kommt die Simulation wie die echten Züge bis ~7480 U/min. Offen: In
+  Im 2. Gang kommt die Simulation wie die echten Züge bis ~7480 U/min. **Motorlast, Drosselklappe, Gaspedal (08.11.):**
+  `throttle_trace()` rechnet sie rückwärts aus dem simulierten Tempo (umgekehrtes `accel()`, dann Teillastkennfeld
+  ETC → Moment rückwärts, Pedal aus gemessenem ETC × Drehzahl). Vollgas = Simulation beschleunigt so stark wie der
+  Motor kann (Last 78-93 % wie 0x167, TP 90 %); im Limiter schließt die Klappe bei Pedal 100. Alternierende Linie:
+  46 % der Punkte Vollgas, 35 % Pedal 0, 19 % Teilgas. Editor und Dash zeigen dieses Pedal statt 100/0/Anteil;
+  Rundenzeit unverändert (reine Rückrechnung). Offen: In
   Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge.
 - **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
   über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h

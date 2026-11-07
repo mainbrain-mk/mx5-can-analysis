@@ -35,7 +35,9 @@ import numpy as np
 from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M, G, compute_curvature_radius
 from spreewaldring_track_surface import compute_tangents_closed
 from spreewaldring_racing_line import load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
-from spreewaldring_lap_simulation import accel_true, coast_true, literature_vehicle
+from spreewaldring_lap_simulation import (
+    accel_true, coast_true, engine_controls, limiter_factor, literature_vehicle, throttle_trace,
+)
 from spreewaldring_racing_line_optimal import (
     BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, simulate_lap_full, steer_from_radius,
 )
@@ -50,7 +52,7 @@ MAX_REQUEST_BYTES = 5_000_000
 # can_backend.py (EDITOR_FEED_PORT) auf dem Pi, das Dash zeigt dann nur sie.
 DASH_HOST = os.environ.get("MX5_DASH_HOST", "car")
 DASH_FEED_PORT = 51235
-DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t")
+DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t", "load_pct", "tp_pct")
 _dash_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 MU_FIXED = 1.0           # Literatur-Vergleich im Fahrzeugmodell-Umschalter
 BASE_ALPHA = 0.15        # wie in spreewaldring_racing_line_optimal.py
@@ -265,10 +267,11 @@ def standing_start_trace(sim, veh):
     f = veh.speed_factor
     s_arr, v_final = sim["s"], sim["v"]
     s, v, gear, shift_t = 0.0, 0.0, 1, 0.0
-    rows = [(s, v, gear)]
+    rows = [(s, v, gear, False)]
     while True:
         dt = STANDING_START_DT_S
-        if shift_t > 0:
+        shifting = shift_t > 0
+        if shifting:
             v = max(0.0, v + coast_true(v, f) * dt)
             shift_t = max(0.0, shift_t - dt)
         elif gear < 6:
@@ -283,9 +286,13 @@ def standing_start_trace(sim, veh):
         s += v * dt
         i = int(np.searchsorted(s_arr, min(s, s_arr[-1]), side="right")) - 1
         if v >= v_final[i] or s >= s_arr[-1]:
+            rpm = [accel_true(r[1], r[2], f)[1] for r in rows]
+            frac = [0.0 if r[3] else limiter_factor(n, r[2]) for r, n in zip(rows, rpm)]
+            load, tp, _ = engine_controls(frac, rpm, [not r[3] for r in rows])
             return {"dt": dt, "s": [r[0] for r in rows], "v": [r[1] for r in rows], "gear": [r[2] for r in rows],
-                    "rpm": [accel_true(r[1], r[2], f)[1] for r in rows], "joinT": float(sim["t"][i])}
-        rows.append((s, v, gear))
+                    "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1),
+                    "pedal": [0 if r[3] else 100 for r in rows], "joinT": float(sim["t"][i])}
+        rows.append((s, v, gear, shifting))
 
 
 # ---------- Dienst ----------
@@ -293,8 +300,10 @@ def round_list(a, digits=6):
     return [round(float(x), digits) for x in a]
 
 
-def sim_json(sim, pts):
+def sim_json(sim, pts, veh):
+    load, tp, pedal = throttle_trace(sim["v"], sim["gear"], sim["ds"], veh)
     return {
+        "loadPct": round_list(load, 1), "tpPct": round_list(tp, 1), "pedalPct": round_list(pedal, 1),
         "vFinal": round_list(sim["v"]), "vFwd": round_list(sim["v_fwd"]), "gear": [int(g) for g in sim["gear"]],
         "rpm": round_list(sim["rpm"], 2), "s": round_list(sim["s"], 4), "t": round_list(sim["t"]),
         "radius": round_list(np.minimum(sim["radius"], 1e9), 4), "ds": round_list(sim["ds"]),
@@ -350,7 +359,7 @@ class Editor:
     def result(self, n_lat, veh, cap, natural):
         pts = points_from_n_lat(self.track, n_lat)
         sim = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=cap)
-        return {"nLat": round_list(n_lat, 9), "sim": sim_json(sim, pts)}, sim
+        return {"nLat": round_list(n_lat, 9), "sim": sim_json(sim, pts, veh)}, sim
 
     def solve(self, body):
         name, veh, cap = self.vehicle(body)
@@ -1425,7 +1434,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Initial (vor dem ersten Play) schon gesetzt, nicht erst bei Play erzeugt
   // - dadurch steht der Wagen auch im Standbild vor dem ersten Play still.
   // Der Verlauf kommt aus dem Dienst (standing_start_trace), hier wird er nur abgespielt.
-  let standingStart = {s: 0, v: 0, gear: 1, rpm: 0, clock: 0};
+  let standingStart = {s: 0, v: 0, gear: 1, rpm: 0, load: 0, tp: null, pedal: 0, clock: 0};
   let startTrace = null;
 
   function stepStandingStart(dt){
@@ -1437,7 +1446,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       sim_.t = startTrace.joinT;
       return;
     }
-    standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i], clock};
+    standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i],
+                     load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i], clock};
   }
 
   function positionFromArcLength(pts, sim, sNow){
@@ -1494,17 +1504,11 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     document.getElementById('simGear').textContent = standingStart ? standingStart.gear : lastSim.gear[i];
     document.getElementById('simRpm').textContent = Math.round(standingStart ? standingStart.rpm : lastSim.rpm[i])+' U/min';
 
-    // Bremse/Gas: ueberwiegend voll am Limit bremsend (Bremszone, gleiche
-    // Definition wie das rote Kartenband), voll beschleunigend, oder am
-    // Kurvenlimit rollend (beides 0%) - AUSSER an den von
-    // smooth_wasted_accel_brake()/smooth_short_brake_spikes() geglaetteten Stellen
-    // (kurze Vollgas-Inseln zwischen zwei Bremszonen bzw. kurze isolierte
-    // Bremsspitzen, siehe dort/docs/logs/projekt-stand.md), dort zeigt das jeweilige
-    // Pedal die tatsaechlich berechnete Teillast-/Teilbrems-Stellung.
-    const prevI = (i-1+N)%N;
+    // Bremse: voll am Limit bremsend (Bremszone, gleiche Definition wie das rote Kartenband), AUSSER an den von
+    // smooth_short_brake_spikes() geglaetteten Stellen, dort die berechnete Teilbremsung. Gas: seit 08.11.2026 das
+    // Pedal aus throttle_trace() (Tempoverlauf rueckwaerts ueber Fahrleistungsmodell und Teillastkennfeld).
     const isCoasting = !standingStart && !!lastSim.coasting[i];
     const braking = !standingStart && !isCoasting && lastSim.vFinal[i] < lastSim.vFwd[i]-1e-3;
-    const accelerating = !standingStart && !braking && !isCoasting && lastSim.vFinal[i] > lastSim.vFinal[prevI]+1e-6;
     const brakePct = braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0;
     document.getElementById('brakeFill').style.height = brakePct + '%';
     // Im experimentellen "natuerlichen Gasmodell" kommt die Gaspedal-
@@ -1515,9 +1519,10 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // Anzeige den (dann ueberholten) Vorwaerts-Wert nicht mehr zeigen: man
     // kann nicht gleichzeitig bremsen und Gas geben (Nutzerhinweis
     // 08.09.2026).
-    const throttlePct = standingStart ? 100 : (lastSim.naturalMode
+    // Sonst: Gaspedal rueckwaerts aus dem Tempoverlauf ueber das Teillastkennfeld (Dienst, throttle_trace()).
+    const throttlePct = standingStart ? standingStart.pedal : (lastSim.naturalMode
       ? (braking ? 0 : Math.round((lastSim.throttleFracNatural[i] ?? 0)*100))
-      : (accelerating ? 100 : (isCoasting ? Math.round(lastSim.throttleFrac[i]*100) : 0)));
+      : Math.round(lastSim.pedalPct[i]));
     document.getElementById('throttleFill').style.height = throttlePct + '%';
 
     // Lenkwinkel: im Projekt gibt es kein Lenkmodell (nur Kruemmungsradius) -
@@ -1544,6 +1549,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
                  rpm: standingStart ? standingStart.rpm : lastSim.rpm[i],
                  gear: standingStart ? standingStart.gear : lastSim.gear[i],
                  throttle_pct: throttlePct, brake_pct: brakePct,
+                 load_pct: standingStart ? standingStart.load : lastSim.loadPct[i],
+                 tp_pct: standingStart ? standingStart.tp : lastSim.tpPct[i],
                  steer_deg: -wheelDeg,  // Dash: links positiv, hier rechts positiv
                  lap_t: standingStart ? null : sim_.t};
   }
@@ -2017,14 +2024,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       const wSign = Math.max(1, Math.round(P.CURVATURE_WINDOW_M/P.RESAMPLE_STEP_M));
       const rows = [];
       for (let i=0;i<N;i++){
-        const prevI = (i-1+N)%N;
         const isCoasting = !!sim.coasting[i];
         const braking = !isCoasting && sim.vFinal[i] < sim.vFwd[i]-1e-3;
-        const accelerating = !braking && !isCoasting && sim.vFinal[i] > sim.vFinal[prevI]+1e-6;
         const brakePct = braking ? Math.round((sim.brakeFrac[i] ?? 1)*100) : 0;
         const throttlePct = sim.naturalMode
           ? (braking ? 0 : Math.round((sim.throttleFracNatural[i] ?? 0)*100))
-          : (accelerating ? 100 : (isCoasting ? Math.round(sim.throttleFrac[i]*100) : 0));
+          : Math.round(sim.pedalPct[i]);
         const p0 = pts[(i-wSign+N)%N], p1 = pts[i], p2 = pts[(i+wSign)%N];
         const cross = (p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]);
         const turnSign = cross > 0 ? -1 : (cross < 0 ? 1 : 0);

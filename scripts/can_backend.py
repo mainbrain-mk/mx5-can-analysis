@@ -71,6 +71,8 @@ EDITOR_FEED_KEYS = {
     "speed_kmh": "514:VehicleSpeed", "rpm": "514:EngineRPM", "gear": "253:MT_Gear_Actual",
     "throttle_pct": "514:APP_Accelerator_Pedal_Position", "brake_pct": "120:_BrakePedalPercent_derived",
     "steer_deg": "130:Steering_Wheel_Absolute_Angle",  # Lenkrad, links positiv
+    # seit 08.11.: aus dem Tempoverlauf rueckgerechnet (Teillastkennfeld); TP < 90 bei Pedal 100 = Limiter-Blitz
+    "load_pct": "359:ActualEnginePercentTorque", "tp_pct": "2024:_ThrottlePosition_pct_derived",
 }
 
 # Gleiche kuratierte Signalliste wie bisher status_gui.py LIVE_SIGNALS - Checkliste/

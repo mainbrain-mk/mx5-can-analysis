@@ -99,7 +99,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from drivetrain_model_validation import MASS_KG, G, GEAR_RATIOS, rpm_from_speed
+from datalake_channels import _TP_TO_ETC
+from drivetrain_model_validation import (
+    CDA_M2, CRR, ENGINE_INERTIA_KGM2, ETA, FINAL_DRIVE, G, GEAR_RATIOS, MASS_KG, R_DYN_M, RHO_KG_M3, rpm_from_speed,
+    torque_nm,
+)
 from performance_simulation import accel, coast_accel, ATTACK_SHIFT_S, TRACTION_MAX_FORCE_N
 
 RESULTS_DIR = "results"
@@ -160,6 +164,58 @@ def accel_true(v_ms, gear, speed_factor):
     v = v_ms / speed_factor
     a, rpm = accel(v, gear, bias=limiter_factor(rpm_from_speed(v, gear), gear), f_max=TRACTION_MAX_FORCE_N)
     return a * speed_factor, rpm
+
+
+def _throttle_tables():
+    """(Drosselklappe-Achse, Drehzahl-Achse, Moment-%, Pedal-%) aus mx5_vehicle_model.py. Beide steigen hier mit der
+    Drosselklappe: duenne Bins und Nearest-Neighbor-Raender (hohe Drehzahl, kaum Gas) springen sonst."""
+    global _THROTTLE
+    if _THROTTLE is None:
+        with open(VEHICLE_MODEL_PATH, encoding="utf-8") as f:
+            t = json.load(f)["throttle"]
+        _THROTTLE = (np.array(t["etc_deg"]), np.array(t["rpm"]),
+                     np.maximum.accumulate(np.array(t["torque_pct"]), axis=0),
+                     np.maximum.accumulate(np.array(t["app_pct"]), axis=0))
+    return _THROTTLE
+
+
+_THROTTLE = None
+
+
+def engine_controls(frac, rpm, full):
+    """Anteil am Volllastmoment, Drehzahl, Fahrer gibt Vollgas -> (Motorlast % wie 0x167, Drosselklappe % wie TP,
+    Gaspedal %). Die Last ist der Anteil an der gemessenen Vollgas-Last (78-93 % je Drehzahl), Drosselklappe und Pedal
+    kommen aus dem Teillastkennfeld rueckwaerts. Schub (Anteil <= 0) zeigt 0, nicht die leicht negativen 0x167-Werte.
+    Im Limiter (Vollgas, Anteil < 1) schliesst die Drosselklappe wie im Auto, das Pedal bleibt bei 100."""
+    etc_axis, rpm_axis, torque, app = _throttle_tables()
+    frac, rpm, full = np.broadcast_arrays(np.asarray(frac, float), np.asarray(rpm, float), np.asarray(full, bool))
+    t_rows = np.array([np.interp(rpm, rpm_axis, line) for line in torque]).T + 1e-6 * np.arange(len(etc_axis))
+    a_rows = np.array([np.interp(rpm, rpm_axis, line) for line in app]).T
+    frac = np.clip(frac, 0.0, 1.0)
+    load = frac * t_rows[:, -1]
+    etc = np.array([np.interp(x, row, etc_axis) for x, row in zip(load, t_rows)])
+    etc = np.where(full & (frac >= 0.98), etc_axis[-1], np.where(frac > 0, etc, 0.0))
+    pedal = np.array([np.interp(e, etc_axis, row) for e, row in zip(etc, a_rows)])
+    pedal = np.where(full, 100.0, np.where(frac > 0, pedal, 0.0))
+    return load, (etc - 0.18) / _TP_TO_ETC + 9.80, pedal  # Umkehrung von datalake_channels SOURCES["ETC_ACT"]
+
+
+def throttle_trace(v, gear, ds, veh):
+    """Motorlast, Drosselklappe und Gaspedal je Punkt einer geschlossenen Runde, rueckwaerts aus dem simulierten Tempo:
+    noetige Radkraft = umgekehrtes accel() (Masse mit Drehtraegheit, Luft, Rollen), geteilt durch die Volllast-Radkraft.
+    Vollgas, wo die Simulation so stark beschleunigt wie der Motor kann (sonst begrenzt Reifen oder Tempolimit)."""
+    f = veh.speed_factor
+    v, ds, gear = np.asarray(v, float), np.asarray(ds, float), np.asarray(gear, int)
+    a_true = (np.roll(v, -1) ** 2 - v ** 2) / (2 * np.maximum(ds, 1e-6))
+    vv, a = v / f, a_true / f
+    ratio = np.array([GEAR_RATIOS[g] for g in gear]) * FINAL_DRIVE
+    rpm = vv / (2 * np.pi * R_DYN_M) * ratio * 60.0
+    m_eff = MASS_KG + ENGINE_INERTIA_KGM2 * (ratio / R_DYN_M) ** 2
+    f_req = m_eff * a + 0.5 * RHO_KG_M3 * CDA_M2 * vv ** 2 + CRR * MASS_KG * G
+    frac = f_req * R_DYN_M / (ratio * ETA * torque_nm(rpm))
+    a_eng = np.array([accel_true(x, g, f)[0] for x, g in zip(v, gear)])
+    full = a_true >= a_eng - np.maximum(0.02 * np.abs(a_eng), 0.05)
+    return engine_controls(frac, rpm, full)
 
 
 def limiter_factor(rpm, gear):

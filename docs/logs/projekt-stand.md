@@ -7249,3 +7249,32 @@ Mittellinien-Zeiten waren zu schnell.
 2→3 bei 7340-7417/min, im 2. Gang höchstens 7477/min wie in den echten Zügen), Kurven nacheinander 104,85 → 104,88 s,
 Referenzlinie natürliches Gas 105,13 → 105,16 s, Editor-Ausgangslinie 104,39 → 104,35 s (Literatur 99,11 → 99,16 s).
 Der Limiter kostet auf dieser Strecke also kaum Zeit, weil er nur die Schaltpunkte nach vorn schiebt.
+
+### Motorlast, Drosselklappe und Gaspedal aus dem simulierten Tempoverlauf (2026-11-08)
+
+Nutzerfrage: Rechnet die Simulation ohne Motorlast, warum nutzen wir das Teillastkennfeld nicht? Die Rundensimulation
+sucht die schnellste Runde: Gas ist dort Folge des Tempoverlaufs, keine Eingabe. Das Kennfeld (Drosselklappe →
+Moment) gehört deshalb rückwärts hinein; für die Rundenzeit selbst braucht es das nicht.
+
+**Umsetzung (`spreewaldring_lap_simulation.py`, `throttle_trace()`/`engine_controls()`):**
+- Nötige Radkraft je Punkt = umgekehrtes `accel()`: Masse mit Motor-Drehträgheit × Beschleunigung aus v(s) + Luft +
+  Rollen, im `VehicleSpeed`-Rahmen. Geteilt durch die Volllast-Radkraft = Anteil am Volllastmoment.
+- Motorlast in der 0x167-Skala = Anteil × Kennfeld bei voller Drosselklappe (je Drehzahl 78-93 %, so liest 0x167 bei
+  Vollgas). Drosselklappe = Kennfeld rückwärts, als TP-% wie im Dash. Pedal aus Drosselklappe × Drehzahl.
+- Vollgas, wo die Simulation so stark beschleunigt wie der Motor kann (`accel_true`, mit Limiter und
+  Traktionsgrenze): Pedal 100. Im Limiter fällt die Last, die Klappe schließt (TP < 90), das Pedal bleibt bei 100,
+  wie im Auto, und der Dash-Schaltblitz blinkt blau. Schub und Bremsen: 0 (0x167 liest dort leicht negativ).
+- Tabellen rechnet `mx5_vehicle_model.py` in `results/mx5_vehicle_model.json` (`throttle`): Kennfeld aus
+  `partial_load_model.py` (LOO 6,8 pp, 124 Logs) und Pedal als Median je (Drosselklappe, Drehzahl) aus 51 CAN-Fahrten,
+  Pedal ≥ 2 % und ruhig. Beide werden über der Drosselklappe monoton gemacht (dünne Bins, Nearest-Neighbor-Ränder:
+  bei 7000/min und wenig Klappe stand sonst Pedal 100).
+- **Verworfen:** Kennfeld direkt über dem Pedal (`partial_load_model.load_fit_points(x_channel="APP")`, neu):
+  LOO 12,2 pp statt 6,8, und bei Pedal 0 und 4000-5000/min 43-62 % Moment. Das ist der Tempomat (Pedal 0, Klappe
+  offen), den der Datalake nicht als Kanal hat.
+- Pedal × Drosselklappe streut bei 50-80 % Pedal stark (IQR bis 45°, wenig Daten). Das Pedal ist deshalb eine
+  Anzeige, keine Messgröße.
+
+**Ergebnis alternierende Linie NS-R2:** 46 % der Punkte Vollgas, 35 % Pedal 0, 19 % Teilgas (Kurvenausgänge, wo die
+Grip-Ellipse begrenzt: z. B. 58 km/h im 2., Pedal 20 %, Last 49 %). Rechenzeit 10 ms je Runde. Editor (Anzeige,
+Export, stehender Start) und Dash zeigen jetzt dieses Pedal; Motorlast und Drosselklappe gehen mit ans Dash
+(`can_backend.py` `EDITOR_FEED_KEYS`). Die Rundenzeiten ändern sich nicht.

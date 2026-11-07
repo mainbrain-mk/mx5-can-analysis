@@ -77,6 +77,19 @@ def test_limiter_takes_torque_away_above_onset():
     assert accel_true(v, 3, 1.0)[0] < 0  # kein Moment mehr, nur Fahrwiderstand
 
 
+def test_throttle_trace_full_limiter_and_braking():
+    from spreewaldring_lap_simulation import engine_controls, throttle_trace
+    load, tp, pedal = engine_controls([1.0, 0.3, 0.5, -0.2], [6000, 7300, 4000, 3000], [True, True, False, False])
+    assert pedal[0] == 100 and tp[0] > 90 and 75 < load[0] < 100   # Vollgas
+    assert pedal[1] == 100 and tp[1] < 90 and load[1] < 0.5 * load[0]  # Limiter: Klappe zu, Pedal bleibt
+    assert 0 < pedal[2] < 100 and 0 < load[2] < 75                   # Teilgas
+    assert pedal[3] == 0 and load[3] == 0                            # Schub
+    veh = literature_vehicle(1.0)
+    v = np.full(50, 25.0)                                            # konstantes Tempo im 4.: Teilgas gegen Fahrwiderstand
+    load, _, pedal = throttle_trace(v, np.full(50, 4), np.full(50, 3.0), veh)
+    assert (pedal > 0).all() and (pedal < 60).all() and (load > 0).all()
+
+
 def test_lon_avail_is_ellipse():
     veh = literature_vehicle(1.0)._replace(lat_g=0.8, accel_g=0.5)
     assert abs(lon_avail(0.0, veh, veh.accel_g) - 0.5 * G) < 1e-9
@@ -127,6 +140,7 @@ if __name__ == "__main__":
     test_accel_true_converts_frame_without_changing_model()
     test_lon_avail_is_ellipse()
     test_limiter_takes_torque_away_above_onset()
+    test_throttle_trace_full_limiter_and_braking()
     test_plan_gears_shifts_up_on_a_straight()
     test_plan_gears_skips_gear_that_only_lasts_a_moment()
     test_plan_gears_shifts_free_while_braking()
