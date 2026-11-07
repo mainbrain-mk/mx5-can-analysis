@@ -79,13 +79,20 @@ die streckenbezogenen Themen.
   „gehalten“), bremsen 0,74 g (`BRAKE_CAP_G`, ABS), Antrieb 0,57 g (Traktionsgrenze). Zugkraftlücken aus den Logs
   0,30/0,30/0,45/0,60/0,40 s statt ATTACK 0,15–0,25 s. Wahres Tempo: Fahrzeugmodell in `VehicleSpeed`, Strecke in
   Metern, v und a werden mit 0,971 umgerechnet, die Parameter bleiben (offener Punkt 9 in `performance-model.md`).
-  Rundenzeit auf der alternierenden Linie **103,71 s** statt Literatur μ=1,0 98,34 s; davon Quergrenze +3,4 s, Bremse
+  Rundenzeit auf der alternierenden Linie **103,76 s** (ohne Drehzahl-Limiter 103,71 s) statt Literatur μ=1,0 98,34 s; davon Quergrenze +3,4 s, Bremse
   +0,7 s, Antrieb +0,6 s, wahres Tempo +0,5 s, Schaltlücken +0,3 s. Mit Quer-μ 1,0/1,1/1,3 sonst gleich: 100,6/97,5/92,4 s.
   Gemessen ist die höchste erreichte Grenze, keine gezielte Grenzfahrt. Das Skript läuft nicht in der Tagespipeline.
-  Steigung und Querneigung gehen nicht ein. Editor-Ausgangslinie (alternierende Linie): NS-R2 104,39 s, Literatur
-  99,11 s. **Gangplan für die ganze Runde (`plan_gears`):** wägt jede Schaltung gegen ihre Lücke ab, in Bremszonen
-  kostet Schalten nichts; 11 Schaltungen, höchstens 7500 U/min, die Anzeige zeigt den gerechneten Gang. Offen: In
+  Steigung und Querneigung gehen nicht ein. Editor-Ausgangslinie (alternierende Linie): NS-R2 104,35 s, Literatur
+  99,16 s. **Gangplan für die ganze Runde (`plan_gears`):** wägt jede Schaltung gegen ihre Lücke ab, in Bremszonen
+  kostet Schalten nichts, je Punkt und Gang bleibt die Pareto-Front aus Zeit und Tempo (seit 08.11.); die Anzeige zeigt
+  den gerechneten Gang. **ECU-Soft-Limiter (08.11.):** ab Gang 1–4 7303/7377/7146/7194 U/min (Gang 5/6 wie 4,
+  ohne Daten) fällt das Moment linear auf 0, über 30 U/min (Gang 1/2) bzw. 230 U/min (Gang 3–6), aus 32 Eingriffen in
+  68 Vollgaszügen (`ecu_limiter_events.py`). Kostet auf der alternierenden Linie 0,05 s: der Plan schaltet 3→4 früher.
+  Im 2. Gang kommt die Simulation wie die echten Züge bis ~7480 U/min. Offen: In
   Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge.
+- **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
+  über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h
+  (16 000 U/min) 4,5 m/s². Der Limiter-Faktor schneidet das jetzt ab, die alten Mittellinien-Zeiten unten waren zu schnell.
 - **Rundenzeiten auf der Mittellinie des Modells (07.11.2026, gleiche Physik, alte Linie → neu):** μ=1,0 107,21 → 102,81 s,
   μ=1,3 96,41 → 92,38 s, μ=1,0 Kraftkreis 111,21 → 105,61 s, μ=1,3 Kraftkreis 99,54 → 94,44 s, gemessener Kraftkreis
   105,62 → 100,47 s. Das sind Mittellinie und Hotlap-Modell, keine gemessene Runde.

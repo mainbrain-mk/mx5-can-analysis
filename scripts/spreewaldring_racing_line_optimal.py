@@ -228,21 +228,26 @@ def plan_gears(limit, radius, ds, veh):
     """Gangplan fuer die ganze Runde: je Punkt und Gang die beste Zeit, Bleiben und jeder Wechsel sind Uebergaenge
     (dynamische Programmierung). Sieht, was eine einzelne Schaltung spaeter kostet: Vorher kostete der Wechsel in
     Gang 1 mehr als er brachte (Befund 07.11.2026: 31 Schaltungen, 253 m Gang 1, ohne Gang 1 schneller). Verzoegert das
-    Auto ohnehin, ist Schalten kostenlos. Ein Punkt behaelt nur die schnellste Ankunft je Gang, das schneidet seltene
-    Plaene ab und ist eine Naeherung. limit: Tempogrenze je Punkt, rotiert ab dem langsamsten Punkt (dort ist der Gang
-    frei). Liefert (Startgang, {Punkt: (neuer Gang, Luecke)})."""
+    Auto ohnehin, ist Schalten kostenlos. Je Punkt und Gang bleiben alle Ankuenfte, die keine andere zugleich frueher
+    und schneller schlaegt (Pareto-Front Zeit/Tempo). Mit nur der fruehesten Ankunft (bis 08.11.2026) gewann im
+    naechsten Gang immer die gerade erst geschaltete Variante knapp, die frueher geschaltete und schon schnellere fiel
+    raus: mit dem Drehzahl-Limiter blieb die Simulation so im 3. Gang bei 137 km/h haengen. limit: Tempogrenze je Punkt,
+    rotiert ab dem langsamsten Punkt (dort ist der Gang frei). Liefert (Startgang, {Punkt: (neuer Gang, Luecke)})."""
     n = len(limit)
     f = veh.speed_factor
     gears = sorted(GEAR_RATIOS)
     lat_max, lon_max = veh.lat_g * G, veh.accel_g * G
-    labels = [{} for _ in range(n + 1)]  # labels[i][gear] = (Bewertung, v, voriger Punkt, voriger Gang)
+    labels = [{} for _ in range(n + 1)]  # labels[i][gear] = [(Bewertung, v, Punkt, Gang, Vorgaenger-Label), ...]
     for g in gears:
         if rpm_from_speed(limit[0] / f, g) < REDLINE_RPM:
-            labels[0][g] = (0.0, limit[0], None, None)
+            labels[0][g] = [(0.0, limit[0], 0, g, None)]
 
-    def relax(i, g, score, v, prev_i, prev_g):
-        if g not in labels[i] or score < labels[i][g][0]:
-            labels[i][g] = (score, v, prev_i, prev_g)
+    def relax(i, g, score, v, prev):
+        front = labels[i].setdefault(g, [])
+        if any(s <= score and w >= v for s, w, *_ in front):
+            return
+        front[:] = [lab for lab in front if not (score <= lab[0] and v >= lab[1])]
+        front.append((score, v, i, g, prev))
 
     def drive_a(v, g, i_next):
         ratio = min(v * v / max(radius[i_next % n], 1e-6) / lat_max, 1.0)
@@ -252,43 +257,44 @@ def plan_gears(limit, radius, ds, veh):
         seg, lim_next = ds[i], limit[(i + 1) % n]
         for sweep in (gears, gears[::-1]):  # kostenlose Wechsel am selben Punkt, auch ueber mehrere Gaenge
             for g in sweep:
-                lab = labels[i].get(g)
-                if lab is None or lim_next >= lab[1] - 1e-6:
-                    continue
-                for cand in (g - 1, g + 1):
-                    if cand in GEAR_RATIOS and rpm_from_speed(lab[1] / f, cand) <= REDLINE_RPM * REDLINE_DOWNSHIFT_MARGIN:
-                        relax(i, cand, lab[0] + FREE_SHIFT_PENALTY_S, lab[1], i, g)
-        for g, (score, v, _, _) in list(labels[i].items()):
-            v_new = min(math_sqrt_nonneg(v * v + 2 * drive_a(v, g, i + 1) * seg), lim_next)
-            if g == 6 or rpm_from_speed(v_new / f, g) <= REDLINE_RPM:  # sonst muss vorher hochgeschaltet sein
-                relax(i + 1, g, score + 2 * seg / max(v + v_new, 1e-6), v_new, i, g)
-            for cand in (g + 1, g - 1):
-                if cand not in GEAR_RATIOS or (cand < g and rpm_from_speed(v / f, cand) > REDLINE_RPM * REDLINE_DOWNSHIFT_MARGIN):
-                    continue
-                # Zugkraftluecke rollen, dann im neuen Gang weiter
-                remaining, s, j, vv = veh.shift_s[(g, cand)], score + SHIFT_MIN_GAIN_S, i, v
-                while remaining > 0 and j < n:
-                    seg_j = ds[j]
-                    seg_t = seg_j / max(vv, 1.0)
-                    frac = min(1.0, remaining / seg_t)
-                    a = frac * coast_true(vv, f) + (1 - frac) * drive_a(vv, cand, j + 1)
-                    v2 = min(math_sqrt_nonneg(vv * vv + 2 * a * seg_j), limit[(j + 1) % n])
-                    s += 2 * seg_j / max(vv + v2, 1e-6)
-                    remaining -= seg_t
-                    vv = v2
-                    j += 1
-                relax(j, cand, s, vv, i, g)
+                for lab in list(labels[i].get(g, ())):
+                    if lim_next >= lab[1] - 1e-6:
+                        continue
+                    for cand in (g - 1, g + 1):
+                        if cand in GEAR_RATIOS and rpm_from_speed(lab[1] / f, cand) <= REDLINE_RPM * REDLINE_DOWNSHIFT_MARGIN:
+                            relax(i, cand, lab[0] + FREE_SHIFT_PENALTY_S, lab[1], lab)
+        for g, front in list(labels[i].items()):
+            for lab in front:
+                score, v = lab[0], lab[1]
+                v_new = min(math_sqrt_nonneg(v * v + 2 * drive_a(v, g, i + 1) * seg), lim_next)
+                if g == 6 or rpm_from_speed(v_new / f, g) <= REDLINE_RPM:  # sonst muss vorher hochgeschaltet sein
+                    relax(i + 1, g, score + 2 * seg / max(v + v_new, 1e-6), v_new, lab)
+                for cand in (g + 1, g - 1):
+                    if cand not in GEAR_RATIOS or (cand < g and rpm_from_speed(v / f, cand) > REDLINE_RPM * REDLINE_DOWNSHIFT_MARGIN):
+                        continue
+                    # Zugkraftluecke rollen, dann im neuen Gang weiter
+                    remaining, s, j, vv = veh.shift_s[(g, cand)], score + SHIFT_MIN_GAIN_S, i, v
+                    while remaining > 0 and j < n:
+                        seg_j = ds[j]
+                        seg_t = seg_j / max(vv, 1.0)
+                        frac = min(1.0, remaining / seg_t)
+                        a = frac * coast_true(vv, f) + (1 - frac) * drive_a(vv, cand, j + 1)
+                        v2 = min(math_sqrt_nonneg(vv * vv + 2 * a * seg_j), limit[(j + 1) % n])
+                        s += 2 * seg_j / max(vv + v2, 1e-6)
+                        remaining -= seg_t
+                        vv = v2
+                        j += 1
+                    relax(j, cand, s, vv, lab)
 
-    gear = min(labels[n], key=lambda g: labels[n][g][0])
+    lab = min((lab for front in labels[n].values() for lab in front), key=lambda lab: lab[0])
     shifts = {}
-    i = n
-    while labels[i][gear][2] is not None:
-        _, _, prev_i, prev_g = labels[i][gear]
+    while lab[4] is not None:
+        prev = lab[4]
         # Mehrere kostenlose Wechsel am selben Punkt: Rueckwaerts zuerst gefunden ist der Endgang
-        if prev_g != gear and prev_i not in shifts:
-            shifts[prev_i] = (gear, 0.0 if prev_i == i else veh.shift_s[(prev_g, gear)])
-        i, gear = prev_i, prev_g
-    return gear, shifts
+        if prev[3] != lab[3] and prev[2] not in shifts:
+            shifts[prev[2]] = (lab[3], 0.0 if prev[2] == lab[2] else veh.shift_s[(prev[3], lab[3])])
+        lab = prev
+    return lab[3], shifts
 
 
 def forward_step_shifted(v, gear, shift_remaining_s, shift_target, ds, radius, veh):

@@ -99,7 +99,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from drivetrain_model_validation import MASS_KG, G, GEAR_RATIOS
+from drivetrain_model_validation import MASS_KG, G, GEAR_RATIOS, rpm_from_speed
 from performance_simulation import accel, coast_accel, ATTACK_SHIFT_S, TRACTION_MAX_FORCE_N
 
 RESULTS_DIR = "results"
@@ -109,6 +109,14 @@ VEHICLE_MODEL_PATH = os.path.join(RESULTS_DIR, "mx5_vehicle_model.json")        
 TIRE_MU_RANGE = (1.0, 1.3)  # siehe Memory "mx5-tires" (Nankang NS-R2 Semi-Slick)
 N_PASSES = 2                # Wiederholungen des Vorwaerts-/Rueckwaerts-Paars fuer Konvergenz
 V_MIN_MS = 5.0               # numerische Untergrenze (vermeidet Division/sqrt-Problem bei v->0)
+
+# ECU-Soft-Limiter (08.11.2026, scripts/ecu_limiter_events.py, 32 Eingriffe in 68 Vollgaszuegen): ab einer
+# gangabhaengigen Drehzahl zieht die ECU das Moment trotz Vollgas zurueck, bis zum Gaswegnehmen. Die ECU rampt in der
+# Zeit, hier linear ueber die Drehzahl seit Beginn (im Vollgaszug steigt sie gleichmaessig): Gang 3/4 ~0,44 %/min,
+# Gang 2 faellt fast sofort auf ~30 %. Gang 1 nur 3 Eingriffe; Gang 5/6 ohne Eingriff in den Logs, wie Gang 4 angenommen.
+# Die Moment-Untergrenze beim Halten (5-30 %) fehlt: haelt die Simulation die Drehzahl, bleibt der Teilwert stehen.
+LIMITER_ONSET_RPM = {1: 7303, 2: 7377, 3: 7146, 4: 7194, 5: 7194, 6: 7194}
+LIMITER_WIDTH_RPM = {1: 30, 2: 30, 3: 230, 4: 230, 5: 230, 6: 230}
 
 
 def load_track():
@@ -149,8 +157,14 @@ def literature_vehicle(mu):
 def accel_true(v_ms, gear, speed_factor):
     """Beschleunigung und Drehzahl bei wahrer Geschwindigkeit. Das Antriebsmodell rechnet in VehicleSpeed, die Strecke
     in echten Metern: v und a werden umgerechnet, die Modellparameter bleiben (performance-model.md, Punkt 9)."""
-    a, rpm = accel(v_ms / speed_factor, gear, f_max=TRACTION_MAX_FORCE_N)
+    v = v_ms / speed_factor
+    a, rpm = accel(v, gear, bias=limiter_factor(rpm_from_speed(v, gear), gear), f_max=TRACTION_MAX_FORCE_N)
     return a * speed_factor, rpm
+
+
+def limiter_factor(rpm, gear):
+    """Anteil des Volllastmoments, den der ECU-Soft-Limiter bei dieser Drehzahl laesst (siehe LIMITER_*)."""
+    return min(1.0, max(0.0, 1.0 - (rpm - LIMITER_ONSET_RPM[gear]) / LIMITER_WIDTH_RPM[gear]))
 
 
 def coast_true(v_ms, speed_factor):

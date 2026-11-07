@@ -65,6 +65,18 @@ def test_accel_true_converts_frame_without_changing_model():
     assert abs(a - a_vs * 0.971) < 1e-12
 
 
+def test_limiter_takes_torque_away_above_onset():
+    from drivetrain_model_validation import rpm_from_speed
+    from spreewaldring_lap_simulation import LIMITER_ONSET_RPM, LIMITER_WIDTH_RPM, limiter_factor
+    assert limiter_factor(7000, 3) == 1.0
+    assert abs(limiter_factor(LIMITER_ONSET_RPM[3] + LIMITER_WIDTH_RPM[3] / 2, 3) - 0.5) < 1e-9
+    assert limiter_factor(7500, 2) == 0.0
+    v = 1.0
+    while rpm_from_speed(v, 3) < LIMITER_ONSET_RPM[3] + LIMITER_WIDTH_RPM[3]:
+        v += 0.05
+    assert accel_true(v, 3, 1.0)[0] < 0  # kein Moment mehr, nur Fahrwiderstand
+
+
 def test_lon_avail_is_ellipse():
     veh = literature_vehicle(1.0)._replace(lat_g=0.8, accel_g=0.5)
     assert abs(lon_avail(0.0, veh, veh.accel_g) - 0.5 * G) < 1e-9
@@ -114,6 +126,7 @@ def test_gear_trace_is_closed_and_steps_by_one():
 if __name__ == "__main__":
     test_accel_true_converts_frame_without_changing_model()
     test_lon_avail_is_ellipse()
+    test_limiter_takes_torque_away_above_onset()
     test_plan_gears_shifts_up_on_a_straight()
     test_plan_gears_skips_gear_that_only_lasts_a_moment()
     test_plan_gears_shifts_free_while_braking()

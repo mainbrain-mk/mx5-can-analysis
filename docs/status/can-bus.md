@@ -640,6 +640,10 @@ OBD/CAN-Referenz gesucht werden muss):
   und kein Kraftstoff-Cut (`FuelCut` 0, Lambda 0,85). Beginn im 2. Gang 7184-7366/min (n=8),
   im 3. Gang ~7155/min. Das Moment zeigt den Eingriff ~0,25 s vor der Drosselklappen-PID
   (Logbuch "Offene Fragen vom Fahrtag 26.09. geklärt").
+  **Über alle Logs vermessen (08.11., `ecu_limiter_events.py`):** 32 Eingriffe in 68 Vollgaszügen über 6900/min,
+  Beginn (Median) Gang 1 7303 (n=3), Gang 2 7377 (7200-7409, n=11), Gang 3 7146 (7127-7158, n=12), Gang 4 7194
+  (7183-7211, n=6); Gang 3/4 verlieren ~0,44 %/min ab Beginn, Gang 2 fällt fast sofort auf ~30 %. Steckt seitdem in
+  der Rundensimulation (Logbuch "Limiter-Schwellen über alle Logs").
   **Der tatsächliche Auslöser bleibt offen (2026-09-26: Ereignis-Bitdiff, Anstiegs- und Zeitgeber-Hypothese offline geprüft, ohne Erfolg — Logbuch "Soft-Limiter offline…"; neue gezielte Vollgaszüge in Gang 3-4 bis in die Begrenzung nötig)** — auffällig ist die Gangabhängigkeit der
   Cut-Schwelle (Gang 2 ~7350-7440 U/min, Gang 3 ~7200-7310 U/min), die gegen einen simplen
   festen RPM-Trigger spricht. **Live-Erkennung jetzt im Dash implementiert** (`dash_gui.py`:

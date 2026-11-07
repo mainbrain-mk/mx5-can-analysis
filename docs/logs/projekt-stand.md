@@ -7226,3 +7226,26 @@ Nachgeprüft:
 **Fehler von mir, behoben:** Ich hatte „Winter“ zum Standard-Fahrzeugmodell gemacht und Winter-Rundenzeiten gerechnet, entgegen der Nutzerregel vom 01.10. (keine Rundenzeit-, Ideallinien- oder Grip-Rechnungen mit den Winterreifen, im Logbuch und im Reifen-Memory). `mx5_vehicle_model.py` rechnet nur noch NS-R2, Editor und Skripte bieten Winter nicht mehr an. Die Winter-Zahlen der Abschnitte oben sind ungültig. Die Schaltlücken kommen weiter aus allen Logs (fahrerabhängig, so in der Regel vorgesehen).
 
 **Ergebnis NS-R2:** alternierende Linie 103,71 s (Winter-Stand vorher 108,61 s, NS-R2 mit 0,82 g 107,82 s), Kurven nacheinander 104,85 s, Mittellinie (Einfach-Löser) 112,24 s, Editor-Ausgangslinie 104,39 s (Literatur 99,11 s), 11 Schaltungen, höchstens 7484 U/min, Querbeschleunigung höchstens 0,911 g. Zerlegung: Literatur μ=1,0 98,34 s; wahres Tempo +0,47, Schaltlücken +0,29, Quergrenze +3,37, Antrieb +0,56, Bremse +0,69 s. Empfindlichkeit Quer-μ 1,0 / 1,1 / 1,3 (Rest aus Logs): 100,62 / 97,48 / 92,42 s.
+
+### Drehzahl-Limiter in der Rundensimulation, Gangplan mit Pareto-Front (2026-11-08)
+
+Nutzerwunsch: die beobachtete Begrenzung über ~7000/min mitsimulieren. Messung und Werte: `logs/can-bus-status.md`,
+„Limiter-Schwellen über alle Logs“. Umsetzung: `limiter_factor(rpm, gear)` in `spreewaldring_lap_simulation.py`
+als `bias` auf die Antriebskraft in `accel_true()`, daran hängen Gangplan, Vorwärtsschritt, stehender Start und der
+einfache Löser. `performance_simulation.py` und die validierten Fahrleistungsmodelle bleiben unverändert.
+
+**Dabei gefunden, Gangplan:** `plan_gears()` behielt je Punkt und Gang nur die früheste Ankunft. Mit dem Limiter blieb
+die Simulation auf der Geraden im 3. Gang bei 137 km/h hängen (7322/min, ~24 % Moment, 130 m lang, 103,87 s): Im 4.
+Gang kam immer die gerade erst geschaltete Variante knapp am frühesten an, die früher geschaltete und schon
+schnellere fiel raus. Jetzt bleibt je Punkt und Gang die Pareto-Front aus Zeit und Tempo. Laufzeit 0,08 → 0,18 s.
+Ohne Limiter ergibt der neue Plan dieselben 103,71 s wie vorher.
+
+**Dabei gefunden, einfacher Löser:** `accel_envelope()` (Mittellinie, `simulate_lap`) nahm das Maximum über alle Gänge
+ohne Redline-Ausschluss. `torque_nm()` läuft über 7500/min flach weiter: Gang 1 lieferte bei 120 km/h (16 000/min)
+4,5 m/s² statt nichts. Der Limiter-Faktor schneidet das ab. Mittellinie gemessen NS-R2 112,24 → 114,75 s, die alten
+Mittellinien-Zeiten waren zu schnell.
+
+**Ergebnis NS-R2:** alternierende Linie 103,71 → 103,76 s (3→4 jetzt bei 6379/min in einem Knick statt bei 7436/min,
+2→3 bei 7340-7417/min, im 2. Gang höchstens 7477/min wie in den echten Zügen), Kurven nacheinander 104,85 → 104,88 s,
+Referenzlinie natürliches Gas 105,13 → 105,16 s, Editor-Ausgangslinie 104,39 → 104,35 s (Literatur 99,11 → 99,16 s).
+Der Limiter kostet auf dieser Strecke also kaum Zeit, weil er nur die Schaltpunkte nach vorn schiebt.
