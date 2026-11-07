@@ -83,7 +83,7 @@ def render_markdown(run_report):
 
         dt = r.get("drivetrain")
         if dt and dt.get("median_ratio") is not None:
-            lines.append(f"- Vollast-Verhaeltnis gemessen/Modell (neue Logs): Median {dt['median_ratio']:.2f} "
+            lines.append(f"- Vollast-Verhaeltnis gemessen/Modell (neue Logs, Gaenge 2-5): Median {dt['median_ratio']:.2f} "
                           f"(n={dt.get('n', 0)})")
         ts = r.get("top_speed")
         if ts and ts.get("n_new_segments"):

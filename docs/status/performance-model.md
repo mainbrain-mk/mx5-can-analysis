@@ -14,6 +14,7 @@
 - Fahrer-WOT wird nicht allein über eine offene Drosselklappe erkannt. **APP > 90 %** kennzeichnet den Bereich oberhalb der haptischen Pedalraste; APP, ETC, Lambda, MAF, Drehzahl, Geschwindigkeit und Kupplung sind gemeinsam zu prüfen.
 - Die Volllastkurve ist im Bereich **4250 bis 6750 min⁻¹** inter-log plausibilisiert. Niedrige Drehzahlen sowie Bereiche oberhalb 7000 min⁻¹ bleiben schwächer abgesichert. Seit 30.08.2026 gibt es zusätzlich ein eigenständiges, messwertbasiertes **Teillastkennfeld** (ETC × Drehzahl → Drehmoment-%, kreuzvalidiert RMSE 7,2 Prozentpunkte), siehe Abschnitt 5.
 - **0-Vmax-Simulation und Gang-6-/Vmax-Validierung (29./30.08.2026):** in den 08.08.2026-Logs wurden zwei echte, mehrere Sekunden lange Vmax-Plateaus gefunden (226–236 km/h bzw. 202–230 km/h, Beschleunigung praktisch null). Dort trifft das **unkorrigierte (raw) Modell** die Realität deutlich besser als das sonst verwendete bias-korrigierte Modell (Faktor 0,92) — der Korrekturfaktor aus dem mittleren Geschwindigkeitsbereich extrapoliert nicht in den Vmax-Bereich, siehe Abschnitt 6. Zusätzlich stellte sich am 06.09.2026 heraus, dass ein Teil des früher CdA/η zugeschriebenen ~5–8 %-WOT-Bias auf einen Massenfehler (fehlender 75-kg-Beifahrer in zwei Logs) zurückgeht.
+- **Luftdichte im Momentmodell (seit 07.11.2026):** Die Volllastprüfung skaliert das Kennfeld je Abschnitt mit ρ/1,20 (ρ aus `IntakeAirTemperature` und `BarometricPressure_CAN`). Auf denselben Winterreifen lief gemessen/Modell vorher von 0,94 (dünne Luft) bis 1,07 (kalt), jetzt 0,99–1,01. Die Warnung vom 07.11. fällt von 1,07 auf 1,03. Winterreifen 1,003 gegen NS-R2 0,987 (Gänge 2–5), die Regression lässt einen Reifenrest von rund 3 % zu. Simulationen, Rundenzeit und Vmax-Prüfung rechnen weiter bei Referenzluft, der Luftwiderstand bleibt bei 1,18. Gleichzeitig 40 CAN-Logs ohne Masse nachgetragen. `drivetrain_ratio` und die Zeile im Tagesbericht werten seither nur noch die Gänge 2–5 aus, Gang 6 (rund 1,14) bleibt ein eigener offener Punkt. Herleitung: `logs/projekt-stand.md`, „Luftdichte im Momentmodell, Massen nachgetragen“.
 - **Geschwindigkeitsrahmen (Befund 26.09.2026, Modell NICHT angepasst):** `VehicleSpeed` (OBD 0x0D wie CAN 0x202) liest gegenüber der GPS-Geschwindigkeit **2,9 % zu hoch** (GPS/VS = 0,971, IQR 0,970–0,972, 70 dlg-Logs August/September). Alle Modellskripte nehmen `VehicleSpeed` als wahre Geschwindigkeit; r_dyn = 0,2985 m ist nur gegen diesen ECU-Wert bestätigt, der wahre Abrollradius ist ≈ **0,290 m**. Intern ist das konsistent: η/CdA/Crr haben den Faktor aufgenommen (wahr etwa η ≈ 0,88, CdA ≈ 0,666, Crr ≈ 0,0126 bei festem Momentkennfeld). Absolute Angaben sind aber zu hoch: Geschwindigkeit, Vmax und Beschleunigung/Verzögerung um ~3 %, μ bzw. a_lat aus v²/R um ~6 %. Vorschlag und Herleitung: `logs/can-bus-status.md`, "Offene Fragen vom Fahrtag 26.09. geklärt", Abschnitt 5. Siehe auch offener Punkt 9.
 - Die IMU-Methode **MX5_IMU_METHOD_V1.0** ist eine Diagnosemethode. Gierachse und Vertikalrichtung sind hoch plausibilisiert; die absolute Längs- und Querskalierung bleibt diagnostisch. Seit 06.09.2026 kann die Handyhalterung **von Fahrt zu Fahrt wechseln**; die Achszuordnung (inkl. Vertikalachse und Gier-Kanal) wird seither **automatisch pro Log** erkannt (`scripts/imu_orientation.py`) statt über eine global fixe Matrix, siehe Abschnitt 7.
 - Für die Halterungsresonanz ist **20,629 Hz** weiterhin nur ein fahrtspezifisch zu prüfender Startkandidat, **kein Notch-Filter freigegeben**. Die Logs vom 27.08.2026 lieferten keine geeigneten stabilen Segmente (**NOT_TESTABLE**). Für die seit 06./07.09.2026 verwendete **starre** Handyhalterung (kein Halterungsarm mehr) ist die bisherige Deutung als lose schwingende Halterungs-Eigenresonanz revidiert — die jetzt nur noch einachsige Signatur spricht eher für eine über den Befestigungspunkt übertragene Fahrzeugschwingung. Gilt ausdrücklich nur für diese konkrete Einbaulage, siehe Abschnitt 8.
@@ -45,7 +46,8 @@
 | Drehträgheit Motor/Kupplung/Getriebe-Eingang (kurbelwellenbezogen) | J_e | 0,143 | kg·m² | NEU 01.10.2026, gefittet an CAN-Volllast Gang 2–5; Ersatzmasse J_e·(i_g·i_f/r)² = 386 / 133 / 62 / 38 / 25 / 12 kg in Gang 1–6 |
 | Reifen-Traktionsgrenze | F_trak | 6650 | N | NEU 01.10.2026, Bestwert Gang 1 (8 Segmente); begrenzt m·a + Widerstände, greift praktisch nur in Gang 1 |
 | Luftwiderstandsfläche | CdA | 0,647 | m² | gekoppelt plausibilisiert, nicht unabhängig identifiziert |
-| Referenz-Luftdichte | ρ | 1,18 | kg/m³ | Modellannahme |
+| Referenz-Luftdichte Luftwiderstand | ρ | 1,18 | kg/m³ | Modellannahme |
+| Referenz-Luftdichte Momentkennfeld | ρ_ref | 1,20 | kg/m³ | NEU 07.11.2026, gefittet; Moment ∝ (ρ/ρ_ref)^k mit k = 1,0 (Winterreifen 0,99, Bereich 0,56–1,36) |
 | Rollwiderstandsbeiwert | Crr | 0,013 | 1 | Modellannahme |
 | Erdbeschleunigung | g | 9,81 | m/s² | Konstante |
 | Drosselklappe vollständig offen | ETC_open | ca. 86 | ° | validiert, aber kein alleiniger WOT-Nachweis |
@@ -322,7 +324,7 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
 
 ### Modellannahmen oder gekoppelte Größen
 
-- Luftdichte 1,18 kg/m³.
+- Luftdichte 1,18 kg/m³ im Luftwiderstand.
 - Rollwiderstand 0,013.
 - CdA 0,647 m² und η 0,93 sind gekoppelt, nicht unabhängig identifiziert.
 - Historischer Launch: μ_eff = 0,88, Traktionsfaktor im ersten Gang 0,90 und gemittelte Launch-Beschleunigung 5,54 m/s² gelten als starke historische Evidenz, sind aber nicht aus der aktuellen IMU-Methode neu bestätigt.
@@ -366,7 +368,8 @@ Auch `USABLE` erlaubt keine automatische Fahrzeugparameteränderung.
    Der Faktor hing nicht von der Geschwindigkeit ab, sondern vom Gang: Die fehlende Drehträgheit (J_e = 0,143 kg·m²) macht im 2. Gang ~11 % der Masse aus, im 6. Gang ~1 %. Deshalb passte der Faktor im mittleren Tempo und das unkorrigierte Modell bei Vmax. Offen bleibt der 6. Gang, wo die Messung über dem Modell liegt (Abschnitt 6).
 
 9. **Geschwindigkeitsrahmen auf GPS umstellen (Entscheidung offen)**  
-   `VehicleSpeed` liest 2,9 % zu hoch (siehe Kurzfazit). Vorschlag: eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle beim Laden von `VehicleSpeed` einführen, r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen, danach Gang-4-, Vmax-, Ausroll- und μ-Validierung neu laufen lassen. Bis dahin absolute Werte mit 0,971 (v, a) bzw. 0,943 (μ) umrechnen.
+   `VehicleSpeed` liest 2,9 % zu hoch (siehe Kurzfazit). Vorschlag: eine Konstante `SPEED_TRUE_FACTOR = 0.971` an einer Stelle beim Laden von `VehicleSpeed` einführen, r_dyn auf ~0,290 m setzen, CdA/Crr/η im wahren Rahmen neu anpassen, danach Gang-4-, Vmax-, Ausroll- und μ-Validierung neu laufen lassen. Bis dahin absolute Werte mit 0,971 (v, a) bzw. 0,943 (μ) umrechnen.  
+   Unabhängig bestätigt am 07.11.2026 mit Handy-GPS auf dem Armaturenbrett und Winterreifen: `0x202`/GPS 1,0286 (n=332, 20–180 km/h; 1,032 bei 20–80, 1,025 bei 140–200 km/h). Nominell wären mit dem größeren Reifen rund 2,0 % zu erwarten, der Grund ist offen. Herleitung: `logs/can-bus-status.md`, „Handy-GPS: drei Fahrten am 07.11.“.
 
 ## 13. Empfohlene Verwendung außerhalb des Agenten
 

@@ -6841,3 +6841,118 @@ Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.13 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=18).
 - shift_record: Neue Bestzeit 4 -> 3 (downshift): 1.06s (vorher 1.10s), candump-2026-11-03_080944 @ t=1839.0s.
+
+## Automatischer Lauf: 7 neue CAN-Logs uebernommen (2026-11-06)
+
+- `candump-2026-11-05_080335`, Masse=1189.1kg (Tank ~40.4 l (CAN Fuel_Tank Median 34.0 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_082051`, Masse=1187.6kg (Tank ~38.4 l (CAN Fuel_Tank Median 32.2 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_163224`, Masse=1187.0kg (Tank ~37.5 l (CAN Fuel_Tank Median 31.4 roh), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-05_171842`, Masse=1260.0kg (Tank ~34.9 l (CAN Fuel_Tank Median 29.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-05_173353`, Masse=1261.3kg (Tank ~36.7 l (CAN Fuel_Tank Median 30.6 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-06_145524`, Masse=1259.2kg (Tank ~33.8 l (CAN Fuel_Tank Median 28.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-06_150333`, Masse=1228.8kg (Tank ~36.7 l (CAN Fuel_Tank Median 30.6 roh), Beifahrer 57% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.10 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=11).
+- corner_peak: Neuer Spitzenwert Querbeschleunigung (rechts): 1.15g (vorher 1.12g), candump-2026-11-05_173353 @ t=82.5s, v=41km/h - unverifizierter Kandidat, manuell pruefen.
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-11-07)
+
+- `candump-2026-11-07_110336`, Masse=1258.4kg (Tank ~32.7 l (CAN Fuel_Tank Median 27.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_120740`, Masse=1257.5kg (Tank ~31.6 l (CAN Fuel_Tank Median 26.0 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_125728`, Masse=1256.9kg (Tank ~30.7 l (CAN Fuel_Tank Median 25.2 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs 1.07 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=17).
+
+
+## Volllast-Warnung 1,07 im Herbst: kalte Luft, nicht die Reifen (2026-11-07)
+
+Anlass: `drivetrain_ratio` im Tagesbericht, gemessen/Modell 1,07 (n=17), am 06.11. 1,10. Frage: Liegt das an den Winterreifen? Antwort: überwiegend nicht.
+Das Modell rechnet mit festem Momentkennfeld, die Luftdichte steckt nur im Luftwiderstand (`RHO_KG_M3 = 1.18`). Der Saugmotor macht in kalter Luft aber mehr Moment.
+
+Auswertung: alle 459 CAN-Volllastabschnitte aus `drivetrain_model_validation_summary.json`, davon Gänge 2–5 und mindestens 2 s (259). Gang 1 ist traktionsbegrenzt, Gang 6 ein eigener offener
+Punkt. Größe: aus der Beschleunigung zurückgerechnetes Moment durch Kennfeldmoment, Luftwiderstand mit Dichte aus `BarometricPressure_CAN` und Außentemperatur. Dichte für den Motor aus Baro und `IntakeAirTemperature`.
+Vertrauensbereiche: Bootstrap über Logs.
+
+| Reifen | Abschnitte / Logs | Moment gemessen/Kennfeld | Dichte | Ansaugluft |
+|---|---|---|---|---|
+| NS-R2 | 128 / 32 | 0,989 | 1,188 | 25 °C |
+| Winter | 131 / 35 | 1,037 | 1,231 | 16 °C |
+
+**Gleiche Reifen, nur Temperatur (der klarste Befund):** Winterreifen bei mindestens 20 °C Ansaugluft 0,992 (n=43, Dichte 1,193), also wie die NS-R2. Unter 10 °C 1,091 (n=12, Dichte 1,265).
+Das sind +10 % bei +6,1 % Dichte, ohne Reifenwechsel. Auch Oktober 1,028 gegen November 1,058 auf demselben Satz. Dichte-Exponent innerhalb der Winterreifen 0,91 (0,59 bis 1,23).
+Bei den NS-R2 ist der Exponent wegen des engen Temperaturbereichs nicht bestimmbar (0,01, −1,28 bis 0,95).
+
+**Gleiche Dichte, verschiedene Reifen:**
+
+| Dichte | n NS-R2 / Winter | NS-R2 | Winter |
+|---|---|---|---|
+| 1,10–1,17 | 9 / 9 | 0,966 | 0,941 |
+| 1,17–1,19 | 63 / 12 | 0,984 | 0,984 |
+| 1,19–1,21 | 42 / 21 | 0,996 | 1,008 |
+| 1,21–1,23 | 13 / 22 | 0,993 | 1,020 |
+| 1,23–1,25 | 1 / 38 | (1,015) | 1,050 |
+| 1,25–1,33 | 0 / 29 | – | 1,070 |
+
+Gewichtet bleiben +0,6 %. Mit der Beschleunigung aus `LongitudinalAcc_CAN` statt aus dem Tempo sind es +3,6 %, die Regression über alles ergibt +3,8 % (1,3 bis 7,0). Ein Reifen- oder Jahreszeit-Rest von 1–4 % ist also möglich, aber klein und nicht sauber vom Rest zu trennen.
+
+**Warum der Reifenumfang es nicht ist:** `VehicleSpeed` hängt am Rad, das Verhältnis ginge mit r² (kleinerer Radius = höher). Für +4 % müsste r um 2 % kleiner sein. CAN/GPS zeigt aber fast keine Änderung (NS-R2 1,030,
+Winter 1,0286), und nominell ist der Reifen sogar 0,9 % größer. Dass die 2,9 % nicht auf die erwarteten rund 2 % gefallen sind, könnte am abgefahrenen Satz liegen (nicht gemessen). Andere Reifeneffekte: Für +4 % wären rund 50 kg
+Ersatzmasse nötig, leichtere Räder liefern nur einen Bruchteil. Mehr Rollwiderstand wirkte in die Gegenrichtung.
+
+**ECU bestätigt die Motorseite:** `ActualEnginePercentTorque_CAN` steigt mit der Dichte von im Mittel 83,4 % auf 91,2 % und ist bei gleicher Dichte für beide Reifensätze fast gleich (83,3/83,5, 84,7/86,0, 88,5/88,6). Das Steuergerät weiß nichts von den Reifen.
+`KnockRetard_CAN` zeigt keinen Unterschied (Mittel −0,16 / −0,15).
+
+**Die Warnung vom 07.11. zerlegt:** Gang 2 1,03, Gang 3 1,06, Gang 4 1,06, Gang 5 1,14 (n=3), Gang 6 1,24 (n=2, kurz). Dichte 1,26 bei rund 9 °C, also +6 % gegen den September. Die Warnung meldet demnach kein Problem am Auto, sondern die
+fehlende Dichte im Modell, und sie wird im Winter dauerhaft anschlagen. Gegen den Referenzwert 1,0 sind die Gänge 2–5 erst bei rund 25 °C Ansaugluft ausgerichtet.
+
+**Nebenbefund Masse:** Für Logs vor dem 02.10. ohne Eintrag in `log_mass_overrides.json` gilt die Standardmasse 1180,7 kg, auch mit belegtem Sitz und Gurt (59 Abschnitte, 16 Logs, Verhältnis 0,90 statt 1,02–1,03 bei richtiger Masse).
+Das drückt den NS-R2-Vergleichswert. Oben mit pauschal +70 kg bereinigt (0,978 auf 0,989). Nicht rückwirkend in der Datei korrigiert. Ob das den Fit der Drehträgheit vom 01.10. beeinflusst hat, ist nicht geprüft.
+
+**Grenzen:** Ansaugluft misst auch Motorraumwärme, Dichte hier ohne Luftfeuchte. Abschnitte je Log wenige, Reifenwechsel und Herbst fallen zeitlich zusammen. Nichts am Modell geändert.
+Vorschlag: Moment im Modell mit (ρ/1,19)^k skalieren, k rund 0,9, und die Prüfung darauf beziehen. Entscheidung des Nutzers offen.
+
+## Luftdichte im Momentmodell, Massen nachgetragen (2026-11-07)
+
+Entscheidung des Nutzers auf den Vorschlag oben: einbauen. Umgesetzt in `drivetrain_model_validation.py`: `torque_nm(rpm, rho)` skaliert das Kennfeld mit (ρ/1,20)^1,0, `_build_wot_segments()` rechnet je Abschnitt die Dichte aus `IntakeAirTemperature` und `BarometricPressure_CAN` (Median im Abschnitt, sonst ±60 s, OBD-Logs ohne Barometer mit 101,3 kPa).
+Der Wert steht als `rho_air_kg_m3` im Ergebnis. Die Prüfung `drivetrain_ratio` nutzt `a_model_ms2` und folgt damit automatisch. Ohne `rho` liefert `torque_nm()` das unveränderte Kennfeld.
+
+**Massen zuerst:** 40 CAN-Logs ohne Eintrag per `update_mass_overrides()` in `log_mass_overrides.json` nachgetragen (Tank aus `FuelTank_CAN_raw`, Beifahrer aus 0x340), 121 Abschnitte betroffen, 16 Logs mit Beifahrer. Vorhandene 130 Einträge unverändert. `candump-2026-09-11_200735` hat keinen Tankwert, 10 Logs aus der Zeit vor dem CAN-Logging behalten 1180,7 kg (Datei ist nicht im Repo, Kopie des alten Stands nur im Scratchpad).
+
+**Fit mit den neuen Massen** (CAN, Gänge 2–5, mindestens 2 s, 256 Abschnitte, Bootstrap über Logs):
+
+| Teilmenge | Exponent k | Bereich |
+|---|---|---|
+| Winterreifen | 0,99 | 0,56 bis 1,36 |
+| NS-R2 | 0,90 | −0,01 bis 2,16 |
+| alle, mit Reifenterm | 0,97 | 0,58 bis 1,33 |
+
+**Abweichung vom Vorschlag:** k = 1,0 statt 0,9 und Referenz 1,20 statt 1,19. Die 0,9 stammten noch aus den falschen Massen. k = 1 passt zu den Daten und zur Physik (Moment folgt der Luftmasse), bei 1,20 trifft das Kennfeld die Messung im Median (0,998). Ein Reifenterm bleibt in der Regression bei +3,2 % (0,6 bis 6,4).
+
+**Wirkung, Winterreifen, Gänge 2–5, mindestens 2 s:**
+
+| Dichte | n | vorher | nachher |
+|---|---|---|---|
+| 1,10–1,17 | 9 | 0,937 | 0,990 |
+| 1,17–1,19 | 12 | 0,980 | 1,000 |
+| 1,19–1,21 | 21 | 1,007 | 1,008 |
+| 1,21–1,23 | 22 | 1,018 | 0,998 |
+| 1,23–1,25 | 38 | 1,048 | 1,002 |
+| 1,25–1,33 | 29 | 1,066 | 1,004 |
+
+Der Dichtegang ist damit weg. Vergleich der Reifensätze im selben Filter: NS-R2 0,987 (n=128), Winter 1,003 (n=131). Warnung vom 07.11.: 1,066 auf 1,026, kein Befund mehr. Streuung über alle 616 Abschnitte (MAD) 0,081 auf 0,068, darin steckt auch die Massenkorrektur.
+
+**Die Warnung kann trotzdem noch anschlagen, wegen Gang 6.** Über die 16 Fahrtage seit dem Reifenwechsel lagen vorher 12 außerhalb der Toleranz, jetzt 7. Nur Gänge 2–5 wäre es 1 (15.10., 0,915 bei n=1), bei mindestens 5 Abschnitten keiner von 12. Gang 6 liegt auf beiden Reifen bei rund 1,14 und macht an manchen Tagen über die Hälfte der Abschnitte aus (10.10.: 1,13 alle Gänge, 1,03 Gänge 2–5). Das ist der bekannte offene Punkt, keine Dichtefrage. Prüfung bewusst noch nicht auf Gänge 2–5 begrenzt, das entscheidet der Nutzer.
+
+**Bewusst nicht geändert:**
+- Luftwiderstand bleibt bei `RHO_KG_M3 = 1,18`. Die Ansaugdichte dort würde `a_model` in den Gängen 2–5 im Median nur um 0,19 % ändern, und CdA ist an 1,18 gekoppelt.
+- Simulationen und Rundenzeit rechnen weiter bei Referenzluft, ebenso `top_speed_validation.py` (Gang 6/Vmax über `accel()`).
+- Teillastmodell: Prozent × Kennfeld ohne Dichte, das ECU-Moment enthält sie schon (Befund oben).
+- `J_e = 0,143`: Mit neuen Massen und Dichte liegen die Gänge 2–5 bei 0,963 / 0,992 / 1,002 / 1,019. J_e = 0,25 würde sie angleichen (1,026 / 1,024 / 1,023 / 1,033), hebt aber alles um gut 2 %, und die Streuung bleibt gleich (0,041). Das reicht nicht für eine Änderung, der Fit vom 01.10. lief zudem über die Vorderrad-Beschleunigung statt über das Tempo.
+
+**Grenzen:** Der Exponent ist weit offen, kalte Abschnitte sind wenige, Ansaugluft misst auch Motorraumwärme, Luftfeuchte fehlt. Vor der nächsten Pipeline ändern sich die Abhängigkeiten in `MODEL_CACHE_DEPS` und einige Massen, der nächste Lauf rechnet die Modellskripte also einmal vollständig neu (zuletzt rund 40 min). Bisher neu gerechnet ist nur die Volllastprüfung.
+
+**Nachtrag, gleicher Tag:** Der Nutzer hat entschieden: `drivetrain_ratio` prüft nur noch die Gänge 2–5 (`DRIVETRAIN_RATIO_GEARS`). Die Zeile im Tagesbericht nutzt dieselbe Funktion `drivetrain_ratios()`, damit Warnung und Bericht denselben Median zeigen. Der Bericht-Median ist dadurch nicht mehr direkt mit früheren Berichten vergleichbar, die alle Gänge enthielten. Gang 6 fällt damit aus der Überwachung, sein Verhältnis von rund 1,14 steht weiter in der Gesamtstatistik von `drivetrain_model_validation.py`.

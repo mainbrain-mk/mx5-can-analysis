@@ -88,6 +88,9 @@ LIVE_STALE_S = 2.0
 NTP_SYNC_PATH = "/run/systemd/timesync/synchronized"
 RTC_EPOCH_PATH = "/sys/class/rtc/rtc0/since_epoch"
 RTC_MIN_PLAUSIBLE_EPOCH = 1790546400  # 2026-09-28, Einbau der RTC (wie session_logger.RTC_MIN_PLAUSIBLE)
+GPS_STATUS_PATH = "/tmp/mx5_gps_status.json"  # schreibt gps_logger.py einmal pro Sekunde
+GPS_STALE_S = 3.0
+GPS_HDOP_WARN = 2.0  # Startwert, nach der Testfahrt nachstellen (Plan: docs/plans/gps-bluetooth-plan.md)
 
 
 def clock_source(ntp_path=NTP_SYNC_PATH, rtc_path=RTC_EPOCH_PATH):
@@ -104,6 +107,32 @@ def clock_source(ntp_path=NTP_SYNC_PATH, rtc_path=RTC_EPOCH_PATH):
     except (OSError, ValueError):
         pass
     return "UHR  ?", False
+
+
+def gps_status(logging, path=GPS_STATUS_PATH, now=None):
+    """-> (Fusszeilen-Text, Farbe). Fehlt die Datei oder ist sie alt, laeuft gps_logger.py nicht:
+    gilt wie "keine Verbindung", rot nur waehrend ein Log laeuft (sonst stoert es zuhause). Die App
+    sendet ohne Fix nichts oder wiederholt den alten, "kein Fix" zeigt sich also am Alter des letzten
+    neuen Fix (last_fix_mono). Nur read, kein Fork, wie clock_source()."""
+    now = time.monotonic() if now is None else now
+    try:
+        with open(path) as fh:
+            s = json.load(fh)
+        connected = s["connected"] and now - s["written_mono"] <= GPS_STALE_S
+        last = s["last_fix_mono"]
+        receiving = s["fix"] and last is not None and now - last <= GPS_STALE_S
+        sats, hdop = s["sats"], s["hdop"]
+    except (OSError, ValueError, KeyError, TypeError):
+        connected = False
+    if not connected:
+        return ("GPS  keine Verbindung", RED) if logging else ("GPS  --", TEXT_DIM)
+    if not receiving:
+        return "GPS  kein Fix", WARN
+    if hdop is None:
+        return f"GPS  {sats} Sat", WARN
+    return f"GPS  {sats} Sat  HDOP {hdop:.1f}", GOOD if hdop <= GPS_HDOP_WARN else WARN
+
+
 # can_backend.py publiziert mit 50 Hz; kommt so lange nichts, gilt es als ausgefallen
 # (Snapshot sonst eingefroren: "logging" bliebe True, Drive-Screen + REC-Timer liefen weiter).
 BACKEND_STALE_S = 3.0
@@ -1007,7 +1036,7 @@ class TpmsCarView(Panel):
 
 
 class StatusBar(BoxLayout):
-    """Fusszeile: CAN-Framerate/DBC-Status/GPS-Platzhalter/Log-Status+Timer/Uhr."""
+    """Fusszeile: CAN-Framerate/DBC-Status/GPS-Status/Log-Status+Timer/Uhr."""
 
     def __init__(self, **kwargs):
         super().__init__(orientation="horizontal", size_hint_y=None, height=40,
@@ -1023,8 +1052,6 @@ class StatusBar(BoxLayout):
         self.add_widget(Widget())  # Spacer
         self.add_widget(self.log_label)
         self.add_widget(self.clock_label)
-        self.gps_label.text = "GPS  -- (kein Empfaenger)"
-        self.gps_label.color = TEXT_DIM
 
     def _make_label(self):
         lbl = Label(text="", font_size="18sp", color=TEXT_DIM, size_hint_x=None, halign="left")
@@ -1037,6 +1064,7 @@ class StatusBar(BoxLayout):
         self.can_label.color = GOOD if snap.get("can_up") else RED
         self.dbc_label.text = "DBC  OK" if snap.get("dbc_ok") else "DBC  FEHLT"
         self.dbc_label.color = GOOD if snap.get("dbc_ok") else RED
+        self.gps_label.text, self.gps_label.color = gps_status(bool(snap.get("logging")))
         # logging_elapsed rechnet can_backend.py monoton (springt nicht mit, wenn NTP
         # waehrend der Fahrt die Uhr stellt); logging_since nur fuer aeltere Backends.
         elapsed = snap.get("logging_elapsed")

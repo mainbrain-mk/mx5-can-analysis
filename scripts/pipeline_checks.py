@@ -17,6 +17,7 @@ Aufruf: als Bibliothek aus run_daily_pipeline.py, siehe run_all().
 """
 import json
 import os
+import statistics
 
 RESULTS_DIR = "results"
 DERIVED_DIR = "data/derived"
@@ -29,8 +30,12 @@ A_LAT_RATIO_MAX = 2.0
 VIBRATION_RESONANCE_RANGE_HZ = (18.0, 23.0)
 # 1.00 seit dem Drehtraegheits-Modell (01.10.); Median ueber 373 Segmente 1.01, CAN allein 0.99 (02.10.).
 # Vorher 0.94 aus der Zeit des Bias-Faktors 0.92 - meldete danach jede normale Fahrt als Abweichung.
+# Seit 07.11. folgt das Moment im Modell der Luftdichte, die Pruefung bleibt damit auch im Winter bei 1.00.
 DRIVETRAIN_RATIO_REFERENCE = 1.00
 DRIVETRAIN_RATIO_TOLERANCE = 0.05
+# Gang 1 ist traktionsbegrenzt, Gang 6 liegt auf beiden Reifensaetzen bei ~1,14 (offener Punkt). Mit allen
+# Gaengen entschied dessen Anteil an der Fahrt ueber die Warnung: 7 von 16 Fahrtagen seit 02.10., so nur noch 1 (15.10., n=1).
+DRIVETRAIN_RATIO_GEARS = (2, 3, 4, 5)
 STEERING_R2_DELTA_WARN = 0.01
 STEERING_K1_REL_DELTA_WARN = 0.05
 
@@ -178,25 +183,30 @@ def check_unmapped_channels(new_logs):
     return findings
 
 
+def drivetrain_ratios(data, logs):
+    """Verhaeltnisse gemessen/Modell der Gaenge DRIVETRAIN_RATIO_GEARS in den angegebenen Logs."""
+    return [
+        e["a_measured_ms2"] / e["a_model_ms2"]
+        for e in data
+        if e.get("file", "").removesuffix(".dlg") in logs and e.get("a_model_ms2")
+        and e.get("gear") in DRIVETRAIN_RATIO_GEARS
+    ]
+
+
 def check_drivetrain_ratio(new_logs):
-    """Vollast-Verhaeltnis gemessen/Modell der neuen Logs deutlich (>5
+    """Vollast-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) deutlich (>5
     Prozentpunkte) vom Referenzwert DRIVETRAIN_RATIO_REFERENCE abweichend (Schritt 9)."""
     data = _load_json("drivetrain_model_validation_summary.json")
     if not data:
         return []
-    ratios = [
-        e["a_measured_ms2"] / e["a_model_ms2"]
-        for e in data
-        if e.get("file", "").removesuffix(".dlg") in new_logs and e.get("a_model_ms2")
-    ]
+    ratios = drivetrain_ratios(data, new_logs)
     if not ratios:
         return []
-    ratios.sort()
-    median = ratios[len(ratios) // 2]
+    median = statistics.median(ratios)
     if abs(median - DRIVETRAIN_RATIO_REFERENCE) > DRIVETRAIN_RATIO_TOLERANCE:
         return [_finding(
             "warn", "drivetrain_ratio",
-            f"Median-Verhaeltnis gemessen/Modell der neuen Logs {median:.2f} weicht "
+            f"Median-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) {median:.2f} weicht "
             f"um mehr als {DRIVETRAIN_RATIO_TOLERANCE} vom Referenzwert "
             f"{DRIVETRAIN_RATIO_REFERENCE} ab (n={len(ratios)}).",
             median_ratio=median, n=len(ratios),

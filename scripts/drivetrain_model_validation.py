@@ -127,13 +127,42 @@ LAMBDA_WOT_MAX = 0.9     # Nutzer-Vorgabe (29.08.2026): ETC_ACT allein ist KEIN
 # identifizierbar (Fit ergab negative Radmasse) und steckt implizit hier drin.
 ENGINE_INERTIA_KGM2 = 0.143
 
+# Luftdichte im Moment (07.11.2026): der Saugmotor macht in kalter Luft mehr Moment, gleiche Reifen
+# 0,99 ab 20 degC gegen 1,08 unter 10 degC Ansaugluft. Fit Winterreifen (128 CAN-Abschnitte, Gaenge 2-5):
+# Exponent 0,99 (0,56-1,36), Kennfeld trifft bei 1,20 kg/m^3. Der Luftwiderstand bleibt bei RHO_KG_M3.
+# Ohne rho gilt das Kennfeld unveraendert, Simulationen rechnen also bei Referenzluft.
+# Herleitung: docs/logs/projekt-stand.md, "Luftdichte im Momentmodell, Massen nachgetragen".
+TORQUE_RHO_REF_KG_M3 = 1.20
+TORQUE_RHO_EXPONENT = 1.0
+BARO_FALLBACK_KPA = 101.3  # OBD-Logs ohne Barometer, ~1 kPa Streuung = ~1 % Dichte
+RHO_WINDOW_S = 60.0        # IAT/Baro werden langsam gepollt: Rueckfall auf das Umfeld des Abschnitts
+
 MIN_SEGMENT_DURATION_S = 1.5
 MIN_SPEED_MS = 3.0        # sehr geringe Geschwindigkeit ausschliessen (Anfahren/Kupplung)
 
 
-def torque_nm(rpm):
-    return np.interp(rpm, RPM_TABLE, TORQUE_TABLE_NM,
+def torque_nm(rpm, rho=TORQUE_RHO_REF_KG_M3):
+    table = np.interp(rpm, RPM_TABLE, TORQUE_TABLE_NM,
                       left=TORQUE_TABLE_NM[0], right=TORQUE_TABLE_NM[-1])
+    return table * (rho / TORQUE_RHO_REF_KG_M3) ** TORQUE_RHO_EXPONENT
+
+
+def _median_near(channel, t_start, t_end):
+    """Median im Abschnitt, sonst im Umfeld von RHO_WINDOW_S, sonst None."""
+    t, value = channel["t"], channel["value"]
+    mask = (t >= t_start) & (t <= t_end)
+    if not mask.any():
+        mask = (t >= t_start - RHO_WINDOW_S) & (t <= t_end + RHO_WINDOW_S)
+    return float(value[mask].median()) if mask.any() else None
+
+
+def segment_air_density(iat, baro, t_start, t_end):
+    """Dichte der Ansaugluft fuer einen Abschnitt, None ohne Ansaugtemperatur."""
+    iat_c = _median_near(iat, t_start, t_end)
+    if iat_c is None:
+        return None
+    baro_kpa = _median_near(baro, t_start, t_end)
+    return (BARO_FALLBACK_KPA if baro_kpa is None else baro_kpa) * 1000.0 / (287.05 * (iat_c + 273.15))
 
 
 def rpm_from_speed(v_ms, gear):
@@ -147,9 +176,9 @@ def effective_mass(mass_kg, gear):
     return mass_kg + ENGINE_INERTIA_KGM2 * (GEAR_RATIOS[gear] * FINAL_DRIVE / R_DYN_M) ** 2
 
 
-def model_accel(v_ms, gear, mass_kg=MASS_KG):
+def model_accel(v_ms, gear, mass_kg=MASS_KG, rho=TORQUE_RHO_REF_KG_M3):
     rpm = rpm_from_speed(v_ms, gear)
-    torque = torque_nm(rpm)
+    torque = torque_nm(rpm, rho)
     f_wheel = torque * GEAR_RATIOS[gear] * FINAL_DRIVE * ETA / R_DYN_M
     f_drag = 0.5 * RHO_KG_M3 * CDA_M2 * v_ms ** 2
     f_roll = CRR * mass_kg * G
@@ -298,20 +327,25 @@ def _grade_and_tailwind(con, log_id, t_start, t_end, elev_model, wind_cache,
     return grade_frac, tailwind_ms
 
 
-def _build_wot_segments(log_id, t_common, candidate, v_i, g_i, detection,
-                         con=None, elev_model=None, wind_cache=None):
+def _build_wot_segments(log_id, t_common, candidate, v_i, g_i, detection, con,
+                         elev_model=None, wind_cache=None):
     """Gemeinsame Segment-Konstruktion (an Gangwechseln aufteilen, Mindest-
     dauer, ansteigende Geschwindigkeit) fuer beide Erkennungswege.
 
     MIT Steigungs-/Windkorrektur (2026-09-13, wie bereits in
-    top_speed_validation.py fuer den Gang-6-/Vmax-Pfad) wenn con+elev_model
-    uebergeben werden - sonst (Rueckwaertskompatibilitaet) nur das flache
+    top_speed_validation.py fuer den Gang-6-/Vmax-Pfad) wenn elev_model
+    uebergeben wird - sonst (Rueckwaertskompatibilitaet) nur das flache
     Modell wie bisher. `a_model_ms2` bleibt IMMER das flache Modell (fuer
     Vergleichbarkeit mit alten Laeufen); `a_model_corrected_ms2`/`grade_pct`/
     `tailwind_ms` sind neu und None, wenn keine Korrektur angefordert/moeglich
-    war."""
+    war.
+
+    Das Moment folgt in beiden Faellen der Luftdichte des Abschnitts (07.11.2026), `rho_air_kg_m3`
+    ist None, wenn die Ansaugtemperatur fehlt und das Kennfeld unskaliert gilt."""
     mass_kg = LOG_MASS_OVERRIDE_KG.get(log_id, MASS_KG)
-    use_correction = con is not None and elev_model is not None
+    iat = load_channel(con, log_id, "IntakeAirTemperature")
+    baro = load_channel(con, log_id, "BarometricPressure_CAN")
+    use_correction = elev_model is not None
     if use_correction:
         from coastdown_analysis import load_channel_with_timestamp
         lat_full = load_channel_with_timestamp(con, log_id, "Breite")
@@ -334,7 +368,9 @@ def _build_wot_segments(log_id, t_common, candidate, v_i, g_i, detection,
                         v_mean = (v0 + v1) / 2.0
                         a_meas = (v1 - v0) / dur
                         gear_here = int(g_i[sub_start])
-                        a_mod, rpm_mod, torque_mod = model_accel(v_mean, gear_here, mass_kg)
+                        rho = segment_air_density(iat, baro, t_common[sub_start], t_common[sub_end])
+                        a_mod, rpm_mod, torque_mod = model_accel(
+                            v_mean, gear_here, mass_kg, TORQUE_RHO_REF_KG_M3 if rho is None else rho)
 
                         a_mod_corrected, grade_pct, tailwind_ms = None, None, None
                         if use_correction:
@@ -359,7 +395,7 @@ def _build_wot_segments(log_id, t_common, candidate, v_i, g_i, detection,
                             "a_model_corrected_ms2": a_mod_corrected, "grade_pct": grade_pct,
                             "tailwind_ms": tailwind_ms,
                             "rpm_model": float(rpm_mod), "torque_model_nm": float(torque_mod),
-                            "mass_kg_used": float(mass_kg),
+                            "mass_kg_used": float(mass_kg), "rho_air_kg_m3": rho,
                         })
                 sub_start = i
     return results

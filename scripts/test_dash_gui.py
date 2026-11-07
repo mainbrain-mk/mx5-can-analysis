@@ -10,6 +10,7 @@ Attribute bereitstellt. Kivy selbst muss trotzdem importierbar sein (laeuft
 regulaer nur auf dem Pi) - ohne Kivy wird der Test uebersprungen.
 """
 import gzip
+import json
 import os
 import sys
 import tempfile
@@ -170,6 +171,53 @@ def test_rec_timer_uses_monotonic_elapsed_not_wall_clock():
     assert bar.log_label.text == "LOG  REC  00:30"
     bar.update({"logging": False, "logging_elapsed": None})
     assert bar.log_label.text == "LOG  --"
+
+
+def _gps(logging=True, raw=None, **fields):
+    """gps_status() gegen eine Statusdatei; now=100 s, ohne Angabe frisch und mit gutem Fix."""
+    status = {"connected": True, "fix": True, "sats": 21, "hdop": 0.61,
+              "last_fix_mono": 100.0, "written_mono": 100.0, **fields}
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "status.json")
+        with open(path, "w") as fh:
+            fh.write(json.dumps(status) if raw is None else raw)
+        return dash_gui.gps_status(logging, path, now=100.0)
+
+
+def test_gps_status_shows_each_state_of_the_logger():
+    assert _gps() == ("GPS  21 Sat  HDOP 0.6", dash_gui.GOOD)
+    assert _gps(sats=9, hdop=2.4) == ("GPS  9 Sat  HDOP 2.4", dash_gui.WARN)
+    assert _gps(hdop=2.0)[1] == dash_gui.GOOD  # Schwelle selbst ist noch in Ordnung
+    assert _gps(sats=9, hdop=None) == ("GPS  9 Sat", dash_gui.WARN)
+    assert _gps(fix=False) == ("GPS  kein Fix", dash_gui.WARN)
+    assert _gps(last_fix_mono=None) == ("GPS  kein Fix", dash_gui.WARN)
+    assert _gps(last_fix_mono=96.9) == ("GPS  kein Fix", dash_gui.WARN)  # kein neuer Fix mehr
+    assert _gps(connected=False) == ("GPS  keine Verbindung", dash_gui.RED)
+    assert _gps(connected=False, logging=False) == ("GPS  --", dash_gui.TEXT_DIM)
+
+
+def test_gps_status_counts_dead_logger_as_no_connection():
+    assert _gps(written_mono=96.9) == ("GPS  keine Verbindung", dash_gui.RED)  # gps_logger.py abgestuerzt
+    assert _gps(written_mono=96.9, logging=False) == ("GPS  --", dash_gui.TEXT_DIM)
+    assert dash_gui.gps_status(True, "/nicht/vorhanden", now=100.0) == ("GPS  keine Verbindung", dash_gui.RED)
+    for garbage in ("", "{kaputt", "[1, 2]", '{"connected": true}', '{"connected": true, "written_mono": "x"}'):
+        assert _gps(raw=garbage) == ("GPS  keine Verbindung", dash_gui.RED), garbage
+
+
+def test_status_bar_shows_gps_state():
+    bar = dash_gui.StatusBar()
+    with tempfile.TemporaryDirectory() as tmp:  # Statusdatei fehlt = Logger laeuft nicht
+        original = dash_gui.gps_status.__defaults__
+        dash_gui.gps_status.__defaults__ = (os.path.join(tmp, "fehlt.json"), None)
+        try:
+            bar.update({"logging": True})
+            assert bar.gps_label.text == "GPS  keine Verbindung"
+            assert list(bar.gps_label.color) == list(dash_gui.RED)  # Kivy liefert die Farbe als Liste
+            bar.update({"logging": False})
+            assert bar.gps_label.text == "GPS  --"
+            assert list(bar.gps_label.color) == list(dash_gui.TEXT_DIM)
+        finally:
+            dash_gui.gps_status.__defaults__ = original
 
 
 def test_rpm_bar_only_recolors_changed_segments_and_matches_zones():
@@ -921,4 +969,7 @@ if __name__ == "__main__":
     test_cruise_active_prefers_0x0fd_flag_and_falls_back_to_0x165()
     test_metric_card_set_value_applies_color_and_resets_to_dim_on_none()
     test_health_line_shows_what_the_tiles_display()
+    test_gps_status_shows_each_state_of_the_logger()
+    test_gps_status_counts_dead_logger_as_no_connection()
+    test_status_bar_shows_gps_state()
     print("ok")

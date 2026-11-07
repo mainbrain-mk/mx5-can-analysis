@@ -208,3 +208,30 @@ ARCELI-Aufsteckmodul auf Pin 1-3-5-7-9 (Display belegt 2/6).
 - Uhrsprung-Protokoll: kommt NTP erst nach einem Offline-Boot, schreibt `session_logger.py` pro
   Sprung eine `clockjump-*.txt` (`jump_us`, `wall_before`, `wall_after`, laufendes `log`). Die Pipeline
   holt sie mit und zieht den Teil des Logs vor dem Sprung exakt nach (`fix_clock_jump`).
+
+## Handy-GPS: Bluetooth-Pairing (2026-11-06)
+
+Plan: `docs/plans/gps-bluetooth-plan.md`. `/var/lib/bluetooth` liegt im Overlay, ein Pairing ist nach dem
+Neustart sonst weg. Nach dem Koppeln (`bluetoothctl`: `pairable on`, `pair <HANDY>`, Code am Pi mit `yes` und
+am Handy bestätigen, `trust <HANDY>`) den Geräteordner in die Basisschicht kopieren, in EINEM Aufruf:
+```
+sudo tar -C /var/lib/bluetooth/<ADAPTER> -c <HANDY> | sudo overlayroot-chroot sh -c \
+  "tar -x -C /var/lib/bluetooth/<ADAPTER> && chown -R root:root /var/lib/bluetooth/<ADAPTER>/<HANDY> && sync"
+```
+Die Datei `info` enthält den Schlüssel, also nicht ausgeben. Gegenprobe: `sha256sum` gegen
+`/media/root-ro/var/lib/bluetooth/...`.
+
+Dienst `gps-logger.service` (`scripts/gps_logger.py`), nach dem Deploy einmalig, die Unit in EINEM Aufruf:
+```
+cd /home/pi/canlogs
+echo "GPS_PHONE_MAC=<HANDY>" > gps_phone.env
+ln -s repo/scripts/gps_logger.py gps_logger.py
+ln -s repo/scripts/test_gps_logger.py test_gps_logger.py
+cat repo/scripts/pi-config/gps-logger.service | sudo overlayroot-chroot sh -c \
+  "cat > /etc/systemd/system/gps-logger.service && systemctl enable gps-logger.service"
+# Das laufende Overlay sieht die neue Datei der Basisschicht erst nach dem Neustart, also auch live:
+sudo install -m 644 repo/scripts/pi-config/gps-logger.service /etc/systemd/system/gps-logger.service
+sudo systemctl daemon-reload && sudo systemctl start gps-logger.service
+findmnt -no OPTIONS /media/root-ro
+```
+Rohdaten: `canlogs/gps-*.nmea`, Zustand fürs Dash: `/tmp/mx5_gps_status.json`, Meldungen: `journalctl -u gps-logger`.

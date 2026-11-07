@@ -6245,3 +6245,205 @@ auffallen. Prüfung: Zählerliter ab Volltanken, bis der Geber (Median 120 s) un
   MB-Angabe ungepackter Logs ist die Rohgröße, etwa 8× die der `.gz`.
 - Nachtrag: Beim Packen ändert sich die MB-Zahl im Listentext. Eine gewählte ältere Fahrt sprang dadurch auf die
   neueste zurück. `_refresh_sim_logs()` nimmt die Auswahl jetzt über Datum und Uhrzeit mit.
+
+## Pi: Mono-Quelle entfernt, apt-Updates, Kernel 6.12.115 (06.11.2026)
+
+- `apt update` meldete das Mono-Repo: kein arm64 und Schlüssel im alten `trusted.gpg`. Mono selbst kommt aus Debian
+  Bookworm und bleibt installiert. `mono-official-stable.list` und `/etc/apt/trusted.gpg` (einziger Schlüssel: Xamarin)
+  sind in SD-Basis und Overlay gelöscht.
+- 84 Updates + 6 neue Pakete nach dem Rezept vom 30.09. in die SD-Basis gespielt (`--force-confold`, 7,5 min, nichts
+  entfernt). In der Basis steht danach 0 offen. `initramfs8` und `kernel8.img` sind bitgleich zu 6.12.115, beide
+  initramfs enthalten overlayroot. Sicherung als `*.6.12.109` auf `/boot/firmware`.
+- Das Overlay zeigt bis zum Neustart weiter 84 offene Updates, seine `dpkg/status` weicht von der Basis ab.
+- `/media/root-ro` blieb danach `rw`, `remount,ro` scheitert mit EBUSY: Das python3 von `can_backend`/`dash_gui` hält
+  das ersetzte `/usr/bin/python3.11` offen (`lsof +L1`), ext4 lässt dann kein ro zu. Das erklärt vermutlich auch den
+  Fund vom 26.09. teilweise (dort kein Halter gefunden, aber ohne `+L1`). Der Neustart behebt es.
+- Stand beim Eintrag: Neustart steht aus, 6.12.115 ist noch nicht gebootet.
+
+## Handy-GPS per Bluetooth auf dem Pi: Phase 0 (06.11.2026)
+
+Konzept in [`plans/gps-bluetooth-plan.md`](../plans/gps-bluetooth-plan.md). OnePlus Nord CE5 mit GPS NMEA Tether (Bluetooth
+Classic SPP), der Pi baut die Verbindung auf. Noch kein Logger-Code, Messung mit Einmal-Skripten über Python-RFCOMM-Sockets.
+- Pairing vom Pi aus. Das `NoInputNoOutput`-Agent ließ sich neben dem Standard-Agent von `bluetoothctl` nicht registrieren,
+  der Pi fragt dann selbst nach dem Code. Ergebnis: authentifizierter Schlüssel (`Type=8`).
+- Der Schlüssel liegt erst nach dem Kopieren in die Basisschicht dauerhaft (`SETUP.md`, „Handy-GPS“); der Neustart-Test steht aus.
+- Der Dienst heißt „GPS NMEA Tether“. `sdptool browse` zeigt ihn nicht, weil er nicht in der öffentlichen Browse-Gruppe steht;
+  `sdptool search --bdaddr <mac> 0x1101` findet ihn.
+- **Ohne Fix keine Daten:** Die Verbindung steht, es kommt aber nichts (erste Versuche: 3 s Timeout, einmal Reset durch die App).
+- **Kanal wechselt:** Nach jeder Trennung lauscht die App auf neuer Nummer, gesehen 9, 10, 11, 13, 14, 15. Direkt nach einer Trennung
+  meldet SDP noch den alten Kanal, dort kommt `Connection reset`/`refused`. Danach ist der Dienst etwa 24 s weg, in Summe
+  rund 30 s bis zur nächsten Verbindung. Was am Ende des Bereichs (30) passiert, ist offen.
+- Messung stehend am Haus, Bildschirm aus, 60,8 s: 1460 Zeilen, alle Prüfsummen gültig, 1,48 kB/s. RMC 0,99/s mit 60 verschiedenen
+  Zeitstempeln, alle `.000`, Empfangsabstand Median 1000 ms, max 1219 ms. **Trotz App-Einstellung 5 Hz also 1 Hz.** Die Sätze
+  (GN-Talker, GSV mit Signalstärke) sehen nach Chip-Rohdaten aus; ob der Chip mehr kann, klärt das nicht.
+- Inhalt: GGA, RMC, VTG, GSA, GSV für GPS/GLONASS/Galileo/BeiDou, 16–21 genutzte Satelliten, HDOP ab 0,61, kein GST
+  (also keine Genauigkeit in Metern). Geoid-Abstand 44,7 m in GGA, bestätigt die nötige Höhenkorrektur gegenüber den GPX
+  („Altitudes = Raw“). Höhe anfangs 144,6 m, bei gutem Fix 59,8 m. Im Stand bleibt die Position völlig konstant.
+- `bbq.service` lief währenddessen und suchte alle 20 s nach dem ausgeschalteten Thermometer, ohne Wirkung auf die Daten.
+  Mit verbundenem Thermometer ist das noch nicht getestet.
+- Das Dash-Feld `GPS  -- (kein Empfaenger)` wird Teil von Phase 1, Zustände im Plan.
+- **Neustart-Test bestanden (12:36):** Pi nach 42 s erreichbar, jetzt Kernel 6.12.115, `/media/root-ro` wieder `ro`, `dpkg --audit` leer,
+  keine fehlgeschlagenen Units, `can_backend`/`dash_gui`/`bbq.service` laufen. Das Handy ist ohne neues Pairing gekoppelt, die Verbindung
+  steht nach 2 s (Kanal 16). 30,6 s: 778 Zeilen, alle Prüfsummen gültig, RMC 1,01/s, Empfangsabstand max 1195 ms, 19–26 Satelliten, HDOP ab 0,51.
+  Der App-Dienst überlebt den Neustart des Pi ohne Eingriff am Handy. Damit ist auch der Neustart aus dem Mono-Eintrag oben erledigt.
+
+## Handy-GPS per Bluetooth: Phase 1, Logger und Dash-Feld (06.11.2026)
+
+`gps_logger.py` als `gps-logger.service`, Rohdaten in `canlogs/gps-*.nmea`, Zustand über `/tmp/mx5_gps_status.json` im Dash-Feld
+(`gps_status()`). Noch nicht im Datalake, das ist Phase 2. Stand auf dem Pi: `ef8122e`.
+- **Fehler 1, gefunden im Standort-Test:** Bei ausgeschaltetem Standort sendet die App alle 5 s denselben Fix erneut, RMC-Status `A`,
+  GGA-Qualität 1 (siebenmal GPS-Zeit 12:29:34). Die erste Fassung wertete jede gültige Zeile als Lebenszeichen, das Feld sprang
+  zwischen grün und gelb. Jetzt ist nur ein GGA mit neuer GPS-Zeit frisch. Das Rohlog behält die Wiederholungen, **beim Einlesen in
+  Phase 2 müssen sie wegfallen.**
+- **Fehler 2, gefunden im Kanal-Test:** Der 1-s-Schreibtakt der Statusdatei lief gegen die 1-Hz-Daten, ein Schreibvorgang fiel
+  gelegentlich aus (Datei 1,93 s alt, Fix 3,008 s alt, Schwelle 3 s). Folge: kurzes „kein Fix“ im Dash, einmal im Standort-Test und zweimal
+  in 17 Minuten Kanal-Test. Jetzt wird nach jedem Paket geschrieben. Dauertest danach: 719 Proben in 3 min, kein Abfall von grün, Fix
+  höchstens 1,14 s alt, Datei höchstens 0,99 s.
+- **Trennungen, alle ohne Eingriff am Pi:** Bluetooth am Handy aus und an 30 s, App beendet und neu gestartet 25 s, `bluetoothctl disconnect`
+  42–44 s (Wartezeit `NO_SERVICE_RETRY_S` = 15 s). Kanal: 16 Runden von 13 bis 30, danach weiter bei 2. Nach einem Bluetooth-Neustart am
+  Handy fängt die Nummer auch tiefer an (17 auf 7). Das Kanal-Ende ist damit kein Risiko.
+- **Dash:** Grün, gelb `kein Fix`, gelb bei HDOP 7,8 und rot `keine Verbindung` auf dem echten Display per Screenshot gesehen, in der
+  Simulation. Die Fußzeile gibt es nur im Fahrt-Screen. Kosten: Datei lesen und parsen 75 µs bei 4 Hz, Logger 0,4 % CPU. Die Dash-Latenz
+  selbst ist nicht neu gemessen.
+- **Neustart:** Der Dienst startet aus der Basisschicht von selbst. Der erste Versuch fand 2 s nach dem Start keinen Dienst, 18 s später stand
+  die Verbindung. `/media/root-ro` blieb `ro`.
+- **Falle beim Einrichten:** Neue Dateien der Basisschicht sieht das laufende Overlay erst nach dem Neustart, also zusätzlich live installieren
+  (`SETUP.md`).
+- **Falle `pkill -f`:** Das Muster passt auch auf die eigene SSH-Befehlszeile und beendet die eigene Shell. `[p]ython3 ...` schreiben.
+- Offen für Phase 2: ganze Fahrt mit gesperrtem OnePlus, Qualität bei Bewegung, Einlesen, Abholen der `.nmea`, Parallelbetrieb mit
+  verbundenem Thermometer. Die drei `gps-2026-11-06_*.nmea` auf dem Stick sind Testdaten vom Stand am Haus.
+
+## Handy-GPS: Logger erkannte Funkabriss nicht, Dash blieb auf "kein Fix" (2026-11-06)
+
+**Beobachtung (Testfahrt):** Nach dem Aussteigen mit dem Handy und der Rückkehr zeigte das Dash im zweiten Log dauerhaft gelb
+`GPS  kein Fix`, die App aber einen Fix. Im Rohlog keine einzige Zeile mehr: letzte GPS-Zeile 14:59:31, 35 s nach dem Ende des
+ersten CAN-Logs (14:58:56), danach nichts bis zum Pi-Neustart um 15:09. Das Journal ist flüchtig und war damit weg.
+
+**Reproduziert (15:36–15:43):** CAN-Log endet 15:37:32, letzte GPS-Zeile 15:37:48, zweites CAN-Log 15:39:07–15:39:46. Zustand danach,
+Pi lief durch, Handy wieder in Reichweite:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Statusdatei | `connected: true`, Datei frisch, letzter Fix 224 s alt |
+| Journal | keine Meldung einer Trennung |
+| `hcitool con`, `bluetoothctl info` | keine Verbindung |
+| `/sys/kernel/debug/bluetooth/rfcomm` | Socket auf Kanal 16 in Zustand 9 (`BT_CLOSED`) |
+| `sdptool search` | App lauscht bereits auf Kanal 18 |
+| CPU des Loggers | 87,5 % (sonst rund 0,4 %) |
+| `strace` | `ppoll` → `revents=POLLHUP`, `recvfrom` → `EAGAIN`, in Schleife |
+
+**Ursache:** Bei einem Funkabriss schließt der Kernel den RFCOMM-Socket, ohne dass `recv()` einen Fehler oder ein Ende meldet. Pythons
+`recv()` mit Timeout wertet `EAGAIN` nach dem Poll als Fehlalarm, wiederholt bis zum Timeout und wirft `socket.timeout`. Für `read_session()`
+sah das aus wie „gerade keine Daten“, also wie der bekannte Fall ohne Fix. Der Logger hat nie neu verbunden. Dass das Handy dabei den
+Abriss selbst bemerkt und auf einen neuen Kanal gewechselt ist, zeigt der Kanal 18.
+
+Die Trennungen aus Phase 1 (Bluetooth aus, App-Neustart, `disconnect`) waren alle sauber und liefen über einen `recv()`-Fehler oder ein
+Ende. Der echte Abgang aus der Reichweite war nicht getestet.
+
+**Gegenprobe:** `systemctl restart gps-logger` um 15:43:13: verbunden auf Kanal 18 nach 1,5 s, Daten nach 2,2 s, 60 s später frischer Fix,
+CPU 0 %. Die App sendet nach so einem Abriss also normal weiter, der Fehler lag allein im Logger.
+
+**Fix:** `link_lost()` in `gps_logger.py` fragt nach jedem Empfangs-Timeout per `poll()` mit leerer Ereignismaske nach `POLLHUP`/`POLLERR`.
+Gepufferte Daten gehen nicht verloren, denn solange welche da sind, kommt kein Timeout. Ein Watchdog „30 s keine Daten → neu verbinden“ ist damit
+nicht nötig und bliebe auch beim Warten auf den Fix störend. Regressionstest mit echtem Deskriptor (`socketpair`), schlägt ohne Fix fehl.
+Am echten Funkabriss noch nicht geprüft.
+
+### Nachtrag: Fix `16e8cf4` am echten Funkabriss bestanden (2026-11-06)
+
+Mit dem Handy aus der Reichweite gegangen und zurück, Pi lief durch, kein Eingriff:
+
+| Zeit | Ereignis |
+|---|---|
+| 15:51:00 | letzte Daten |
+| 15:51:06 | `Funkverbindung verloren`, 5,6 s später, Status `connected: false`, kein Socket mehr im Kernel, CPU 0 % |
+| 15:52:13, 15:54:07, 15:56:00 | je `verbunden auf Kanal 21/22/23`, nach 6,5/6,3/5,5 s wieder verloren, keine Daten |
+| 15:56:44 | `verbunden auf Kanal 24`, Daten fließen, Fix frisch, bleibt stabil |
+
+Die drei kurzen Verbindungen lagen vor der Meldung „bin zurück“ (spätestens 15:56:30), die genaue Ankunftszeit fehlt. Der Fahrer hält für möglich, dass das Handy da nicht weit genug weg war. Vermutung: Rand der Reichweite, ein Verbindungsaufbau gelingt, danach reißt der Funkkontakt ab und die
+Verbindung fällt nach dem Supervision-Timeout (gut 5 s, passt zu den 5,6 s oben). Nicht belegt, der btmon-Mitschnitt begann erst nach 15:56:44. Sie kosten
+nichts: Es geht keine Zeile verloren, nur die Lücke selbst bleibt. Wiederkehr beim Pi unter 1 min. Noch offen: Verhalten während einer ganzen Fahrt.
+
+## Handy-GPS Phase 2: Abholen, Einlesen und Zuordnung der `.nmea` (2026-11-06)
+
+**Gebaut:** `sync_gps_logs_from_pi()` holt neue oder gewachsene `gps-*.nmea` (Größenvergleich, auch laufende Dateien, das Rohlog wird nur angehängt). `gps_logger.read_fixes()`
+liest das Rohlog: Prüfsumme, nur Status `A`, jede GPS-Zeit einmal, Knoten → km/h. `ingest_nmea()` schreibt dieselben vier Kanäle wie die GPX. `_find_matching_gpx()` nimmt
+weiter zuerst eine GPX, sonst das Rohlog mit den meisten Fixes in der Zeit des Logs (nicht die Überlappung, das Handy kann mitten im Rohlog lange weg sein). In
+`can_gps_pairs.json` steht dann der `.nmea`-Name, die Dateiendung entscheidet in `_build_can_target()` über den Leser.
+
+**Geprüft am echten Pi, in einem Testordner:** Lauf 1 holt 8 Dateien, Lauf 2 keine. `candump-2026-11-06_145524` → `gps-2026-11-06_145515.nmea`, `_150333` → keine Zuordnung (dort keine
+Fixes, das Rohlog endet 14:59:31). Im Rohlog `_125837` fallen 7 von 2.322 RMC als Wiederholung oder ungültig weg. Der echte Datalake und `data/can/` sind noch nicht berührt.
+
+**Höhe:** GPX ist tatsächlich auf das Ellipsoid bezogen. An denselben Orten (30-m-Raster, 15.035 GPX-Punkte aus 9 Tracks) liegt die GPX im Median 49,1 m über der GGA-Höhe, der
+Geoid-Abstand beträgt 44,7 m. Die Tracks streuen von 41 bis 58 m. `read_fixes()` liefert deshalb GGA-Höhe + Geoid-Abstand.
+
+**GPX als Referenz fehlt:** Neueste GPX im Drive vom 04.10., 38 CAN-Logs seither ohne GPS. Für die `.nmea` gibt es derzeit also keinen GPX-Vergleich.
+
+**Zeit, gegen `VehicleSpeed` im einzigen Fahrtstück (`_145524`, 212 s, bis 42 km/h, Stadtverkehr):**
+
+| Messung | Ergebnis |
+|---|---|
+| Empfang minus GPS-Zeit, Pi mit NTP (7 Rohlogs) | Median +0,19 bis +0,31 s, das ist die Bluetooth-Latenz |
+| Empfang minus GPS-Zeit, Testfahrt auf RTC | Median −0,29 s, die Pi-Uhr ging also rund 0,5 s nach |
+| Bester Versatz RMC-Tempo gegen CAN | −4,25 bis −4,75 s, r 0,962 (ohne Versatz 0,923), Minimum flach |
+| Bester Versatz Positionstempo gegen CAN | −2,75 bis −3,25 s, r 0,954 (ohne Versatz 0,916) |
+| Anhalten (10-km/h-Kante) | CAN 192,1 s, Position 193,3 s, RMC 194,8 s |
+| Anfahren (10-km/h-Kante) | CAN 42,1 s, Position 44,3 s, RMC 53,8 s |
+
+Das RMC-Tempo läuft also dem Positionstempo nach und bleibt beim Anfahren lange zu niedrig, vermutlich ein Filter und eine Totzone im Handy. Der Grund für den Rest des Versatzes ist offen.
+Bewusst nicht korrigiert: Zeitachse bleibt die GPS-Zeit. Für Versätze je Log gibt es `can_clock_offsets.json`. Der Verlauf passt, aber das Stück taugt nicht für die 2,9 %: CAN/GPS bei
+bestem Versatz 1,05, in diesem Tempo und mit dieser Dauer nicht aussagekräftig. Offen bis zur Fahrt am 09.11.
+
+
+## Handy-GPS: drei Fahrten am 07.11., Handy-Lage entscheidet, 2,9 % bestätigt (2026-11-07)
+
+Drei längere Fahrten, zusammen 104 min, bis 181 km/h. Das ersetzt die für den 09.11. geplante Prüfung. Handy in der Mittelkonsole, in der
+dritten Fahrt um 13:09:04 aufs Armaturenbrett hinter das Mazda-Display gelegt (nach oben nur die Frontscheibe). Das ergibt einen direkten
+Vergleich in derselben Fahrt. Journal nur vom letzten Boot erhalten: `data/pi-journal/journal-boot-2026-11-07_125703.txt`.
+
+**Bluetooth hielt durch.** Je Fahrt ein Rohlog, längste Empfangslücke 10,4 s, eine Wiederverbindung bräuchte 25–45 s. Der Dienst verband beim
+Boot nach 3 s. Das Journal der dritten Fahrt zeigt nur das Ende um 13:39:20 (`Connection reset by peer`, nach dem Fahrtende um 13:39:01).
+
+| Dritte Fahrt | Konsole (703 s) | Armaturenbrett (1816 s) |
+|---|---|---|
+| Fixe je Sekunde | 94,6 % | 100,0 % |
+| Satelliten (Median) | 9 | 31 |
+| HDOP (Median), Anteil über 2 | 1,42, 26,7 % | 0,50, 0,0 % |
+| RMC-Tempo gegen `0x202`: bester Versatz, r | −3,25 s, 0,930 | −0,5 s, 0,9997 |
+| Sprünge im Positionstempo über 30 km/h | 3 | 4, alle in den ersten 4 s nach dem Umlegen |
+
+Die Fahrten 1 und 2 (Konsole) hatten Ausfälle bis 55 s und 37 s, Abdeckung 93,0 und 97,5 %, Versatz je −1,75 s. Das lange Nachlaufen des
+RMC-Tempos vom 06.11. ist also vor allem Empfang, kein festes Verhalten des Handys. Die Lage am 06.11. ist nicht festgehalten.
+
+**Versatz:** Die −0,5 s auf dem Armaturenbrett erklärt schon die Pi-Uhr. Empfang minus GPS-Zeit lag dort bei −0,26 s, bei rund +0,25 s Bluetooth-Latenz
+geht die Uhr also rund 0,5 s nach. Mit gutem Empfang läuft das RMC-Tempo dem CAN-Tempo innerhalb der Auflösung von 0,25 s nicht nach, auch
+bei 100–180 km/h. Der Uhrversatz ist je Boot anders und in der Fahrt fast fest: Empfang minus GPS −0,12 / −0,39 / −0,26 s. Vermutung, nicht
+geprüft: Die RTC liefert beim Boot nur ganze Sekunden. Nicht korrigiert, 0,5 s sind bei 180 km/h 25 m.
+
+**2,9 % bestätigt.** `0x202` gegen RMC, nur Armaturenbrett, stationäre Stücke (±3 s unter 2 km/h Änderung, über 20 km/h), n = 332:
+
+| km/h (GPS) | n | CAN/GPS (Median) | CAN − GPS |
+|---|---|---|---|
+| 20–50 | 66 | 1,0324 | +1,2 km/h |
+| 50–80 | 164 | 1,0318 | +1,8 km/h |
+| 110–140 | 43 | 1,0285 | +3,4 km/h |
+| 140–200 | 57 | 1,0252 | +3,7 km/h |
+| alle | 332 | 1,0286 | |
+
+Das passt zu den alten 2,9 % (GPS/VS 0,971, also 1,030, 70 dlg-Logs). Bemerkenswert: Die alten Logs fuhren auf den NS-R2. Der Winterreifen ist nominell
+0,9 % größer (205/40 R17 596 mm, 195/50 R16 601 mm), bei einem radbasierten Signal wären also rund 2,0 % zu erwarten. Gemessen ist das nicht. Offen: echter Abrollumfang,
+und ob die leichte Abnahme mit dem Tempo real ist. Eine Fahrt, ein Tag, 80–110 km/h fehlt im guten Teil.
+
+**Schwache Fixe:** Status „gültig“ gibt es auch bei 3 Satelliten und HDOP 21 oder 99,99, die App schickt dann alle 5 s den alten Fix und danach
+gesammelt die Sätze ohne Fix (Status V, `read_fixes()` verwirft sie). Ein HDOP-Filter hilft nicht: Von 38 Sprüngen über 30 km/h im
+Positionstempo entfernt eine Schwelle von 5 nur 3 (bei 3,7 % weniger Fixen). Deshalb kein Filter gebaut. Die Dash-Schwelle 2,0 bleibt: Gerechnet aus den Rohlogs wäre sie in der Konsole 7–31 % der Zeit gelb gewesen, auf dem
+Armaturenbrett nie, sie warnt also genau bei schlechter Lage.
+
+**Korrektur Messung 06.11.:** `read_decoded(signals=["VehicleSpeed"])` liefert `0x202` und den Tachowert `0x25E` gemischt (derselbe Signalname), mein
+Prüfskript hat beide durcheinander interpoliert. Neu nur mit `0x202`: RMC −4,0 bis −4,5 s (statt −4,25 bis −4,75), r 0,962 wie gehabt, Positionstempo unverändert,
+CAN/GPS 1,056 statt 1,05. Am Befund ändert das nichts. `build_datalake.py` trennt beide korrekt.
+
+**Bug behoben:** Das erste Log bekam keine Zuordnung. Es endet nach dem Stromverlust mit 2,7 MB Nullbytes,
+`_can_log_span()` las nur die letzten 4 KB und kam auf 0 s Dauer. Jetzt nutzt es `_can_log_duration_s()` aus `build_datalake.py`, das die Nullbytes überspringt (die
+doppelte Logik entfällt, Test ergänzt, schlug ohne Fix fehl). Danach von Hand `pair_late_gpx()` und `build_datalake.py`. Nur dieses eine Log war betroffen. Im Datalake
+jetzt alle drei mit 2114 / 1406 / 2450 Fixen im CAN-Zeitraum, Höhe im Median 71–77 m. Nebenbei: Der erste Lauf wurde auf Wunsch abgebrochen, `pending_can_logs.json` hat
+den zweiten sauber aufsetzen lassen.
