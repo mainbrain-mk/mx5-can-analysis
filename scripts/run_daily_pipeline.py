@@ -32,6 +32,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+import can_backend
 import can_log_parser
 from build_datalake import KNOWN_CAN_LOG_DUPLICATES, _can_log_duration_s
 from datalake_channels import log_key
@@ -57,12 +58,11 @@ LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
 DRIVER_MASS_KG = 86.0
 EMPTY_MASS_KG = 1073.0
-# Tankinhalt aus CAN Fuel_Tank (0x09E): Kennlinie aus dem Tank 16.->26.09. (Voll-bis-Voll +
-# CAN-Kraftstoffzaehler, docs/logs/can-bus-status.md "Kraftstoff absolut"): Liter = 3,0 + 1,10 * roh
-# (voll = 45 l laut Mazda). Bis 02.10. kam der Tank aus dem FLI-Kanal der Handy-.dlg - den fragt das
-# Handy seit 26.09. nicht mehr ab, CAN-only-Fahrten bekamen gar keine Masse.
-FUEL_L_AT_RAW0 = 3.0
-FUEL_L_PER_RAW = 1.10
+# Tankinhalt fuer die Masse seit 07.11.: dieselbe gemessene Benzinmenge wie im Dash (can_backend.FuelEstimator:
+# Volltanken = 45 l minus Kraftstoffzaehler 0x420), je Log aus dem Tankbuch des Pi. Der Geber Fuel_Tank (0x09E)
+# bleibt Ersatz fuer Logs ohne Eintrag: er ist bis 42,8 l gesaettigt und schwappt.
+FUEL_LEDGER_NAME = os.path.basename(can_backend.FUEL_LEDGER_PATH)
+FUEL_LEDGER_PATH = os.path.join(CAN_DIR, FUEL_LEDGER_NAME)
 DATALAKE_PATH = "data/datalake.duckdb"
 FUEL_DENSITY_KG_L = 0.745
 # Beifahrer-Zusatzmasse (2026-09-20, siehe DBC-Kommentar bei BO_832
@@ -70,6 +70,15 @@ FUEL_DENSITY_KG_L = 0.745
 # belegten Zeitanteil der Fahrt aufaddiert, nicht binaer - siehe compute_mass().
 # 75 kg sind gewogen, nicht geschaetzt (Nutzerangabe 2026-09-26).
 PASSENGER_MASS_KG = 75.0
+PIPELINE_STEPS = 12
+
+
+def progress(message):
+    print(f"[{datetime.now():%H:%M:%S}] {message}", flush=True)  # flush: stdout geht oft in eine Datei
+
+
+def step(number, message):
+    progress(f"Schritt {number}/{PIPELINE_STEPS}: {message}")
 
 
 def run_script(args, errors, timeout=1800):
@@ -91,6 +100,7 @@ def run_script(args, errors, timeout=1800):
     grossen wachsen mit jedem neuen Log weiter. 600s waeren schon in
     wenigen Wochen wieder zu knapp gewesen."""
     label = " ".join(args)
+    progress("  " + (" ".join(args[1:]) if len(args) <= 4 else f"{args[1]} ({len(args) - 2} Logs)"))
     try:
         res = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     except Exception as e:
@@ -570,6 +580,7 @@ def fix_clock_jump(log_id, errors):
 
 def _scp_from_pi(fname, errors):
     """Kopiert eine Datei aus canlogs/ nach data/can/. False bei Fehler (in errors vermerkt)."""
+    progress(f"  vom Pi: {fname}")
     try:
         # Lange Fahrten (04./10.10.: bis 1,6 h, ungepackt ~600 MB+) brauchen per WLAN mehrere
         # Minuten - abbrechen nur bei toter Verbindung (ServerAlive), nicht nach fester Dauer.
@@ -649,6 +660,9 @@ def sync_can_logs_from_pi(errors):
     if res.returncode != 0:
         errors.append(("ssh find (Pi CAN-Logs)", f"exit code {res.returncode}: {res.stderr[-300:]}"))
         return []
+
+    # nach dem find: enthaelt damit jedes unten gefundene (fertige) Log, auch fuer compute_mass()
+    _scp_from_pi(FUEL_LEDGER_NAME, errors)
 
     # nur fertige Dateien: .log.gz.tmp (Kompression von session_logger.py lief bzw.
     # wurde per Stromausfall abgebrochen, 27.09.) wuerde sonst als Log behandelt
@@ -748,21 +762,50 @@ def find_new_logs():
     return sorted(raw - processed)
 
 
-def compute_mass(can_log_id):
-    """Masse einer CAN-Fahrt: Leergewicht + Fahrer + Tank (Median von FuelTank_CAN_raw im Datalake,
-    ohne die 0-Initwerte - der Geber schwappt um +-3 roh) + Beifahrer anteilig nach Belegungszeit
-    (0x340). None, falls das Log keinen Tankwert hat. Braucht den frisch gebauten Datalake."""
+def _fuel_ledger_mean_liters(log_id):
+    """Mittel aus Start- und Endstand des Logs laut Tankbuch, None ohne Eintrag. Ende aus derselben
+    Quelle (live/nachberechnet) wie der Start, ohne Ende-Eintrag (Strom weg) nur der Start.
+    ponytail: ein per Uhrkorrektur umbenanntes Log steht im Tankbuch unter dem alten Namen und
+    faellt auf den Geber zurueck (bisher kein Fall, 2-3 kg Fehler); Namen nachziehen, falls das haeufig wird."""
+    start = can_backend.fuel_ledger_start(log_id, FUEL_LEDGER_PATH)
+    if start is None:
+        return None
+    end = start["liters"]
+    with open(FUEL_LEDGER_PATH, encoding="utf-8") as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue  # halbe Zeile nach Stromausfall
+            if (e.get("log"), e.get("event"), e.get("source")) == (log_id, "end", start.get("source")):
+                end = e.get("liters", end)
+    return (start["liters"] + end) / 2
+
+
+def _fuel_sensor_median_raw(log_id):
+    """Median von FuelTank_CAN_raw im Datalake, ohne die 0-Initwerte (der Geber schwappt um +-3 roh)."""
     con = duckdb.connect(DATALAKE_PATH, read_only=True)
     try:
-        raw = con.execute("SELECT median(value) FROM measurements WHERE log_key = ? AND log_id = ? "
-                          "AND channel = 'FuelTank_CAN_raw' AND value > 0", [log_key(can_log_id), can_log_id]).fetchone()[0]
+        return con.execute("SELECT median(value) FROM measurements WHERE log_key = ? AND log_id = ? "
+                           "AND channel = 'FuelTank_CAN_raw' AND value > 0", [log_key(log_id), log_id]).fetchone()[0]
     finally:
         con.close()
-    if raw is None:
-        return None
-    fuel_l = FUEL_L_AT_RAW0 + FUEL_L_PER_RAW * raw
+
+
+def compute_mass(can_log_id):
+    """Masse einer CAN-Fahrt: Leergewicht + Fahrer + Tank (gemessene Benzinmenge wie im Dash, ersatzweise
+    Geber) + Beifahrer anteilig nach Belegungszeit (0x340). None, falls das Log keinen Tankwert hat.
+    Braucht den frisch gebauten Datalake."""
+    fuel_l = _fuel_ledger_mean_liters(can_log_id)
+    if fuel_l is not None:
+        note = f"Tank ~{fuel_l:.1f} l (Tankbuch, Mittel Start/Ende)"
+    else:
+        raw = _fuel_sensor_median_raw(can_log_id)
+        if raw is None:
+            return None
+        fuel_l = can_backend.fuel_sensor_liters(raw)
+        note = f"Tank ~{fuel_l:.1f} l (kein Tankbuch-Eintrag, CAN Fuel_Tank Median {raw:.1f} roh)"
     mass_kg = EMPTY_MASS_KG + DRIVER_MASS_KG + fuel_l * FUEL_DENSITY_KG_L
-    note = f"Tank ~{fuel_l:.1f} l (CAN Fuel_Tank Median {raw:.1f} roh)"
 
     occupied_s, total_s = can_log_parser.passenger_occupied_seconds(os.path.join(CAN_DIR, f"{can_log_id}.log"))
     if total_s > 0:
@@ -817,12 +860,16 @@ def notify(message):
 def main():
     errors = []
 
+    step(1, "Google Drive: neue .dlg/.gpx laden")
     downloaded = rclone_sync_new_logs(errors)
     new_gpx = rclone_sync_new_logs(errors, ".gpx", CAN_DIR)
+    step(2, "Pi: GPS-Rohlogs holen")
     new_gps_logs = sync_gps_logs_from_pi(errors)
     late_pairs = pair_late_gpx() if new_gpx or new_gps_logs else {}  # vor dem Pi-Sync: neue CAN-Logs paart der selbst
     new_logs = find_new_logs()
+    step(3, "Pi: Tankbuch und CAN-Logs holen, dekodieren")
     new_can_logs = sync_can_logs_from_pi(errors)
+    step(4, "CAN-Logs: Uhrzeiten pruefen")
     new_can_logs, clock_fixes = fix_can_log_clocks(new_can_logs, errors)
     new_can_logs = _merge_pending_can_logs(new_can_logs)
 
@@ -847,7 +894,7 @@ def main():
     if new_can_logs:
         print(f"{len(new_can_logs)} neue(s) CAN-Log(s) vom Raspberry Pi geladen: {new_can_logs}")
 
-
+    step(5, "Handy-Logs: Vibration, Bremsen, Kurven" if new_logs else "Handy-Logs: keine neuen")
     for log_id in new_logs:
         run_script([PYTHON, "scripts/vibration_analysis.py", f"{log_id}.dlg"], errors)
 
@@ -855,10 +902,13 @@ def main():
         run_script([PYTHON, "scripts/brake_event_analysis.py", *new_logs], errors)
         run_script([PYTHON, "scripts/corner_event_analysis.py", *new_logs], errors)
 
+    step(6, "Datalake bauen")
     if new_logs or new_can_logs:
         run_script([PYTHON, "scripts/build_datalake.py"], errors)
+    step(7, "Fahrzeugmasse je CAN-Log berechnen")
     masses = update_mass_overrides(new_can_logs, errors)
 
+    step(8, "Schaltzeiten, Zugkraftluecken, Kupplung, Kraftkreis" if new_can_logs else "Schaltanalysen: keine neuen CAN-Logs")
     previous_shift_best = load_json("shift_time_best.json") or {}
     if new_can_logs:
         run_script([PYTHON, "scripts/shift_time_analysis.py"], errors)
@@ -872,6 +922,7 @@ def main():
         run_script([PYTHON, "scripts/can_traction_circle.py"], errors)
     current_shift_best = load_json("shift_time_best.json") or {}
 
+    step(9, "CAN-Logs: Kurven, Bremsen, Vibration" if new_can_logs else "CAN-Einzelanalysen: keine neuen CAN-Logs")
     previous_corner_peak_best = load_json("corner_peak_best.json") or {}
     if new_can_logs:
         for log_id in new_can_logs:
@@ -885,6 +936,7 @@ def main():
     # Modellpruefungen laufen fuer CAN- UND Handy-Logs (02.10.: vorher nur bei neuer .dlg - seit 27.09.
     # kommt keine mehr, CAN-Fahrten blieben ungeprueft). Kanaele loest datalake_channels.py auf.
     analysis_logs = sorted(new_logs + new_can_logs)
+    step(10, "Modellpruefungen: Teillast, Antrieb, Hoechstgeschwindigkeit, Hoehendaten")
     # Die Skripte cachen ihr Ergebnis je Log (per_log_cache.py) - neu gerechnet werden nur neue/
     # geaenderte Logs, die Zusammenfassung ueber alle Logs ist billig (02.10.: vorher 43 min je Lauf).
     if analysis_logs:
@@ -893,6 +945,7 @@ def main():
         run_script([PYTHON, "scripts/top_speed_validation.py"], errors)
         run_script([PYTHON, "scripts/check_dgm_coverage_gaps.py"], errors)
 
+    step(11, "Ausrollen und Lenkmodell")
     previous_coastdown = load_json("coastdown_analysis_summary.json") or []
     if analysis_logs:
         run_script([PYTHON, "scripts/coastdown_analysis.py", *analysis_logs], errors)
@@ -912,6 +965,7 @@ def main():
                 run_script([PYTHON, "scripts/steering_lateral_model.py", *analysis_logs], errors)
                 steering_ran = True
 
+    step(12, "Befunde pruefen, Report schreiben")
     # --- Kernzahlen fuer den Report zusammenstellen ---
     vibration = {}
     for log_id in new_logs:

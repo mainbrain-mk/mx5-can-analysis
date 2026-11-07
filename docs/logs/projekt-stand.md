@@ -6956,3 +6956,27 @@ Der Dichtegang ist damit weg. Vergleich der Reifensätze im selben Filter: NS-R2
 **Grenzen:** Der Exponent ist weit offen, kalte Abschnitte sind wenige, Ansaugluft misst auch Motorraumwärme, Luftfeuchte fehlt. Vor der nächsten Pipeline ändern sich die Abhängigkeiten in `MODEL_CACHE_DEPS` und einige Massen, der nächste Lauf rechnet die Modellskripte also einmal vollständig neu (zuletzt rund 40 min). Bisher neu gerechnet ist nur die Volllastprüfung.
 
 **Nachtrag, gleicher Tag:** Der Nutzer hat entschieden: `drivetrain_ratio` prüft nur noch die Gänge 2–5 (`DRIVETRAIN_RATIO_GEARS`). Die Zeile im Tagesbericht nutzt dieselbe Funktion `drivetrain_ratios()`, damit Warnung und Bericht denselben Median zeigen. Der Bericht-Median ist dadurch nicht mehr direkt mit früheren Berichten vergleichbar, die alle Gänge enthielten. Gang 6 fällt damit aus der Überwachung, sein Verhältnis von rund 1,14 steht weiter in der Gesamtstatistik von `drivetrain_model_validation.py`.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-07)
+
+- `candump-2026-11-07_151339`, Masse=1255.4kg (Tank ~28.7 l (CAN Fuel_Tank Median 23.4 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_153314`, Masse=1256.9kg (Tank ~30.7 l (CAN Fuel_Tank Median 25.2 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Masse aus der gemessenen Benzinmenge, Pipeline zeigt ihren Schritt (2026-11-07)
+
+Nutzerwunsch: dieselbe Tankberechnung wie im Dash, und sichtbar machen, wo die Pipeline gerade steht.
+
+**Masse:** `compute_mass()` nimmt den Tank jetzt aus dem Tankbuch (`canlogs/fuel_ledger.jsonl`, geschrieben vom `FuelEstimator`, also 45 l nach dem Volltanken minus Kraftstoffzähler 0x420): Mittel aus Start- und Endstand des Logs. Die Pipeline holt das Tankbuch bei jedem Lauf nach `data/can/fuel_ledger.jsonl`. Ohne Eintrag (Log per Uhrkorrektur umbenannt, Backend lief nicht) rechnet sie wie bisher aus dem Median von `FuelTank_CAN_raw`; die Notiz am Log nennt die Quelle.
+
+Vergleich an den 118 CAN-Logs mit Geber-Masse: Tankbuch minus Geber im Median +0,7 l, Spanne −4,5 bis +4,9 l, also höchstens rund 3,7 kg. Beispiele: `candump-2026-10-26_080634` 1166,3 → 1170,0 kg, `candump-2026-11-07_151339` 1255,4 → 1256,9 kg.
+
+Gilt nur für neue Logs. Die vorhandenen Einträge in `data/log_mass_overrides.json` sind unverändert, weil neue Massen die Ergebnis-Caches dieser Logs ungültig machen und die Modellskripte sie neu rechnen.
+
+**Fortschritt:** `run_daily_pipeline.py` druckt `[HH:MM:SS] Schritt n/12: …` und darunter jedes Unterskript und jede Datei vom Pi, sofort geschrieben (auch bei Umleitung in eine Datei).
+
+**Nachtrag, vorhandene Logs umgestellt (Nutzerentscheid 07.11.):** Bei allen 118 CAN-Logs in `data/log_mass_overrides.json` wurde der Tankanteil auf das Tankbuch umgestellt, der Beifahreranteil blieb. Masse im Median +0,5 kg, Spanne −3,3 bis +3,6 kg. Die 54 Einträge der Handy-Logs (FLI) sind unverändert. Sicherung: `data/log_mass_overrides.backup-2026-11-07-geber.json`.
+
+Volllastprüfung und Vmax-Prüfung neu gerechnet (616 bzw. 150 Segmente, Anzahl gleich). Gemessen/Modell (korrigiert) in den Gängen 2–5 im Median 0,9969 → 0,9962, je Gang höchstens 0,0004 Unterschied. Die Massenumstellung ändert also keine Modellaussage. Die Ausrollauswertung ist nicht betroffen, ihre 14 Ereignisse stammen alle aus Handy-Logs.
