@@ -7210,3 +7210,19 @@ Vorher/nachher, Editor-Ausgangslinie Winter: 109,68 → **109,36 s**, 31 → **1
 Zerlegung neu auf der alternierenden Linie (gleiche Schrittfolge wie oben): Literatur 98,37 s, wahres Tempo +0,44 s, Schaltlücken +0,27 s, Quergrenze +7,68 s, Antriebsgrenze +0,71 s, Bremse +1,14 s, zusammen 108,61 s. NS-R2 107,82 s, mit Quer-μ 1,0 und 1,3 sonst Log-Modell 100,65 und 92,39 s. Schaltlücken ATTACK 108,43 s, Median unter Last 108,80 s: Mit dem Plan macht die Schaltzeit nur noch rund 0,4 s aus.
 
 Offen: Ausgangslinie im Editor 109,36 s gegen 108,61 s für die neu gerasterte Linie (Randabstand, Lenkraten-Bereinigung, Raster; nicht zerlegt). Keine Prüfung gegen eine echte Runde, das Fahrermodell ist ein Bestfall mit zügigen, aber in den Logs belegten Schaltlücken.
+
+### Korrektur: NS-R2-Quergrenze 0,911 g, Winterreifen raus aus der Streckensimulation (2026-11-07)
+
+Nutzerhinweis: Die NS-R2-Werte in den Logs waren die Haftabrissgrenze, und die lag deutlich über 0,82 g. Zutreffend: Das Kriterium „1 s gehalten“ misst Dauerlast. Am Abriss bricht die Querbeschleunigung zusammen, sie lässt sich nicht eine Sekunde halten.
+
+Nachgeprüft:
+
+- Die stärksten NS-R2-Kurven laut Kurvenauswertung (bis 1,15 g) sind einzelne 100-Hz-Werte. Kurvenauswertung und `corner_peak_best.json` führen dabei noch die alten Namen der am 26.09. umbenannten Logs (`candump-2026-09-20_002313` = `…26_130440`, `004532` = `…26_135855`, `010853` = `…26_142216`, `020042` = `…26_154000`), für die neuen Namen fehlt die Kurvenauswertung. Nicht behoben.
+- Rohsignal je Ereignis ab 0,9 g Spitze (15 Kurven): über 0,2 s gemittelt 0,67–0,94 g, über 0,5 s 0,60–0,91 g. Höchster Wert 15.09. (`171047`, t = 1880 s, 117 km/h): 0,94 / 0,91 / 0,89 g für 0,2/0,5/1 s, Gierrate·v 0,98 g, kein Eingriff, Gierrate passt zum Lenkwinkel (Haften). 01.10. t = 94,6 s: Leistungsübersteuern (Gierrate 19 Grad/s über dem Lenkmodell, APP 90 %, DSC und TCS aktiv) bei 0,87 g (0,2 s). Weitere TCS-/DSC-Ereignisse am Kurvenausgang unter Gas bei 0,82–0,92 g (0,2 s): kombinierte Grenze der Hinterachse.
+- Handy-Logs: Die Gyro-Werte widersprechen dem GPS-Kurs (A111 27.08.: Gyro im Mittel 0,85 g über 7 s, früher 1,21 g über 4 s; GPS-Kursrate·v 0,54 g. 26.08. `154244`: Gyro 1,02 g, GPS 0,62 g). Der Halter-Fehler ist bekannt, die Handy-Werte gehen deshalb nicht ein. Der ESP-Fall 09.09. (`170146`, 1,14/1,02 g) stammt ebenfalls aus dem Handy-Gyro.
+
+**Neu:** Quergrenze = höchstes 0,5-s-Mittel des CAN-Sensors über alle NS-R2-Logs: **0,911 g** (bisher 0,819 g). Ellipse: 0,027 % der Punkte außerhalb, TCS-Eingriffe Ellipsenwert p50 0,52, p90 0,95. Bremsen bleibt `BRAKE_CAP_G` im wahren Rahmen (0,740 g); das Plateau 0,81 g über 1,5 s am 01.10. (ABS) passt nicht zur Regel „Mittel des Ereignisses“, unverändert gelassen.
+
+**Fehler von mir, behoben:** Ich hatte „Winter“ zum Standard-Fahrzeugmodell gemacht und Winter-Rundenzeiten gerechnet, entgegen der Nutzerregel vom 01.10. (keine Rundenzeit-, Ideallinien- oder Grip-Rechnungen mit den Winterreifen, im Logbuch und im Reifen-Memory). `mx5_vehicle_model.py` rechnet nur noch NS-R2, Editor und Skripte bieten Winter nicht mehr an. Die Winter-Zahlen der Abschnitte oben sind ungültig. Die Schaltlücken kommen weiter aus allen Logs (fahrerabhängig, so in der Regel vorgesehen).
+
+**Ergebnis NS-R2:** alternierende Linie 103,71 s (Winter-Stand vorher 108,61 s, NS-R2 mit 0,82 g 107,82 s), Kurven nacheinander 104,85 s, Mittellinie (Einfach-Löser) 112,24 s, Editor-Ausgangslinie 104,39 s (Literatur 99,11 s), 11 Schaltungen, höchstens 7484 U/min, Querbeschleunigung höchstens 0,911 g. Zerlegung: Literatur μ=1,0 98,34 s; wahres Tempo +0,47, Schaltlücken +0,29, Quergrenze +3,37, Antrieb +0,56, Bremse +0,69 s. Empfindlichkeit Quer-μ 1,0 / 1,1 / 1,3 (Rest aus Logs): 100,62 / 97,48 / 92,42 s.

@@ -73,19 +73,19 @@ die streckenbezogenen Themen.
   bis zur Markierung vor dem Zelt, 7,2–8,3 m in den Abschnitten an der Mauer, sonst rund 5–5,8 m. Nicht gegen eine eigene Fahrt geprüft. Logbuch: „Spreewaldring:
   Streckenmodell aus Orthofoto und DGM“.
 - **Fahrzeugmodell aus den Logs in der Streckensimulation (07.11.2026, `scripts/mx5_vehicle_model.py`,
-  `results/mx5_vehicle_model.json`):** Grip-Ellipse je Reifensatz (1 s gehalten statt Einzelspitzen von 1,15 g): Winter
-  quer 0,81 g, bremsen 0,65 g (ohne ABS-Eingriff, Untergrenze); NS-R2 quer 0,82 g, bremsen 0,74 g (ABS); Reifengrenze
-  Antrieb 0,57 g. Zugkraftlücken aus den Logs 0,30/0,30/0,45/0,60/0,40 s statt ATTACK 0,15–0,25 s. Wahres Tempo:
-  Fahrzeugmodell in `VehicleSpeed`, Strecke in echten Metern, v und a werden umgerechnet (0,971 / 0,972), die Parameter
-  bleiben (offener Punkt 9 in `performance-model.md`). Rundenzeit auf der alternierenden Linie: **Winter 108,61 s,
-  NS-R2 107,82 s** statt Literatur μ=1,0 98,37 s; davon Quergrenze +7,7 s, Bremse +1,1 s, Antriebsgrenze +0,7 s,
-  wahres Tempo +0,4 s, Schaltlücken +0,3 s. Alltagsfahrten: Der Grip ist eine Untergrenze, kein Reifenlimit, er ist die
-  größte Unbekannte der Rundenzeit (NS-R2 mit Quer-μ 1,0: 100,7 s, 1,3: 92,4 s). Grenzen im Logbuch, das Skript läuft
-  nicht in der Tagespipeline. Steigung und Querneigung gehen weiter nicht ein. Editor-Ausgangslinie seit 07.11. die
-  alternierende Linie: Winter 109,36 s, NS-R2 108,22 s, Literatur 99,14 s. **Gangplan für die ganze Runde
-  (`plan_gears`, 07.11.):** wägt jede Schaltung gegen ihre Lücke ab, in Bremszonen kostet Schalten nichts; Winter 12
-  statt 31 Schaltungen, kein 1. Gang mehr auf der Ausgangslinie, höchstens 7500 U/min. Die Anzeige zeigt jetzt den
-  gerechneten Gang. Offen: In Kehren wird noch an einer engen V-Linie optimiert (R 9,3 m), das Modell kennt keine Übergänge.
+  `results/mx5_vehicle_model.json`), nur NS-R2:** Winterreifen sind laut Nutzer ausdrücklich ausgenommen (keine
+  Rundenzeit-, Ideallinien- oder Grip-Rechnungen, Regel vom 01.10.). Grip-Ellipse: quer **0,911 g** (höchstes
+  0,5-s-Mittel des CAN-Sensors, 15.09. bei 115 km/h; am Haftabriss bricht die Querbeschleunigung ein, deshalb kein
+  „gehalten“), bremsen 0,74 g (`BRAKE_CAP_G`, ABS), Antrieb 0,57 g (Traktionsgrenze). Zugkraftlücken aus den Logs
+  0,30/0,30/0,45/0,60/0,40 s statt ATTACK 0,15–0,25 s. Wahres Tempo: Fahrzeugmodell in `VehicleSpeed`, Strecke in
+  Metern, v und a werden mit 0,971 umgerechnet, die Parameter bleiben (offener Punkt 9 in `performance-model.md`).
+  Rundenzeit auf der alternierenden Linie **103,71 s** statt Literatur μ=1,0 98,34 s; davon Quergrenze +3,4 s, Bremse
+  +0,7 s, Antrieb +0,6 s, wahres Tempo +0,5 s, Schaltlücken +0,3 s. Mit Quer-μ 1,0/1,1/1,3 sonst gleich: 100,6/97,5/92,4 s.
+  Gemessen ist die höchste erreichte Grenze, keine gezielte Grenzfahrt. Das Skript läuft nicht in der Tagespipeline.
+  Steigung und Querneigung gehen nicht ein. Editor-Ausgangslinie (alternierende Linie): NS-R2 104,39 s, Literatur
+  99,11 s. **Gangplan für die ganze Runde (`plan_gears`):** wägt jede Schaltung gegen ihre Lücke ab, in Bremszonen
+  kostet Schalten nichts; 11 Schaltungen, höchstens 7500 U/min, die Anzeige zeigt den gerechneten Gang. Offen: In
+  Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge.
 - **Rundenzeiten auf der Mittellinie des Modells (07.11.2026, gleiche Physik, alte Linie → neu):** μ=1,0 107,21 → 102,81 s,
   μ=1,3 96,41 → 92,38 s, μ=1,0 Kraftkreis 111,21 → 105,61 s, μ=1,3 Kraftkreis 99,54 → 94,44 s, gemessener Kraftkreis
   105,62 → 100,47 s. Das sind Mittellinie und Hotlap-Modell, keine gemessene Runde.
