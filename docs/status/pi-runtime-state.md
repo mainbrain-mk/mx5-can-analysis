@@ -14,6 +14,10 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 **Nachtrag 2026-11-06:** `deployed` = Kopf von Branch `gps-bluetooth-2026-11-06` (`16e8cf4`, noch nicht in `main`). Handy per
 Bluetooth gekoppelt, Schlüssel in der Basisschicht. Nach dem Neustart: keine failed units, `/media/root-ro` ro.
 
+**Nachtrag 2026-11-08:** `deployed` = `3eff2b3` (Branch `spreewaldring-streckenmodell-2026-11-07`, noch nicht in `main`):
+Editor-Simulation aufs Dash, `can_backend.py` lauscht zusätzlich auf UDP 51235. Kivy- und Backend-Tests auf dem Pi grün,
+Wiedergabe am Display geprüft.
+
 ## Hardware
 
 Pi 4B Rev 1.5 (1,8 GB RAM), Hostname `car`, `pi@192.168.0.247`, Kernel 6.12.115 (seit 06.11.). DS3231-RTC seit 28.09.
