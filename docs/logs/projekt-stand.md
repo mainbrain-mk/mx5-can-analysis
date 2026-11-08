@@ -7359,3 +7359,11 @@ Linie (Abweichung 0), eine Neuberechnung dauert dann ~6 s. Datei:
 `results/spreewaldring_lap_time_optimizer_editor_import.json`. Weiter bearbeiten lässt sie sich so kaum (alle
 Punkte hart). Bleibt offen: Knick-Grenze in den Optimierer, kleinere Schritte, anderer Startpunkt (Ausgangslinie)
 gegen lokale Optima.
+
+### Optimierte Linie ist die Editor-Ausgangslinie (2026-11-08)
+
+Nutzerwunsch: die optimierte Linie beim Start laden. `load_editor_data()` nimmt `n_lat` aus
+`results/spreewaldring_lap_time_optimizer.json`, wenn die Datei da ist und zur Punktzahl des Streckenmodells passt,
+sonst wie bisher die beste Iteration der alternierenden Linie. Die einmalige Bereinigung (`pinned_optimize` ohne
+Fixpunkte) glättet die Radius-Knicke: NS-R2 101,32 s (bisher 104,35 s), Literatur 96,01 s (bisher 99,16 s), höchstens
+0,16 m Abweichung zur Optimierer-Linie. Im Browser gespeicherte Bearbeitungen setzen jetzt auf der neuen Linie auf.

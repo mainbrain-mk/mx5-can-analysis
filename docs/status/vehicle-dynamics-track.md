@@ -105,7 +105,8 @@ die streckenbezogenen Themen.
   aus dem Editor (102,94 s). Grenzen: Korridor wie im Editor (weiße Linie, keine Curbs, Nutzerentscheid), Lenkrate ≤ 240 °/s,
   Querruck ≤ 2,7 g/s, Gierbeschleunigung ≤ 108 °/s² (in den Logs gezeigt). Ergebnis **101,32 s** im Editor nachgerechnet
   (Optimierer 101,28 s, 0,04 s davon Radius-Knicke, die der Editor glättet); Ausgangslinie 104,35 s. Import in den Editor:
-  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten).
+  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten). **Seit 08.11.
+  Standard-Ausgangslinie des Editors** (NS-R2 101,32 s, Literatur 96,01 s); ohne die Ergebnisdatei die alternierende Linie.
 - **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
   über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h
   (16 000 U/min) 4,5 m/s². Der Limiter-Faktor schneidet das jetzt ab, die alten Mittellinien-Zeiten unten waren zu schnell.
