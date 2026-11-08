@@ -7278,3 +7278,28 @@ Moment) gehört deshalb rückwärts hinein; für die Rundenzeit selbst braucht e
 Grip-Ellipse begrenzt: z. B. 58 km/h im 2., Pedal 20 %, Last 49 %). Rechenzeit 10 ms je Runde. Editor (Anzeige,
 Export, stehender Start) und Dash zeigen jetzt dieses Pedal; Motorlast und Drosselklappe gehen mit ans Dash
 (`can_backend.py` `EDITOR_FEED_KEYS`). Die Rundenzeiten ändern sich nicht.
+
+### Kupplung in der Simulation (2026-11-08)
+
+Nutzerwunsch: die Kupplung mitsimulieren. Die Rundenzeit rechnet schon mit der Zugkraftlücke je Schaltung (p10 unter
+Last, `shift_gaps`); das Pedal selbst fehlte. Jetzt: gemessene Pedalverläufe aus den CAN-Logs (`CPP_PER_MZ` = 0x130 roh
+× 0,5), Median je Art, in `mx5_vehicle_model.py` (`clutch_profiles()`, JSON-Abschnitt `clutch`).
+
+| Art | Grundlage | Verlauf (Median) |
+|---|---|---|
+| Hochschalten | 114 zügige Schaltungen unter Last (unteres Viertel der Lücke), an Lückenbeginn/-ende ausgerichtet | 0,15 s vor der Lücke runter, bei Beginn 66 %, nach 0,1 s ~95 %; bei Lückenende 56 %, dann 38/28/20/13 % in 0,1-s-Schritten, nach ~0,6 s oben |
+| Zurückschalten, ein Gang (> 30 km/h) | 251 | in 0,2 s auf 99 %, dann ~0,6 s bei 45-50 % (Zwischengas), nach ~1,5 s oben |
+| Mehrere Gänge zugleich | 318 | ~0,4 s länger voll, sonst wie oben, nach ~2 s oben |
+| Anfahren | 118 Alltagsanfahrten | ab ~56 % ausschleifen, Kupplung zu bei 17 km/h (2300/min) |
+
+Die Kupplung schleift beim Hochschalten nach der Zugkraftlücke noch ~0,6 s und überträgt dabei schon Moment, deshalb
+ist die Kupplungsphase (Median 0,49 s, unter Last oft > 1 s) länger als die Lücke (0,30-0,60 s).
+
+**In der Simulation:** `simulate_lap_full()` gibt `shift_events` aus (Beginn, Lücke, von, nach, aus dem Gangplan der
+letzten Vorwärtsfahrt). `clutch_trace()` legt die Verläufe im 0,05-s-Raster darauf: mit Lücke der Hochschalt-Verlauf
+um die Lücke, ohne Lücke (Wechsel beim Bremsen, auch die seltenen kostenlosen Hochschaltungen dort) der
+Zurückschalt-Verlauf, über den Rundenanfang hinweg. Der stehende Start im Editor nimmt den Anfahr-Verlauf (bis
+17 km/h) und die Schaltungen des Sprints. Vor dem ersten Play steht die Kupplung auf 100 % (Auto steht eingelegt).
+Alternierende Linie: 9 Schaltungen je Runde, Kupplung ~11 % der Zeit getreten. Nur Anzeige (Editor-Balken, Dash
+über `Clutch_Pedal_Position_raw`, färbt dort die Ganganzeige); die Rundenzeit rechnet weiter nur mit der Lücke.
+Grenzen: Alltagsfahrten, kein Rennstrecken-Schalten; das Anfahren ist für einen Vollgasstart nur eine Näherung.

@@ -218,6 +218,52 @@ def throttle_trace(v, gear, ds, veh):
     return engine_controls(frac, rpm, full)
 
 
+CLUTCH_TRACE_DT_S = 0.05
+_CLUTCH = None
+
+
+def _clutch_profiles():
+    global _CLUTCH
+    if _CLUTCH is None:
+        with open(VEHICLE_MODEL_PATH, encoding="utf-8") as f:
+            c = json.load(f)["clutch"]
+        _CLUTCH = {k: np.array(v).T for k, v in c.items() if k not in ("n", "launch_end_kmh")}
+        _CLUTCH["launch_end_kmh"] = c["launch_end_kmh"]
+    return _CLUTCH
+
+
+def _clutch_at(kind, x):
+    t, pct = _clutch_profiles()[kind]
+    return np.interp(x, t, pct, left=0.0, right=0.0)
+
+
+def clutch_trace(shift_events, lap_time):
+    """Kupplungspedal in % im Raster CLUTCH_TRACE_DT_S ueber die Runde, aus den gemessenen Verlaeufen
+    (mx5_vehicle_model.py) je Schaltung (t_start, Luecke, von, nach). Mit Luecke: Hochschalt-Verlauf um die
+    Zugkraftluecke. Ohne Luecke (Gangwechsel beim Bremsen): Zurueckschalt-Verlauf, mehrere Gaenge laenger getreten.
+    Laeuft ueber den Rundenanfang hinweg weiter. Rein zur Anzeige, die Rundenzeit rechnet nur mit der Luecke."""
+    t = np.arange(0.0, lap_time, CLUTCH_TRACE_DT_S)
+    out = np.zeros(len(t))
+    for t0, gap, g_from, g_to in shift_events:
+        for shift in (-lap_time, 0.0, lap_time):
+            x = t - t0 - shift
+            if gap > 0:
+                c = np.where(x < gap / 2, _clutch_at("upshift_gap_start", x), _clutch_at("upshift_gap_end", x - gap))
+            else:
+                c = _clutch_at("multi_gear" if abs(g_to - g_from) > 1 else "downshift", x)
+            out = np.maximum(out, c)
+    return out
+
+
+def clutch_launch(t, t_end):
+    """Kupplungspedal in % beim Anfahren; t_end = Zeitpunkt, an dem die Kupplung zu ist (Tempo launch_end_kmh)."""
+    return _clutch_at("launch", np.asarray(t, float) - t_end)
+
+
+def launch_end_kmh():
+    return _clutch_profiles()["launch_end_kmh"]
+
+
 def limiter_factor(rpm, gear):
     """Anteil des Volllastmoments, den der ECU-Soft-Limiter bei dieser Drehzahl laesst (siehe LIMITER_*)."""
     return min(1.0, max(0.0, 1.0 - (rpm - LIMITER_ONSET_RPM[gear]) / LIMITER_WIDTH_RPM[gear]))

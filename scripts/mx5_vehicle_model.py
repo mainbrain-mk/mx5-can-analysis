@@ -35,6 +35,11 @@ Drehzahl -> Moment in % (0x167-Skala) aus dem Teillastkennfeld (partial_load_mod
 Drehzahl -> Gaspedal als Median aus allen CAN-Fahrten, Pedal >= 2 % und ruhig (ohne Pedal 0: dort regelt oft der
 Tempomat). Ein Kennfeld direkt ueber dem Pedal war mit 12,2 pp deutlich schlechter.
 
+Kupplung (08.11.2026): Pedalverlauf in % als Median ueber echte Schaltungen. Hochschalten: zuegige Schaltungen unter
+Last (wie die Zugkraftluecke, unteres Viertel der Luecke), ausgerichtet an Beginn und Ende der Luecke. Zurueckschalten
+(ein Gang / mehrere Gaenge, ueber 30 km/h) ab Beginn der Kupplungsphase (shift_time_analysis.py). Anfahren bis zum
+Kupplungsende, das ist Alltagsanfahren und fuer einen Vollgasstart nur eine Naeherung.
+
 Aufruf: .venv/bin/python scripts/mx5_vehicle_model.py
 """
 import json
@@ -68,6 +73,14 @@ LOAD_QUANTILE, GAP_QUANTILE = 0.5, 0.10
 ETC_GRID = np.arange(0.0, 87.5, 2.5)      # Grad; 86,5 ist die hoechste gemessene Drosselklappe
 RPM_GRID = np.arange(1000.0, 7750.0, 250.0)
 APP_MIN, APP_STEADY = 2.0, 3.0            # Pedal getreten; Aenderung in 0,5 s darunter = ruhig
+
+SHIFT_EVENTS_SUMMARY = os.path.join(RESULTS_DIR, "shift_time_analysis_summary.json")
+CLUTCH_DT_S = 0.05
+CLUTCH_GRIDS = {"upshift_gap_start": (-0.4, 0.4), "upshift_gap_end": (-0.4, 1.0), "downshift": (-0.1, 2.0),
+                "multi_gear": (-0.1, 2.5), "launch": (-2.5, 0.2)}
+FAST_GAP_QUANTILE = 0.25
+DOWNSHIFT_MIN_KMH = 30.0
+LAUNCH_MIN_KMH_AFTER = 15.0
 
 
 def load_log(con, log_id):
@@ -143,6 +156,49 @@ def measure_shift_gaps():
     return out
 
 
+def clutch_profiles(con):
+    """Kupplungspedal in % ueber der Zeit je Art, als [[t, %], ...]; Anfahren zusaetzlich Tempo am Kupplungsende."""
+    channels = {}
+
+    def ch(log_id, name):
+        if (log_id, name) not in channels:
+            channels[log_id, name] = load_channel(con, log_id, name)
+        return channels[log_id, name]
+
+    curves = {k: [] for k in CLUTCH_GRIDS}
+    grid = {k: np.arange(a, b + 1e-9, CLUTCH_DT_S) for k, (a, b) in CLUTCH_GRIDS.items()}
+
+    def add(kind, log_id, t0):
+        c = ch(log_id, "CPP_PER_MZ")
+        if len(c) >= 10:
+            curves[kind].append(np.interp(t0 + grid[kind], c.t, c.value))
+
+    with open(SHIFT_GAP_SUMMARY, encoding="utf-8") as f:
+        ups = pd.DataFrame(json.load(f)["all_results"])
+    for _, d in ups[~ups.no_gap_detected].groupby("gear_pair"):
+        d = d[d.baseline_accel_kmh_s >= d.baseline_accel_kmh_s.quantile(LOAD_QUANTILE)]
+        for _, e in d[d.drive_gap_duration_s <= d.drive_gap_duration_s.quantile(FAST_GAP_QUANTILE)].iterrows():
+            add("upshift_gap_start", e.log_id, e.drive_gap_start_s)
+            add("upshift_gap_end", e.log_id, e.drive_gap_end_s)
+    with open(SHIFT_EVENTS_SUMMARY, encoding="utf-8") as f:
+        ev = pd.DataFrame(json.load(f)["all_events"])
+    launch_kmh = []
+    for _, e in ev[ev.kind.isin(["downshift", "multi_gear"]) | ((ev.kind == "standstill") & (ev.gear_after == 1))].iterrows():
+        v = ch(e.log_id, "VehicleSpeed")
+        if len(v) < 10:
+            continue
+        if e.kind != "standstill":
+            if np.interp(e.t_start, v.t, v.value) >= DOWNSHIFT_MIN_KMH:
+                add(e.kind, e.log_id, e.t_start)
+        elif np.interp(e.t_start, v.t, v.value) < 1 and np.interp(e.t_end + 2, v.t, v.value) >= LAUNCH_MIN_KMH_AFTER:
+            add("launch", e.log_id, e.t_end)
+            launch_kmh.append(np.interp(e.t_end, v.t, v.value))
+    out = {k: np.c_[grid[k], np.median(curves[k], axis=0)].round(3).tolist() for k in CLUTCH_GRIDS}
+    out["n"] = {k: len(v) for k, v in curves.items()}
+    out["launch_end_kmh"] = float(np.median(launch_kmh))
+    return out
+
+
 def pedal_rows(con, log_ids):
     """(Log, Drosselklappe, Drehzahl, Pedal) im 0,5-s-Raster, Pedal getreten und ruhig."""
     rows = []
@@ -175,9 +231,10 @@ def main():
     rec = measure_grip(con, log_ids)
     all_can = con.execute("SELECT log_id FROM logs WHERE source_format LIKE 'can%' AND duration_s > 600").fetchdf()
     throttle = throttle_maps(con, all_can.log_id.tolist())  # Motorverhalten: alle Reifensaetze
+    clutch = clutch_profiles(con)                            # Fahrerverhalten: alle Logs
     con.close()
     model = {"default_tyre": TYRE, "tyres": {TYRE: build_tyre_model(rec)}, "shift_gaps": measure_shift_gaps(),
-             "throttle": throttle}
+             "throttle": throttle, "clutch": clutch}
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(model, f, indent=2, ensure_ascii=False)
     m = model["tyres"][TYRE]

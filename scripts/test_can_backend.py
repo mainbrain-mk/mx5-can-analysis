@@ -103,7 +103,8 @@ def test_editor_feed_replaces_can_values_only_while_fresh():
     assert set(snap["values"]) == {"514:VehicleSpeed", "514:EngineRPM", "253:MT_Gear_Actual",
                                    "120:_BrakePedalPercent_derived", "359:BrakeSwitch_PCM"}
     assert snap["values"]["359:BrakeSwitch_PCM"][0] == 1 and snap["fuel_liters"] is None
-    backend.editor_feed({"speed_kmh": 90.0, "load_pct": 23.0, "tp_pct": 30.5})
+    backend.editor_feed({"speed_kmh": 90.0, "load_pct": 23.0, "tp_pct": 30.5, "clutch_raw": 99.5})
+    assert backend.snapshot()["values"]["304:Clutch_Pedal_Position_raw"][0] == 99.5
     snap = backend.snapshot()
     assert snap["session_max_speed"] == 120.0
     assert snap["values"]["359:ActualEnginePercentTorque"][0] == 23.0

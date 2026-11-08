@@ -90,6 +90,16 @@ def test_throttle_trace_full_limiter_and_braking():
     assert (pedal > 0).all() and (pedal < 60).all() and (load > 0).all()
 
 
+def test_clutch_trace_follows_shifts_and_wraps():
+    from spreewaldring_lap_simulation import CLUTCH_TRACE_DT_S, clutch_trace
+    c = clutch_trace([(10.0, 0.3, 2, 3), (99.9, 0.0, 3, 2)], 100.0)
+    at = lambda t: c[int(round(t / CLUTCH_TRACE_DT_S))]
+    assert at(5.0) == 0 and at(50.0) == 0
+    assert at(10.15) > 85                      # Hochschalten: in der Zugkraftluecke getreten
+    assert 0 < at(10.6) < 60 and at(11.5) == 0  # danach ausgeschleift
+    assert at(0.2) > 50                        # Zurueckschalten kurz vor Rundenende laeuft am Anfang weiter
+
+
 def test_lon_avail_is_ellipse():
     veh = literature_vehicle(1.0)._replace(lat_g=0.8, accel_g=0.5)
     assert abs(lon_avail(0.0, veh, veh.accel_g) - 0.5 * G) < 1e-9
@@ -141,6 +151,7 @@ if __name__ == "__main__":
     test_lon_avail_is_ellipse()
     test_limiter_takes_torque_away_above_onset()
     test_throttle_trace_full_limiter_and_braking()
+    test_clutch_trace_follows_shifts_and_wraps()
     test_plan_gears_shifts_up_on_a_straight()
     test_plan_gears_skips_gear_that_only_lasts_a_moment()
     test_plan_gears_shifts_free_while_braking()

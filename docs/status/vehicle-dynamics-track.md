@@ -93,7 +93,10 @@ die streckenbezogenen Themen.
   ETC → Moment rückwärts, Pedal aus gemessenem ETC × Drehzahl). Vollgas = Simulation beschleunigt so stark wie der
   Motor kann (Last 78-93 % wie 0x167, TP 90 %); im Limiter schließt die Klappe bei Pedal 100. Alternierende Linie:
   46 % der Punkte Vollgas, 35 % Pedal 0, 19 % Teilgas. Editor und Dash zeigen dieses Pedal statt 100/0/Anteil;
-  Rundenzeit unverändert (reine Rückrechnung). Offen: In
+  Rundenzeit unverändert (reine Rückrechnung). **Kupplung (08.11.):** gemessene Pedalverläufe (`mx5_vehicle_model.py`
+  „clutch“) zeitgenau auf jede Schaltung der Simulation (`shift_events`, `clutch_trace()`): Hochschalten um die
+  Zugkraftlücke (114 zügige Schaltungen unter Last), Zurückschalten beim Bremsen (251 einzeln, 318 mehrere Gänge),
+  Anfahren im stehenden Start (118, endet bei 17 km/h). Nur Anzeige, die Rundenzeit rechnet weiter mit der Lücke. Offen: In
   Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge.
 - **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
   über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h

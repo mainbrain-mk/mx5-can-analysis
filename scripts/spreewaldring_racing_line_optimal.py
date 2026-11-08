@@ -624,14 +624,18 @@ def simulate_lap_full(points, mu, natural=False, n_passes=2, brake_cap_g=None):
 
     v_final = natural_order(v)
     gear_trace = natural_order(gear_o)
+    t_nat = np.r_[0.0, np.cumsum(ds / v_final)][:n]
+    # Schaltungen der letzten Vorwaertsfahrt: (Beginn, Luecke, von, nach), fuer die Kupplungsanzeige
+    shift_events = sorted((float(t_nat[order[i]]), gap, int(gear_o[i]), int(g))
+                          for i, (g, gap) in shifts.items() if gear_o[i] != g)
     return {
         "v": v_final, "v_fwd": natural_order(v_fwd), "radius": radius, "ds": ds,
         "lap_time_s": float(np.sum(ds / v_final)), "gear": gear_trace,
         "rpm": np.array([rpm_from_speed(v_i / veh.speed_factor, g) for v_i, g in zip(v_final, gear_trace)]),
-        "s": np.r_[0.0, np.cumsum(ds)][:n], "t": np.r_[0.0, np.cumsum(ds / v_final)][:n],
+        "s": np.r_[0.0, np.cumsum(ds)][:n], "t": t_nat,
         "coasting": natural_order(coasting_o), "throttle_frac": natural_order(throttle_frac_o),
         "brake_frac": natural_order(brake_frac_o), "throttle_frac_natural": natural_order(app_frac_o),
-        "natural": natural,
+        "natural": natural, "shift_events": shift_events,
     }
 
 

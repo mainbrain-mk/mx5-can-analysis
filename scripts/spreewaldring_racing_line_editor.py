@@ -36,7 +36,8 @@ from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M
 from spreewaldring_track_surface import compute_tangents_closed
 from spreewaldring_racing_line import load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
 from spreewaldring_lap_simulation import (
-    accel_true, coast_true, engine_controls, limiter_factor, literature_vehicle, throttle_trace,
+    CLUTCH_TRACE_DT_S, accel_true, clutch_launch, clutch_trace, coast_true, engine_controls, launch_end_kmh,
+    limiter_factor, literature_vehicle, throttle_trace,
 )
 from spreewaldring_racing_line_optimal import (
     BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, simulate_lap_full, steer_from_radius,
@@ -52,7 +53,7 @@ MAX_REQUEST_BYTES = 5_000_000
 # can_backend.py (EDITOR_FEED_PORT) auf dem Pi, das Dash zeigt dann nur sie.
 DASH_HOST = os.environ.get("MX5_DASH_HOST", "car")
 DASH_FEED_PORT = 51235
-DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t", "load_pct", "tp_pct")
+DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t", "load_pct", "tp_pct", "clutch_raw")
 _dash_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 MU_FIXED = 1.0           # Literatur-Vergleich im Fahrzeugmodell-Umschalter
 BASE_ALPHA = 0.15        # wie in spreewaldring_racing_line_optimal.py
@@ -289,8 +290,16 @@ def standing_start_trace(sim, veh):
             rpm = [accel_true(r[1], r[2], f)[1] for r in rows]
             frac = [0.0 if r[3] else limiter_factor(n, r[2]) for r, n in zip(rows, rpm)]
             load, tp, _ = engine_controls(frac, rpm, [not r[3] for r in rows])
+            # Kupplung: Anfahren schleift bis launch_end_kmh, danach die Schaltungen des Sprints
+            t_rows = np.arange(len(rows)) * dt
+            t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
+            ups = [(t, veh.shift_s[(r0[2], r1[2])], r0[2], r1[2]) for t, r0, r1 in zip(t_rows[1:], rows, rows[1:])
+                   if r1[2] != r0[2]]
+            on_lap = clutch_trace(ups, t_rows[-1] + dt)
+            on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
+            clutch = np.maximum(clutch_launch(t_rows, t_end), on_lap)
             return {"dt": dt, "s": [r[0] for r in rows], "v": [r[1] for r in rows], "gear": [r[2] for r in rows],
-                    "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1),
+                    "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1), "clutch": round_list(clutch, 0),
                     "pedal": [0 if r[3] else 100 for r in rows], "joinT": float(sim["t"][i])}
         rows.append((s, v, gear, shifting))
 
@@ -304,6 +313,7 @@ def sim_json(sim, pts, veh):
     load, tp, pedal = throttle_trace(sim["v"], sim["gear"], sim["ds"], veh)
     return {
         "loadPct": round_list(load, 1), "tpPct": round_list(tp, 1), "pedalPct": round_list(pedal, 1),
+        "clutchDt": CLUTCH_TRACE_DT_S, "clutchPct": round_list(clutch_trace(sim["shift_events"], sim["lap_time_s"]), 0),
         "vFinal": round_list(sim["v"]), "vFwd": round_list(sim["v_fwd"]), "gear": [int(g) for g in sim["gear"]],
         "rpm": round_list(sim["rpm"], 2), "s": round_list(sim["s"], 4), "t": round_list(sim["t"]),
         "radius": round_list(np.minimum(sim["radius"], 1e9), 4), "ds": round_list(sim["ds"]),
@@ -625,6 +635,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
   .pedal-bar.brake{border-color:var(--accent-brake);}
   .pedal-bar.throttle{border-color:#4ade80;}
+  .pedal-bar.clutch{border-color:#60a5fa;}
+  .pedal-bar.clutch .pedal-fill{background:#60a5fa;}
   .pedal-fill{width:100%; height:0%;}
   .pedal-bar.brake .pedal-fill{background:var(--accent-brake);}
   .pedal-bar.throttle .pedal-fill{background:#4ade80;}
@@ -877,6 +889,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         <button class="action" id="simNextBtn" title="einen Punkt vor">Punkt &#8594;</button>
       </div>
       <div class="pedals-row">
+        <div class="pedal-bar clutch" title="Kupplung"><div class="pedal-fill" id="clutchFill"></div></div>
         <div class="pedal-bar brake"><div class="pedal-fill" id="brakeFill"></div></div>
         <div class="pedal-bar throttle"><div class="pedal-fill" id="throttleFill"></div></div>
         <div class="wheel"><div class="wheel-rotor" id="wheelRotor"><div class="wheel-dot"></div></div></div>
@@ -1434,7 +1447,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // Initial (vor dem ersten Play) schon gesetzt, nicht erst bei Play erzeugt
   // - dadurch steht der Wagen auch im Standbild vor dem ersten Play still.
   // Der Verlauf kommt aus dem Dienst (standing_start_trace), hier wird er nur abgespielt.
-  let standingStart = {s: 0, v: 0, gear: 1, rpm: 0, load: 0, tp: null, pedal: 0, clock: 0};
+  let standingStart = {s: 0, v: 0, gear: 1, rpm: 0, load: 0, tp: null, pedal: 0, clutch: 100, clock: 0};
   let startTrace = null;
 
   function stepStandingStart(dt){
@@ -1447,7 +1460,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       return;
     }
     standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i],
-                     load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i], clock};
+                     load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i],
+                     clutch: startTrace.clutch[i], clock};
   }
 
   function positionFromArcLength(pts, sim, sNow){
@@ -1511,6 +1525,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const braking = !standingStart && !isCoasting && lastSim.vFinal[i] < lastSim.vFwd[i]-1e-3;
     const brakePct = braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0;
     document.getElementById('brakeFill').style.height = brakePct + '%';
+    const clutchPct = standingStart ? standingStart.clutch
+      : (lastSim.clutchPct[Math.min(Math.floor(sim_.t / lastSim.clutchDt), lastSim.clutchPct.length - 1)] ?? 0);
+    document.getElementById('clutchFill').style.height = clutchPct + '%';
     // Im experimentellen "natuerlichen Gasmodell" kommt die Gaspedal-
     // Stellung IMMER aus der Lenkrate-Formel (nicht nur an geglaetteten
     // Stellen) - siehe naturalThrottleMode. ABER: die Formel wird im
@@ -1551,6 +1568,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
                  throttle_pct: throttlePct, brake_pct: brakePct,
                  load_pct: standingStart ? standingStart.load : lastSim.loadPct[i],
                  tp_pct: standingStart ? standingStart.tp : lastSim.tpPct[i],
+                 clutch_raw: clutchPct * 1.99,  // 0x130 roh, 199 = 100 %
                  steer_deg: -wheelDeg,  // Dash: links positiv, hier rechts positiv
                  lap_t: standingStart ? null : sim_.t};
   }

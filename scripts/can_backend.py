@@ -73,6 +73,7 @@ EDITOR_FEED_KEYS = {
     "steer_deg": "130:Steering_Wheel_Absolute_Angle",  # Lenkrad, links positiv
     # seit 08.11.: aus dem Tempoverlauf rueckgerechnet (Teillastkennfeld); TP < 90 bei Pedal 100 = Limiter-Blitz
     "load_pct": "359:ActualEnginePercentTorque", "tp_pct": "2024:_ThrottlePosition_pct_derived",
+    "clutch_raw": "304:Clutch_Pedal_Position_raw",  # gemessener Pedalverlauf je Schaltung, 199 = 100 %
 }
 
 # Gleiche kuratierte Signalliste wie bisher status_gui.py LIVE_SIGNALS - Checkliste/
