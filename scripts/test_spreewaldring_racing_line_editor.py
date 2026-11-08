@@ -15,6 +15,28 @@ def circle_track(n=209, radius=100.0):
     return E.Track(center, center, center, perp, np.full(n, -3.0), np.full(n, 3.0))
 
 
+def test_corners_by_direction_numbers_arcs_in_driving_order():
+    # Stadion: Gerade, Halbkreis, Gerade, Halbkreis; Index 0 liegt auf der Geraden
+    arc = np.linspace(-np.pi / 2, np.pi / 2, 31)[1:-1]
+    center = np.vstack([np.c_[np.linspace(-90, 90, 61), np.full(61, -30.0)],
+                        np.c_[90 + 30 * np.cos(arc), 30 * np.sin(arc)],
+                        np.c_[np.linspace(90, -90, 61), np.full(61, 30.0)],
+                        np.c_[-90 - 30 * np.cos(arc), -30 * np.sin(arc)]])
+    radius = np.full(len(center), 1e9)
+    radius[61:90], radius[151:180] = 30.0, 30.0
+    corners = E.corners_by_direction(center, radius)
+    assert [c["number"] for c in corners] == [1, 2]
+    assert corners[0]["x"] > 90 and corners[1]["x"] < -90
+
+
+def test_unknown_track_is_rejected():
+    try:
+        E.Editors()["gibtsnicht"]
+    except ValueError:
+        return
+    raise AssertionError("unbekannte Strecke wurde nicht abgelehnt")
+
+
 def test_brush_hits_target_and_ends_smoothly():
     track = circle_track()
     n_lat = E.apply_brush(track, np.zeros(209), 50, 2.0, 30.0)
@@ -44,6 +66,8 @@ def test_hard_target_is_exact_after_optimizing():
 
 
 if __name__ == "__main__":
+    test_corners_by_direction_numbers_arcs_in_driving_order()
+    test_unknown_track_is_rejected()
     test_brush_hits_target_and_ends_smoothly()
     test_brush_wraps_over_closure()
     test_clamp_keeps_margin_and_narrow_corridor_uses_middle()

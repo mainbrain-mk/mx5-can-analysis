@@ -17,6 +17,9 @@ INTERAKTION:
   - Bremszonen sind physikalisch bestimmt: Der Rueckwaertspass hat das Tempo gegenueber dem Vorwaertspass reduziert.
   - Persistenz: Die Bearbeitungsliste liegt im Browser (localStorage), die Linie wird daraus immer neu berechnet.
 
+Seit 08.11.2026 (Nutzerwunsch) mehrere Strecken: TRACKS, Auswahlfeld im Editor, je Strecke eine Seite (/?track=...)
+mit eigener Bearbeitungsliste. Eine Strecke wird erst beim ersten Aufruf geladen.
+
 Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_editor.py [--port 8732]
 Dann im Browser: http://127.0.0.1:8732/
 """
@@ -27,14 +30,19 @@ import math
 import os
 import re
 import socket
+import base64
+import io
+import urllib.parse
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import numpy as np
+from PIL import Image
 
+import oschersleben_track_model as OSCHERSLEBEN
 from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M, G, compute_curvature_radius
 from spreewaldring_track_surface import compute_tangents_closed
-from spreewaldring_racing_line import load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
+from spreewaldring_racing_line import TRACK_MODEL_PATH, load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
 from spreewaldring_lap_simulation import (
     CLUTCH_TRACE_DT_S, accel_true, clutch_launch, clutch_trace, coast_true, engine_controls, launch_end_kmh,
     limiter_factor, literature_vehicle, throttle_trace,
@@ -84,8 +92,11 @@ STANDING_START_DT_S = 1 / 60
 
 Track = namedtuple("Track", "center left right perp lo hi")
 
+CORNER_SPLIT_RADIUS_M = 150.0  # Oschersleben: 100-200 m ergibt dieselben 14 Kurven (7 links, 7 rechts, wie der Betreiber)
+BACKGROUND_DOWNSCALE, BACKGROUND_JPEG_QUALITY = 2, 80   # 0,4 m je Pixel, Spreewaldring-Hintergrund hat 0,36 m
 
-def load_reused_assets():
+
+def load_reused_assets(center, radius):
     """Kurvennummern + zugeschnittenes Orthofoto aus der bestehenden Animation (dort bereits verifiziert)."""
     with open(ANIMATION_HTML_PATH, encoding="utf-8") as f:
         html = f.read()
@@ -99,32 +110,84 @@ def load_reused_assets():
     }
 
 
-def load_editor_data():
-    """Strecke in lokalen Koordinaten, Index 0 an der Start-Ziel-Linie, und die Ausgangslinie."""
-    center, left, right = load_corridor()
-    tangents = compute_tangents_closed(center)
-    lo, hi, perp = corridor_bounds(center, left, right, tangents)
-    # Rueckfall ohne OPTIMIZED_LINE_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
-    # nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor.
+def corners_by_direction(center, radius):
+    """Kurve = zusammenhaengendes Stueck gleicher Richtung mit R < CORNER_SPLIT_RADIUS_M, nummeriert in Fahrtrichtung.
+    Index 0 muss auf einer Geraden liegen, Start-Ziel tut das."""
+    sign = turn_sign(center, max(1, round(CURVATURE_WINDOW_M / RESAMPLE_STEP_M))) * (radius < CORNER_SPLIT_RADIUS_M)
+    pieces = [p for p in np.split(np.arange(len(center)), np.flatnonzero(np.diff(sign)) + 1) if sign[p[0]] != 0]
+    apexes = [p[np.argmin(radius[p])] for p in pieces]
+    return [{"number": k + 1, "x": float(center[i, 0]), "y": float(center[i, 1])} for k, i in enumerate(apexes)]
+
+
+def load_oschersleben_assets(center, radius):
+    """Hintergrund aus dem DOP20, Kurven aus dem Modell. Ursprung = untere linke Bildecke."""
+    with open(OSCHERSLEBEN.DOP_GEO_PATH, encoding="utf-8") as f:
+        geo = json.load(f)
+    photo = Image.open(OSCHERSLEBEN.DOP_PATH).convert("RGB")
+    width_m, height_m = photo.width * geo["px"], photo.height * geo["px"]
+    origin = np.array([geo["origin_e"], geo["origin_n"] - height_m])
+    buf = io.BytesIO()
+    photo.resize((photo.width // BACKGROUND_DOWNSCALE, photo.height // BACKGROUND_DOWNSCALE), Image.LANCZOS).save(
+        buf, "JPEG", quality=BACKGROUND_JPEG_QUALITY)
+    return {"origin_utm33": origin.tolist(), "corners_local": corners_by_direction(center - origin, radius),
+            "background_image_jpeg_b64": base64.b64encode(buf.getvalue()).decode("ascii"),
+            "background_extent_local": [0.0, 0.0, width_m, height_m]}
+
+
+def spreewaldring_start_line(center, perp, lo, hi):
+    """Rueckfall ohne OPTIMIZED_LINE_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
+    nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor."""
     with open(START_LINE_SUMMARY_PATH, encoding="utf-8") as f:
         optimal = json.load(f)
     start_points = np.array(min(optimal["snapshots"], key=lambda s: s["lap_time_s"])["points_utm33"])
     assert len(start_points) == len(center), "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
-    n_lat_start = np.clip(np.sum((start_points - center) * perp, axis=1), lo, hi)
+    return np.sum((start_points - center) * perp, axis=1)
 
-    roll = int(np.argmin(np.linalg.norm(center - np.array(START_FINISH_UTM33), axis=1)))
+
+def oschersleben_start_line(center, perp, lo, hi):
+    """Beste Linie aus oschersleben_lap_simulation.py, in Modell-Reihenfolge."""
+    with open(OSCHERSLEBEN.LAP_SIM_JSON, encoding="utf-8") as f:
+        n_lat = np.array(json.load(f)["n_lat"])
+    assert len(n_lat) == len(center), "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
+    return n_lat
+
+
+DEFAULT_TRACK = "spreewaldring"
+# storage: Schluessel der Bearbeitungsliste im Browser, sie haengt am Punktindex der jeweiligen Strecke (v2 gehoert zur
+# alten Spreewaldring-Geometrie). optimized: Linie schon in Editor-Reihenfolge, falls vorhanden.
+TRACKS = {
+    "spreewaldring": dict(label="Spreewaldring", model=TRACK_MODEL_PATH, start_finish=START_FINISH_UTM33,
+                          start_line=spreewaldring_start_line, optimized=OPTIMIZED_LINE_PATH, assets=load_reused_assets,
+                          storage="spreewaldring_racing_line_editor_edits_v3_modell",
+                          source="Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg)"),
+    "oschersleben": dict(label="Oschersleben A-Kurs", model=OSCHERSLEBEN.MODEL_JSON,
+                         start_finish=OSCHERSLEBEN.START_FINISH_UTM32, start_line=oschersleben_start_line, optimized=None,
+                         assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v1",
+                         source="Motorsport Arena Oschersleben · Streckenmodell aus OSM, DOP20 und DGM1 (LVermGeo Sachsen-Anhalt, dl-de/by-2-0)"),
+}
+
+
+def load_editor_data(name=DEFAULT_TRACK):
+    """Strecke in lokalen Koordinaten, Index 0 an der Start-Ziel-Linie, und die Ausgangslinie."""
+    cfg = TRACKS[name]
+    center, left, right = load_corridor(cfg["model"])
+    tangents = compute_tangents_closed(center)
+    lo, hi, perp = corridor_bounds(center, left, right, tangents)
+    n_lat_start = np.clip(cfg["start_line"](center, perp, lo, hi), lo, hi)
+
+    roll = int(np.argmin(np.linalg.norm(center - np.array(cfg["start_finish"]), axis=1)))
     center, left, right, perp = (np.roll(a, -roll, axis=0) for a in (center, left, right, perp))
     lo, hi, n_lat_start = (np.roll(a, -roll, axis=0) for a in (lo, hi, n_lat_start))
-    if os.path.exists(OPTIMIZED_LINE_PATH):
-        with open(OPTIMIZED_LINE_PATH, encoding="utf-8") as f:
+    if cfg["optimized"] and os.path.exists(cfg["optimized"]):
+        with open(cfg["optimized"], encoding="utf-8") as f:
             optimized = np.array(json.load(f)["n_lat"])
         if len(optimized) == len(center):  # passt nicht mehr, wenn sich das Streckenmodell aendert
             n_lat_start = np.clip(optimized, lo, hi)
 
-    reused = load_reused_assets()
+    radius = compute_curvature_radius(center, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
+    reused = cfg["assets"](center, radius)
     origin = np.array(reused["origin_utm33"])
     # Kurvennummern bleiben (Bezug in Logbuch und Gespraechen), Marke und Radius kommen aus dem Modell
-    radius = compute_curvature_radius(center, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
     corners = []
     for c in reused["corners_local"]:
         near = np.linalg.norm(center - (origin + [c["x"], c["y"]]), axis=1) < 30.0
@@ -334,8 +397,9 @@ def sim_json(sim, pts, veh):
 class Editor:
     """Haelt Strecke und Ausgangslinie je Fahrzeugmodell. Der Dienst bearbeitet eine Anfrage nach der anderen."""
 
-    def __init__(self):
-        self.track, self.n_lat_start, self.corners, self.reused = load_editor_data()
+    def __init__(self, name=DEFAULT_TRACK):
+        self.name = name
+        self.track, self.n_lat_start, self.corners, self.reused = load_editor_data(name)
         lit = literature_vehicle(MU_FIXED)
         # Name -> (Vehicle, zusaetzliche Bremsgrenze, Beschriftung)
         self.vehicles = {name: (veh, None, f"{name} (aus den Logs)") for name, veh in VEHICLES.items()}
@@ -404,8 +468,10 @@ class Editor:
         return self.result(brushed, veh, cap, bool(body.get("natural")))[0]
 
     def page(self):
-        track = self.track
+        track, cfg = self.track, TRACKS[self.name]
         data = {
+            "track": self.name, "storage_key": cfg["storage"],
+            "tracks": [{"name": k, "label": v["label"]} for k, v in TRACKS.items()],
             "origin_utm33": self.reused["origin_utm33"],
             "centerline": track.center.tolist(), "left_edge": track.left.tolist(), "right_edge": track.right.tolist(),
             "perp": track.perp.tolist(), "corridor_lo_m": track.lo.tolist(), "corridor_hi_m": track.hi.tolist(),
@@ -421,7 +487,18 @@ class Editor:
             },
             "brush_radius_m_default": BRUSH_RADIUS_M_DEFAULT,
         }
-        return HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False))
+        return (HTML_TEMPLATE.replace("__TRACK_LABEL__", cfg["label"]).replace("__TRACK_SOURCE__", cfg["source"])
+                .replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False)))
+
+
+class Editors(dict):
+    """Je Strecke ein Editor, erst beim ersten Aufruf geladen."""
+
+    def __missing__(self, name):
+        if name not in TRACKS:
+            raise ValueError(f"Unbekannte Strecke: {name}")
+        self[name] = Editor(name)
+        return self[name]
 
 
 @functools.lru_cache(maxsize=1)
@@ -438,9 +515,12 @@ def send_to_dash(req):
     return {"ok": True}
 
 
-def make_handler(editor):
-    routes = {"/api/solve": editor.solve, "/api/simulate": editor.simulate, "/api/preview": editor.preview,
-              "/api/dash": send_to_dash}
+def make_handler(editors):
+    def on_track(method):
+        return lambda body: method(editors[body.get("track", DEFAULT_TRACK)], body)
+
+    routes = {"/api/solve": on_track(Editor.solve), "/api/simulate": on_track(Editor.simulate),
+              "/api/preview": on_track(Editor.preview), "/api/dash": send_to_dash}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -455,10 +535,16 @@ def make_handler(editor):
             self.wfile.write(payload)
 
         def do_GET(self):
-            if self.path != "/":
+            url = urllib.parse.urlsplit(self.path)
+            if url.path != "/":
                 self.reply(404, "text/plain; charset=utf-8", b"nicht gefunden")
                 return
-            self.reply(200, "text/html; charset=utf-8", editor.page().encode("utf-8"))
+            try:
+                page = editors[urllib.parse.parse_qs(url.query).get("track", [DEFAULT_TRACK])[0]].page()
+            except (ValueError, FileNotFoundError) as err:  # unbekannte Strecke oder Ergebnisdateien fehlen noch
+                self.reply(404, "text/plain; charset=utf-8", str(err).encode("utf-8"))
+                return
+            self.reply(200, "text/html; charset=utf-8", page.encode("utf-8"))
 
         def do_POST(self):
             route = routes.get(self.path)
@@ -481,14 +567,15 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
     print("Lade Strecke und Fahrzeugmodelle ...", flush=True)
-    editor = Editor()
-    server = HTTPServer(("127.0.0.1", args.port), make_handler(editor))
+    editors = Editors()
+    editors[DEFAULT_TRACK]  # Standardstrecke gleich laden, damit Fehler beim Start auffallen
+    server = HTTPServer(("127.0.0.1", args.port), make_handler(editors))
     print(f"Ideallinien-Editor: http://127.0.0.1:{args.port}/ (rechnet in Python, Abbruch mit Strg+C)", flush=True)
     server.serve_forever()
 
 
 HTML_TEMPLATE = r"""<meta charset="utf-8">
-<title>Ideallinien-Editor Spreewaldring</title>
+<title>Ideallinien-Editor __TRACK_LABEL__</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
@@ -839,8 +926,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 </style>
 
 <header>
-  <h1>Ideallinien-Editor Spreewaldring</h1>
+  <h1>Ideallinien-Editor __TRACK_LABEL__</h1>
   <div class="sub">Mazda MX-5 ND · Linie per Drag bearbeiten · <span id="vehicleSub"></span></div>
+  <label class="hard-toggle" id="trackRow" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+    <span>Strecke</span>
+    <select id="trackSelect"></select>
+  </label>
 </header>
 
 <main>
@@ -997,7 +1088,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   </div>
 </main>
 
-<footer>Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg) · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py</footer>
+<footer>__TRACK_SOURCE__ · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py</footer>
 
 <script type="application/json" id="viz-data">__DATA_JSON__</script>
 <script>
@@ -1009,7 +1100,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   const PERP = data.perp;
   const LO = data.corridor_lo_m;
   const HI = data.corridor_hi_m;
-  const STORAGE_KEY = 'spreewaldring_racing_line_editor_edits_v3_modell';  // Bearbeitungen haengen am Punktindex, v2 gehoert zur alten Geometrie
+  const STORAGE_KEY = data.storage_key;  // Bearbeitungen haengen am Punktindex der jeweiligen Strecke
   // Nur Anzeige (Lenkrad): Ackermann-Naeherung. Alle Rechnung liegt im Python-Dienst.
   const WHEELBASE_M = 2.31, STEERING_RATIO = 15;
   const NEARBY_HINT_M = 80.0;   // nur fuer den Hover-Tooltip: "diese Fixpunkte beeinflussen sich spuerbar"
@@ -1026,7 +1117,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
 
   async function api(path, body){
-    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({...body, track: data.track})});
     if (!r.ok) throw new Error(await r.text());
     return r.json();
   }
@@ -1746,6 +1837,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   // Fahrzeugmodell umschalten: Der Dienst optimiert die Linie fuer das gewaehlte Modell neu.
   {
+    const trackSel = document.getElementById('trackSelect');
+    data.tracks.forEach(t => trackSel.add(new Option(t.label, t.name, false, t.name === data.track)));
+    trackSel.addEventListener('change', () => { location.search = '?track=' + encodeURIComponent(trackSel.value); });
     const sel = document.getElementById('vehicleSelect');
     const sub = document.getElementById('vehicleSub');
     const m = P.VEHICLES;

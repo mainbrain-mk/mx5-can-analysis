@@ -199,6 +199,12 @@ die streckenbezogenen Themen.
   2,31 m sind Annahmen (Herstellerangabe bzw. Literatur, nicht G184-vermessen);
   `spreewaldring_racing_line_search.py` hat einen eigenen, veralteten Physik-Port und läuft nicht mehr.
 
+## Oschersleben (A-Kurs, Stand 08.11.2026)
+
+Streckenmodell `scripts/oschersleben_track_model.py` (OSM, DOP20, DGM1, EPSG:25832), selbes Verfahren wie Spreewaldring: 3669,1 m (Betreiber 3667), Breite Median 11,07 m, 14 Kurven (7 links, 7 rechts, wie der Betreiber), Höhe 81,2–88,1 m. Nur A-Kurs (S-Kurve), Nutzerentscheid; keine Boxengasse.
+
+Simulation `scripts/oschersleben_lap_simulation.py` (NS-R2 aus den Logs): Mittellinie 133,76 s, alternierend 120,69 s, direkt auf Rundenzeit optimiert 118,92 s (im Editor nach dessen Ausreißer-Glättung 119,23 s); alternierend mit Literatur μ = 1,0 / 1,3: 114,24 / 104,76 s. Keine eigene Fahrt dort, Steigung nicht in der Physik. Im Editor über das Auswahlfeld „Strecke“ (`/?track=oschersleben`). Herleitung: Logbuch [„Oschersleben“](../logs/projekt-stand.md).
+
 ## Lenkwinkel/Kurvenradius/Quergrip
 
 - OBD-Kanal `STEER_ANGL_EPS` (Lenkwinkel) + `STEER_SPD_EPS` seit 01.09.2026

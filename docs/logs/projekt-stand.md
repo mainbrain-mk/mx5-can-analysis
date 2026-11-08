@@ -7401,3 +7401,33 @@ schaltet zweimal (4,84 s); auf der Runde kommt der 1. Gang nicht vor.
 vorsichtig. Gang 1 ist ~20 % zu optimistisch (Traktion/TCS, betrifft nur den stehenden Start im Editor), Gang 5/6
 zu pessimistisch (offener Punkt, auf der Runde nicht genutzt). Referenzluft und Referenzmasse gehören zur Rundenzeit
 dazu: an einem kalten Tag ohne Beifahrer wäre das Auto einige Prozent schneller.
+
+
+## Oschersleben: Streckenmodell, Simulation und Streckenwahl im Editor (2026-11-08)
+
+Nutzerauftrag: weitere Strecke simulieren, Motorsport Arena Oschersleben. Danach: im Editor zwischen den Strecken umschalten. Nutzerentscheid: A-Kurs (S-Kurve nach Start/Ziel, Betreiber 3,667 km) reicht, die 90-Grad-Variante (3,696 km) wird nicht gebaut. Skripte `scripts/oschersleben_track_model.py`, `scripts/oschersleben_lap_simulation.py`, Test `scripts/test_oschersleben_track_model.py`.
+
+**Quellen:** OSM (acht `raceway`-Wege bilden die Runde, jeder Anschluss ist ein gemeinsamer Knoten, keine angenommene Schließung, 3672,4 m). Orthofoto DOP20 per WMS und DGM1 per WCS vom LVermGeo Sachsen-Anhalt (dl-de/by-2-0), EPSG:25832 statt 25833, weil die Strecke in Zone 32 liegt (Maßstabsfehler 0,01 % statt 0,04 %). Die WCS-Antwort ist multipart, das TIFF wird herausgeschnitten.
+
+**Verfahren:** `build_segment()` aus `spreewaldring_track_model.py` unverändert. Linienkarte mit dem PhotoCraft-Rezept direkt in numpy (Graustufen, Hochpass σ = 6, Tonwerte 128–178), Asphaltkarte über Sättigung < 0,13. Nur die Hauptschleife, keine Boxengasse.
+
+**Ergebnis:** Länge 3669,1 m (3D 3669,4; Betreiber 3667), Breite Median 11,07 m (p5 10,63, p95 12,93; Betreiber 11–13, Start-Ziel-Gerade rund 12,7), Randlinie gesehen 99 / 98 %, im Uhrzeigersinn (Betreiber: rechts). Getrennt nach Kurvenrichtung (R < 100–200 m, gleiches Ergebnis) **14 Kurven, 7 links und 7 rechts, wie der Betreiber**. OSM-Knoten liegen p95 1,6 m neben der Mittellinie. Ränder am Foto kontrolliert, auch an der S-Kurve: Die bis zu 17,8 m Breite bei s ≈ 730–790 m sind die echte Aufweitung der weißen Linien an der Einmündung der Variante. Start-Ziel-Linie ist der Schachbrettstreifen bei s = 251 m. Höhe 81,2–88,1 m, 18 m bergauf je Runde, Steigung |p50| 0,95 %, |p95| 1,96 %, Querneigung |p50| 2,5 %.
+
+**Rundenzeit** (gleiche Physik `simulate_lap_full()`, NS-R2 aus den Logs, 0,91 g quer, 0,74 g Bremse):
+
+| Linie | Zeit |
+|---|---:|
+| Mittellinie | 133,76 s |
+| Alternierend (beste Iteration 5), Editor-Bereinigung | 120,69 s |
+| Alternierend, Literatur μ = 1,0 | 114,24 s |
+| Alternierend, Literatur μ = 1,3 | 104,76 s |
+
+Spitze 174 km/h, langsamster Punkt 61 km/h. Fremde Runden zur Einordnung, Layout und Reifen meist unbekannt: MX-5 NC 2.0 Serie 2:04,9 (FastestLaps), NC 1:44,8 und NB 1:50,0 (LapMeta), iRacing MX-5 Cup etwa 1:38–1:39. Das Log-Modell liegt nah am Serienauto, weil die Grenzen aus Alltagsfahrten stammen. Keine eigene Fahrt dort, also keine Prüfung gegen die Realität.
+
+Steigung und Querneigung sind nicht in der Physik. Grobe Abschätzung für die Steigung (nur Beschleunigungsphasen neu integriert, durch das Bremsprofil begrenzt): unter 0,1 s, weil sich bergauf und bergab ausgleichen. Das ist keine Rechnung mit Steigung im Modell.
+
+**Editor:** `TRACKS` im Editor, Auswahlfeld „Strecke“ in der Kopfzeile, je Strecke eine Seite (`/?track=oschersleben`), eigene Bearbeitungsliste im Browser (Spreewaldring-Schlüssel unverändert), Strecke lädt erst beim ersten Aufruf. API-Anfragen tragen `track`. Kurvennummern für Oschersleben sind die eigene Zählung in Fahrtrichtung ab Start/Ziel (`corners_by_direction()`), nicht zwingend die offizielle Nummerierung. Geprüft im Browser: Spreewaldring weiter 101,32 s (832 Punkte), Oschersleben 120,74 s (1224 Punkte), Bearbeitung mit hartem Fixpunkt rechnet, unbekannte Strecke wird abgelehnt.
+
+**Nachtrag (08.11.2026), Linie direkt auf die Rundenzeit:** `oschersleben_lap_simulation.py --optimize` (Koordinatenabstieg aus `spreewaldring_lap_time_optimizer.py`, Start alternierende Linie, Spline alle 12 m, 9532 Rechnungen, 48 min): **120,69 → 118,92 s**, Spitze 174,2 km/h, langsamster Punkt 61,0 km/h. Grenzen eingehalten: Lenkgeschwindigkeit 43 °/s, Querruck 2,70 g/s (Grenze 2,7), Gierbeschleunigung 57 °/s². Der Gewinn von 1,5 % ist kleiner als am Spreewaldring (2,9 %). Der Querruck liegt am Anschlag, die Leitplanke begrenzt die Linie also mit.
+
+Im Editor startet die Strecke mit 119,23 s, unbearbeitet angezeigt 119,26 s. Ursache gemessen: `smooth_single_point_notches()` in `pinned_optimize()` glättet 24 Radius-Ausreißer der Spline-Linie (bis 0,38 m seitlich) und kostet 0,31 s; Reihenfolge der Punkte und Klemmung ändern nichts (118,924 s). Am Spreewaldring beträgt derselbe Effekt nur rund 0,04 s. Nicht geändert.
