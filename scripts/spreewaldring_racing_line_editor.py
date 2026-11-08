@@ -165,8 +165,20 @@ TRACKS = {
                          optimized=os.path.join(RESULTS_DIR, "oschersleben_ideal_line.json"),  # racing_line_ocp.py
                          assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v2",
                          label_positions={2: (655865.7, 5766648.9), 10: (655742.0, 5766881.0)},  # vom Nutzer in der Karte gesetzt
+                         pit_segments=("pit_entry", "pit_fastlane", "pit_exit", "pit_work_area", "paddock_east", "paddock_west"),
                          source="Motorsport Arena Oschersleben · Streckenmodell aus OSM, DOP20 und DGM1 (LVermGeo Sachsen-Anhalt, dl-de/by-2-0)"),
 }
+
+
+def load_pit_segments(cfg, origin):
+    """Boxengasse aus dem Streckenmodell, nur zur Anzeige: Raender oder (Fahrerlager-Anbindung) nur Mittellinie."""
+    if "pit_segments" not in cfg:
+        return []
+    with open(cfg["model"], encoding="utf-8") as f:
+        segments = json.load(f)["segments"]
+    keys = lambda name: ("left", "right") if "left" in segments[name] else ("center",)
+    return [{"name": name, **{k: np.round(np.array(segments[name][k]) - origin, 2).tolist() for k in keys(name)}}
+            for name in cfg["pit_segments"]]
 
 
 def load_editor_data(name=DEFAULT_TRACK):
@@ -199,6 +211,7 @@ def load_editor_data(name=DEFAULT_TRACK):
     for c in corners:
         if c["number"] in cfg.get("label_positions", {}):
             c["x"], c["y"] = (np.array(cfg["label_positions"][c["number"]]) - origin).tolist()
+    reused["pit_segments"] = load_pit_segments(cfg, origin)
     track = Track(center - origin, left - origin, right - origin, perp, lo, hi)
     return track, n_lat_start, corners, reused
 
@@ -480,7 +493,7 @@ class Editor:
             "origin_utm33": self.reused["origin_utm33"],
             "centerline": track.center.tolist(), "left_edge": track.left.tolist(), "right_edge": track.right.tolist(),
             "perp": track.perp.tolist(), "corridor_lo_m": track.lo.tolist(), "corridor_hi_m": track.hi.tolist(),
-            "corners": self.corners,
+            "corners": self.corners, "pit_segments": self.reused["pit_segments"],
             "background_image_jpeg_b64": self.reused["background_image_jpeg_b64"],
             "background_extent_local": self.reused["background_extent_local"],
             "physics": {
@@ -953,6 +966,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       </div>
       <div><span class="swatch" style="background:rgba(224,72,60,0.55);"></span>Bremszone</div>
       <div><span class="swatch" style="background:rgba(69,214,196,0.92); transform:rotate(45deg);"></span>bearbeiteter Punkt</div>
+      <div id="pitLegend" style="display:none;"><span class="swatch" style="background:rgba(110,170,255,0.7);"></span>Boxengasse <span class="swatch" style="background:rgba(232,163,61,0.7); margin-left:0.5rem;"></span>Arbeitsbereich</div>
       <div><span class="swatch" style="background:rgba(197,150,255,0.95);"></span>Schaltpunkt</div>
     </div>
     <div class="trace-wrap">
@@ -1419,6 +1433,26 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       ctx.fillRect(0,0,w,h);
     }
 
+    // Boxengasse nur zur Anzeige, unter der Strecke; die Rundensimulation faehrt sie nicht
+    data.pit_segments.forEach(seg=>{
+      ctx.save();
+      if (seg.left){
+        drawPolyline(seg.left.concat([...seg.right].reverse()), w, h, true);
+        const work = seg.name === 'pit_work_area';
+        ctx.fillStyle = work ? 'rgba(232,163,61,0.28)' : 'rgba(110,170,255,0.32)';
+        ctx.fill();
+        ctx.strokeStyle = work ? 'rgba(232,163,61,0.85)' : 'rgba(110,170,255,0.85)';
+        ctx.lineWidth = 1;
+      } else {
+        drawPolyline(seg.center, w, h, false);
+        ctx.setLineDash([4,4]);
+        ctx.strokeStyle = 'rgba(110,170,255,0.9)';
+        ctx.lineWidth = 1.5;
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+
     const ribbon = data.left_edge.concat([...data.right_edge].reverse());
     drawPolyline(ribbon, w, h, true);
     ctx.strokeStyle='rgba(238,242,243,0.55)';
@@ -1842,6 +1876,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   // Fahrzeugmodell umschalten: Der Dienst optimiert die Linie fuer das gewaehlte Modell neu.
   {
+    if (data.pit_segments.length) document.getElementById('pitLegend').style.display = '';
     const trackSel = document.getElementById('trackSelect');
     data.tracks.forEach(t => trackSel.add(new Option(t.label, t.name, false, t.name === data.track)));
     trackSel.addEventListener('change', () => { location.search = '?track=' + encodeURIComponent(trackSel.value); });

@@ -19,7 +19,17 @@ def test_chain_ways_rejects_gap():
     raise AssertionError("Luecke wurde nicht erkannt")
 
 
+def test_fit_line_ignores_outliers():
+    s = np.arange(100, dtype=float)
+    y = 2.0 + 0.01 * s
+    y[40:50] += 3.0   # Fahrzeug oder Stuetze im Profil
+    coef, share = T.fit_line(s, y)
+    assert abs(coef[0] - 0.01) < 1e-6 and abs(coef[1] - 2.0) < 1e-6
+    assert abs(share - 0.9) < 1e-9
+
+
 if __name__ == "__main__":
+    test_fit_line_ignores_outliers()
     test_chain_ways_uses_inner_nodes_and_closes()
     test_chain_ways_rejects_gap()
     print("ok")

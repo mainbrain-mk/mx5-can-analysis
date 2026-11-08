@@ -29,6 +29,10 @@ def test_corners_by_direction_numbers_arcs_in_driving_order():
     assert corners[0]["x"] > 90 and corners[1]["x"] < -90
 
 
+def test_track_without_pit_segments_loads_none():
+    assert E.load_pit_segments({"model": "gibt-es-nicht.json"}, np.zeros(2)) == []
+
+
 def test_unknown_track_is_rejected():
     try:
         E.Editors()["gibtsnicht"]
@@ -67,6 +71,7 @@ def test_hard_target_is_exact_after_optimizing():
 
 if __name__ == "__main__":
     test_corners_by_direction_numbers_arcs_in_driving_order()
+    test_track_without_pit_segments_loads_none()
     test_unknown_track_is_rejected()
     test_brush_hits_target_and_ends_smoothly()
     test_brush_wraps_over_closure()

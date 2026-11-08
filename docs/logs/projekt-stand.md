@@ -7485,3 +7485,28 @@ Die neue Oschersleben-Ideallinie ist wieder von drei Startlinien aus praktisch g
 Prüfungen: eigene Spline-Rechnung (analytische Krümmung, ohne Schaltlücken) 101,99 s, 0,6 s über der Simulation, weil das ±6-m-Fenster in den engen Kehren die Krümmung etwas unterschätzt; Scheiteltempo dort 0,2–0,6 km/h niedriger. Querbeschleunigung 0,97 g im 3-m-Fenster, 0,91 g ab 6 m, kleinster Radius 12,2 m. Raster 1,5 m: höchstens 0,30 m Abweichung. Querruck 2,42 g/s, Gierbeschleunigung 71 °/s² (108), Lenkgeschwindigkeit 108 °/s (240). Spitze 154 km/h, langsamster Punkt 38 km/h, 7 Schaltungen, Gänge 2–4. Das NLP-Ziel (102,57 s) enthält die Strafe auf die Krümmungsänderung, die in den Kehren stärker wirkt.
 
 Editor: Spreewaldring startet mit dieser Linie (Editor-Ausgang 101,36 s), neuer Speicherschlüssel `..._edits_v4_ideallinie`. Die alte Liste bleibt im Browser unter v3, frühere Nutzerlinie in `data/track/spreewaldring_nutzerlinie_2026-11-08.json`.
+
+## Oschersleben: Boxengasse im Streckenmodell (2026-11-08)
+
+Nutzerauftrag mit Skizze auf dem Editor-Bild (rot Fastlane, grün Arbeitsbereich vor den Boxen, gelb Zu-/Ausfahrt), Hinweis: Turm und Boxengebäude werfen Schatten auf die Boxengasse. Ablauf in `scripts/oschersleben_track_model.py` (`build_pit()`), neue Segmente im Modell-JSON, die Hauptschleife ist unverändert (Abweichung 0,0 m), Ideallinie und Rundenzeiten gelten weiter.
+
+**Skizze aufs Orthofoto:** Bild per Mehrskalen-Korrelation auf das DOP gelegt (Maßstab 1,096 DOP-Pixel je Bildpixel, Korrelation 0,94). Querprofil in der Mitte, quer zur roten Linie: sonniger Asphalt am Mauerfuß bis +1,6 m, Schatten ab −0,5 m, gestrichelte Markierung bei −2,75 m (nur im 92-%-Quantil längs erkennbar), dunklerer Streifen −3,5 bis −7,5 m, Gebäudefront bei −10,8 m.
+
+**Nutzerentscheide (nachgefragt):** Rot und Grün sind ungefähre Mitten; die Grenze Fastlane/Arbeitsbereich ist die gestrichelte Markierung. Die gelben Pfeile sind Anbindungen ans Fahrerlager (Ost um den Turm in die Boxengasse, West aus der Boxengasse ins Fahrerlager).
+
+**Verfahren:** Einfahrt und Ausfahrt mit `build_segment()` aus Bild und OSM-Weg 89254337. Vor den Boxen keine verfolgbare Linie wegen des Schattens: Mauerfuß (hell → Asphalt) und Gebäudefront (dunkel → hell) je als Gerade gefittet, Ausreißer werden verworfen. Die Einfahrt beginnt an der weißen Querlinie vor Kurve 14, davor ist sie noch Strecke (ein erster Versuch ab dem OSM-Abzweig lief 30 m übers Kiesbett). Die Fahrerlager-Anbindungen sind nur Mittellinien, dort ist die Fläche offen.
+
+| Segment | Länge | Breite Median |
+|---|---:|---:|
+| `pit_entry` | 491,8 m | 4,70 m |
+| `pit_fastlane` | 267,0 m | 4,05 m |
+| `pit_work_area` | 249,0 m | 8,83 m |
+| `pit_exit` | 310,1 m | 6,21 m |
+| `paddock_east` | 24,0 m | nur Mittellinie |
+| `paddock_west` | 19,9 m | nur Mittellinie |
+
+Einfahrt + Fastlane + Ausfahrt 1068,9 m; der OSM-Weg ab dem Abzweig hat 1098 m, die Differenz sind die 30 m bis zur Querlinie. Mauerfuß und Gebäudefront passen zu 88 / 86 % der Stationen, die Markierung liegt 4,05 m neben dem Mauerfuß (das Querprofil allein ergab etwa 4,3 m). Die Ausfahrt ist am Zusammenschluss bis 9,3 m breit (p95), dort gibt es keine Trennlinie zur Strecke.
+
+**Nicht gemacht:** Keine Boxenstopp- oder Boxengassen-Zeit, keine Anzeige im Editor, Geschwindigkeitsbegrenzung nicht modelliert.
+
+**Nachtrag (08.11.2026), Boxengasse im Editor:** Oschersleben zeichnet die Boxengasse als reine Anzeige unter die Strecke (`pit_segments` in `TRACKS`, `load_pit_segments()`): Einfahrt, Fastlane und Ausfahrt blau, Arbeitsbereich orange, Fahrerlager-Anbindungen gestrichelt, dazu ein Legendeneintrag. Die Rundensimulation fährt sie nicht. Spreewaldring bleibt ohne Anzeige, dessen Modell-Segmente sind nicht eingetragen. Geprüft im Browser: Oschersleben 113,40 s, Spreewaldring 101,36 s, keine Konsolenfehler.
