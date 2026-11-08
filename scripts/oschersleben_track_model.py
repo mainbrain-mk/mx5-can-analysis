@@ -67,6 +67,14 @@ PADDOCK_WEST = np.array([[656208.00, 5766548.59], [656203.18, 5766529.30]])     
 WALL_BAND_M, BUILDING_BAND_M = (0.4, 3.2), (-12.0, -9.0)   # quer zur Achse, Nord positiv, aus dem Querprofil
 DASH_BAND_M = (-5.5, -3.2)         # relativ zum Mauerfuss, die Schattenkante liegt bei -1,6 m
 PIT_SEARCH_M = (0.5, 9.0)
+# Boxenstart in der Editor-Wiedergabe (Nutzerskizze 08.11.2026)
+PIT_LIMIT_END = np.array([656180.11, 5766564.81])   # gelbe Linie = weisse Querlinie am Westende der Boxen, bis hier 80 km/h
+PIT_JOIN_LINE = np.array([[655937.63, 5766577.72], [655915.77, 5766590.67],
+                          [655902.28, 5766600.92], [655893.78, 5766608.75]])  # orange Linie ab der Kehre; erster Skizzenpunkt
+                                                                              # lag innen in der Kehre (R 9 m statt Fahrbahnmitte)
+PIT_PULLOUT_M = 30.0               # Weg aus dem Arbeitsbereich auf die Mitte der Fastlane
+PIT_PATH_SMOOTH_M = 3.0
+PIT_EXIT_BLEND_M = 40              # Ausfahrt-Mittellinie erst ab hier: am Uebergang liegt sie rund 3 m neben der Fastlane
 PIT_ENTRY_START = np.array([656720.8, 5766528.4])   # weisse Querlinie vor Kurve 14, davor ist die Einfahrt noch Strecke
 
 
@@ -228,6 +236,24 @@ def build_pit(guide_entry, guide_exit, line_img, asphalt_img, gray, geo, dgm):
                        for name, g in (("pit_entry", entry_guide), ("pit_exit", exit_guide)))
     return [entry, fastlane, work_area, pit_exit, center_segment("paddock_east", PADDOCK_EAST, dgm),
             center_segment("paddock_west", PADDOCK_WEST, dgm)]
+
+
+def pit_out_path(model):
+    """Weg ab der mittleren Box bis zum Anschluss an die Ideallinie, 1-m-Raster, UTM. Liefert (Punkte, Station des Limit-Endes).
+    model: "segments" des Streckenmodells. Aus dem Arbeitsbereich laeuft die Linie weich auf die Mitte der Fastlane."""
+    fast, work, out = (np.array(model[k]["center"]) for k in ("pit_fastlane", "pit_work_area", "pit_exit"))
+    first_work = int(np.ceil(PIT_WORK_S_M[0]))         # Station der ersten Zeile des Arbeitsbereichs
+    box = first_work + len(work) // 2
+    fade = np.clip((np.arange(len(fast)) - box) / PIT_PULLOUT_M, 0, 1)
+    offset = np.zeros_like(fast)
+    in_work = np.arange(first_work, min(len(fast), first_work + len(work)))
+    offset[in_work] = work[in_work - first_work] - fast[in_work]
+    lane = (fast + offset * (0.5 + 0.5 * np.cos(np.pi * fade))[:, None])[box:]
+    last = int(np.argmin(np.linalg.norm(out - PIT_JOIN_LINE[0], axis=1)))
+    path = M.resample(np.vstack([lane, out[PIT_EXIT_BLEND_M:last], PIT_JOIN_LINE]), M.STEP_M, False)
+    path = M.gaussian_filter1d(path, PIT_PATH_SMOOTH_M, axis=0, mode="nearest")
+    s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(path, axis=0).T))]
+    return path, float(s[int(np.argmin(np.linalg.norm(path - PIT_LIMIT_END, axis=1)))])
 
 
 def write_model(segments, geo, photo):

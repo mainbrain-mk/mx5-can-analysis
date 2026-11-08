@@ -48,7 +48,7 @@ from spreewaldring_lap_simulation import (
     limiter_factor, literature_vehicle, throttle_trace,
 )
 from spreewaldring_racing_line_optimal import (
-    BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, simulate_lap_full, steer_from_radius,
+    BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, lon_avail, simulate_lap_full, steer_from_radius,
 )
 from performance_simulation import REDLINE_RPM
 
@@ -89,6 +89,17 @@ MIN_NOTCH_STEER_DEG = 0.3
 MAX_NOTCH_RADIUS_M = 400.0
 MAX_NOTCH_PASSES = 8
 STANDING_START_DT_S = 1 / 60
+# Boxenstart (Oschersleben, Nutzerwunsch 08.11.2026): in der Boxengasse Alltagsfahrt, bis zur gelben Linie hoechstens 80 km/h.
+# ponytail: Alltagswerte geschaetzt, nicht aus den Logs; hier nachstellen, falls es sich falsch anfuehlt.
+PIT_LIMIT_KMH = 80.0
+PIT_ACCEL_MS2 = 1.2
+PIT_LAT_MS2 = 2.0
+PIT_UPSHIFT_RPM = 2800.0
+PIT_KICKDOWN_MAX_RPM = 4500.0       # hinter der gelben Linie: Runterschalten nur bis zu dieser Drehzahl
+PIT_IDLE_RPM = 850.0                # Anzeige beim Anfahren, das Modell kennt keine schleifende Kupplung
+PIT_CURVATURE_WINDOW_M = 6.0
+PIT_JOIN_MAX_POINTS = 300           # so weit darf der Anschluss auf der Ideallinie dauern
+PIT_MAX_STEPS = 30000
 
 Track = namedtuple("Track", "center left right perp lo hi")
 
@@ -166,6 +177,7 @@ TRACKS = {
                          assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v2",
                          label_positions={2: (655865.7, 5766648.9), 10: (655742.0, 5766881.0)},  # vom Nutzer in der Karte gesetzt
                          pit_segments=("pit_entry", "pit_fastlane", "pit_exit", "pit_work_area", "paddock_east", "paddock_west"),
+                         pit_start=True,
                          source="Motorsport Arena Oschersleben · Streckenmodell aus OSM, DOP20 und DGM1 (LVermGeo Sachsen-Anhalt, dl-de/by-2-0)"),
 }
 
@@ -173,12 +185,13 @@ TRACKS = {
 def load_pit_segments(cfg, origin):
     """Boxengasse aus dem Streckenmodell, nur zur Anzeige: Raender oder (Fahrerlager-Anbindung) nur Mittellinie."""
     if "pit_segments" not in cfg:
-        return []
+        return [], None
     with open(cfg["model"], encoding="utf-8") as f:
         segments = json.load(f)["segments"]
     keys = lambda name: ("left", "right") if "left" in segments[name] else ("center",)
-    return [{"name": name, **{k: np.round(np.array(segments[name][k]) - origin, 2).tolist() for k in keys(name)}}
-            for name in cfg["pit_segments"]]
+    out = [{"name": name, **{k: np.round(np.array(segments[name][k]) - origin, 2).tolist() for k in keys(name)}}
+           for name in cfg["pit_segments"]]
+    return out, segments
 
 
 def load_editor_data(name=DEFAULT_TRACK):
@@ -211,7 +224,12 @@ def load_editor_data(name=DEFAULT_TRACK):
     for c in corners:
         if c["number"] in cfg.get("label_positions", {}):
             c["x"], c["y"] = (np.array(cfg["label_positions"][c["number"]]) - origin).tolist()
-    reused["pit_segments"] = load_pit_segments(cfg, origin)
+    reused["pit_segments"], model = load_pit_segments(cfg, origin)
+    reused["pit_path"] = None
+    if cfg.get("pit_start"):
+        path, reused["pit_limit_end_s"] = OSCHERSLEBEN.pit_out_path(model)
+        reused["pit_path"] = path - origin
+        reused["pit_segments"].append({"name": "pit_out_path", "center": np.round(reused["pit_path"], 2).tolist()})
     track = Track(center - origin, left - origin, right - origin, perp, lo, hi)
     return track, n_lat_start, corners, reused
 
@@ -350,6 +368,99 @@ def recompute_from_edits(track, baseline, edits, veh, natural=False, brake_cap_g
     return pinned_optimize(track, n_lat, edits, veh, natural, brake_cap_g)
 
 
+def start_clutch(rows, dt, veh):
+    """Kupplungspedal einer Startfahrt: Anfahren schleift bis launch_end_kmh, danach ihre Schaltungen. rows: (s, v, Gang, ...)."""
+    t_rows = np.arange(len(rows)) * dt
+    t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
+    ups = [(t, veh.shift_s[(max(r0[2], r1[2]) - 1, max(r0[2], r1[2]))], r0[2], r1[2])  # auch Spruenge ueber mehrere Gaenge
+           for t, r0, r1 in zip(t_rows[1:], rows, rows[1:]) if r1[2] != r0[2]]
+    on_lap = clutch_trace(ups, t_rows[-1] + dt)
+    on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
+    return np.maximum(clutch_launch(t_rows, t_end), on_lap)
+
+
+def pit_start_trace(sim, pts, veh, path, s_limit_end):
+    """Reine Anzeige-Zugabe wie standing_start_trace(): Fahrt aus der Box ueber path bis auf die Ideallinie. Bis s_limit_end
+    Alltagsfahrt (PIT_*), danach Vollgas und Grip-Grenze; Uebergabe in die Runde, sobald das Rundentempo erreicht ist."""
+    f, n_path = veh.speed_factor, len(path)
+    lap_v = sim["v"]
+    join = int(np.argmin(np.linalg.norm(pts - path[-1], axis=1)))
+    lap_idx = (join + np.arange(1, PIT_JOIN_MAX_POINTS)) % len(pts)
+    xy = np.vstack([path, pts[lap_idx]])
+    ds = np.hypot(*np.diff(xy, axis=0).T)
+    station = np.r_[0.0, np.cumsum(ds)]
+    w = int(round(PIT_CURVATURE_WINDOW_M))
+    r_path = compute_curvature_radius(path, PIT_CURVATURE_WINDOW_M, 1.0)
+    r_path[:w], r_path[-w:] = r_path[w], r_path[-w - 1]         # offene Linie, die Formel rechnet zyklisch
+    radius = np.r_[r_path, sim["radius"][lap_idx]]
+    lat_max = veh.lat_g * G
+    in_pit = station < s_limit_end
+    limit = np.minimum(np.sqrt(np.where(in_pit, PIT_LAT_MS2, lat_max) * radius),
+                       np.where(in_pit, PIT_LIMIT_KMH / 3.6, 1e3))
+    limit[n_path - 1] = min(limit[n_path - 1], lap_v[join])
+    limit[n_path:] = lap_v[lap_idx]
+    for i in range(len(limit) - 2, -1, -1):                     # Bremsen vor Engstellen und vor dem Anschluss
+        brake = lon_avail(min(limit[i + 1] ** 2 / radius[i], lat_max), veh, veh.brake_g)
+        limit[i] = min(limit[i], math.sqrt(limit[i + 1] ** 2 + 2 * brake * ds[i]))
+
+    s, v, gear, shift_t, free, dt = 0.0, 0.0, 1, 0.0, False, STANDING_START_DT_S
+    rows = [(s, v, gear, False, False, 0)]
+    for _ in range(PIT_MAX_STEPS):
+        i = min(int(np.searchsorted(station, s, side="right")) - 1, len(ds) - 1)
+        a = 0.0
+        shifting = shift_t > 0
+        if shifting:
+            a, shift_t = coast_true(v, f), max(0.0, shift_t - dt)
+        elif s < s_limit_end:
+            a_eng, rpm = accel_true(v, gear, f)
+            if gear < 6 and rpm > PIT_UPSHIFT_RPM:
+                gear, shift_t, shifting = gear + 1, veh.shift_s[(gear, gear + 1)], True
+            else:
+                a = min(PIT_ACCEL_MS2, a_eng, lon_avail(min(v ** 2 / radius[i], lat_max), veh, veh.accel_g))
+        else:
+            # einmal runterschalten fuer Vollgas, aber nicht bis knapp unter die Redline
+            usable = [g for g in range(1, 7) if accel_true(v, g, f)[1] <= PIT_KICKDOWN_MAX_RPM] or [gear]
+            best = gear if free else max(usable, key=lambda g: accel_true(v, g, f)[0])
+            free = True
+            a_cur, rpm = accel_true(v, gear, f)
+            if best != gear:
+                top = max(gear, best)
+                gear, shift_t, shifting = best, veh.shift_s[(top - 1, top)], True
+            elif gear < 6 and (rpm >= REDLINE_RPM or accel_true(v, gear + 1, f)[0] > a_cur):
+                gear, shift_t, shifting = gear + 1, veh.shift_s[(gear, gear + 1)], True
+            else:
+                a = min(a_cur, lon_avail(min(v ** 2 / radius[i], lat_max), veh, veh.accel_g))
+        v_free = max(v + a * dt, 0.0)
+        v_limit = float(np.interp(s, station, limit))
+        v = min(v_free, v_limit)
+        s += v * dt
+        rows.append((s, v, gear, shifting, v_free > v_limit + 1e-6, i))
+        on_lap = i >= n_path
+        if (on_lap and v >= lap_v[lap_idx[i - n_path]] - 1e-3) or s >= station[-1]:
+            break
+    idx = rows[-1][5]
+    join_index = lap_idx[max(idx - n_path, 0)]
+
+    sr, vr = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
+    gears, seg = np.array([r[2] for r in rows]), np.array([r[5] for r in rows])
+    step = np.maximum(0.5 * (vr + np.r_[vr[1:], vr[-1]]) * dt, 1e-6)
+    load, tp, pedal = throttle_trace(vr, gears, step, veh)
+    load[-1], tp[-1], pedal[-1] = load[-2], tp[-2], pedal[-2]   # throttle_trace rechnet geschlossen
+    braking = np.array([r[4] for r in rows])
+    pedal = np.where(braking, 0.0, pedal)
+    brake = np.where(braking, np.clip(-np.gradient(vr, dt) / (veh.brake_g * G), 0.0, 1.0) * 100.0, 0.0)
+    rpm = [max(accel_true(v_i, g, f)[1], PIT_IDLE_RPM) for v_i, g in zip(vr, gears)]
+    tangents = np.diff(xy, axis=0) / ds[:, None]
+    sign = turn_sign(xy, w)[seg]
+    steer = np.clip(np.degrees(np.arctan(WHEELBASE_M / np.maximum(radius[seg], 1.0))) * STEERING_RATIO * sign, -150, 150)
+    return {"dt": dt, "s": round_list(sr, 2), "v": round_list(vr, 3), "gear": gears.tolist(), "rpm": round_list(rpm, 0),
+            "load": round_list(load, 1), "tp": round_list(tp, 1), "pedal": round_list(pedal, 1),
+            "clutch": round_list(start_clutch(rows, dt, veh), 0), "brake": round_list(brake, 1),
+            "x": round_list(np.interp(sr, station, xy[:, 0]), 2), "y": round_list(np.interp(sr, station, xy[:, 1]), 2),
+            "heading": round_list(np.arctan2(tangents[seg, 1], tangents[seg, 0]), 4), "steer": round_list(steer, 1),
+            "joinT": float(sim["t"][join_index])}
+
+
 def standing_start_trace(sim, veh):
     """Reine Anzeige-Zugabe (Nutzerwunsch 09.09.2026): stehender Start bei der ersten Wiedergabe, Vollgas-Sprint bis zum
     Rundentempo an derselben Stelle. Greift nicht in Rundenzeit oder Linie ein."""
@@ -378,14 +489,7 @@ def standing_start_trace(sim, veh):
             rpm = [accel_true(r[1], r[2], f)[1] for r in rows]
             frac = [0.0 if r[3] else limiter_factor(n, r[2]) for r, n in zip(rows, rpm)]
             load, tp, _ = engine_controls(frac, rpm, [not r[3] for r in rows])
-            # Kupplung: Anfahren schleift bis launch_end_kmh, danach die Schaltungen des Sprints
-            t_rows = np.arange(len(rows)) * dt
-            t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
-            ups = [(t, veh.shift_s[(r0[2], r1[2])], r0[2], r1[2]) for t, r0, r1 in zip(t_rows[1:], rows, rows[1:])
-                   if r1[2] != r0[2]]
-            on_lap = clutch_trace(ups, t_rows[-1] + dt)
-            on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
-            clutch = np.maximum(clutch_launch(t_rows, t_end), on_lap)
+            clutch = start_clutch(rows, dt, veh)
             return {"dt": dt, "s": [r[0] for r in rows], "v": [r[1] for r in rows], "gear": [r[2] for r in rows],
                     "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1), "clutch": round_list(clutch, 0),
                     "pedal": [0 if r[3] else 100 for r in rows], "joinT": float(sim["t"][i])}
@@ -468,7 +572,9 @@ class Editor:
         out, sim = self.result(n_lat, veh, cap, natural)
         pts = points_from_n_lat(self.track, baseline)
         out["baselineLapTime"] = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=cap)["lap_time_s"]
-        out["standingStart"] = standing_start_trace(sim, veh)
+        out["standingStart"] = (pit_start_trace(sim, points_from_n_lat(self.track, n_lat), veh, self.reused["pit_path"],
+                                                self.reused["pit_limit_end_s"])
+                                if self.reused["pit_path"] is not None else standing_start_trace(sim, veh))
         return out
 
     def simulate(self, body):
@@ -1598,7 +1704,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i],
                      load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i],
-                     clutch: startTrace.clutch[i], clock};
+                     clutch: startTrace.clutch[i], brake: startTrace.brake?.[i] ?? 0, steer: startTrace.steer?.[i], clock};
   }
 
   function positionFromArcLength(pts, sim, sNow){
@@ -1632,8 +1738,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   function drawCar(pts, w, h){
     if (!lastSim) return;
-    const {x, y, i, heading} = standingStart
-      ? positionFromArcLength(pts, lastSim, standingStart.s)
+    // Boxenstart: eigene Bahn aus dem Dienst statt einer Position auf der Ideallinie
+    const pitK = standingStart && startTrace && startTrace.x
+      ? Math.min(Math.floor(standingStart.clock / startTrace.dt), startTrace.x.length - 1) : null;
+    const {x, y, i, heading} = pitK !== null
+      ? {x: startTrace.x[pitK], y: startTrace.y[pitK], i: 0, heading: startTrace.heading[pitK]}
+      : standingStart ? positionFromArcLength(pts, lastSim, standingStart.s)
       : carPositionAt(pts, lastSim, sim_.t);
     const [sx, sy] = project([x,y], w, h);
     // Bildschirm-Blickwinkel (Nord=oben, Weltwinkel invertiert) fuer die Rotation beruecksichtigen
@@ -1660,7 +1770,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // Pedal aus throttle_trace() (Tempoverlauf rueckwaerts ueber Fahrleistungsmodell und Teillastkennfeld).
     const isCoasting = !standingStart && !!lastSim.coasting[i];
     const braking = !standingStart && !isCoasting && lastSim.vFinal[i] < lastSim.vFwd[i]-1e-3;
-    const brakePct = braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0;
+    const brakePct = standingStart ? Math.round(standingStart.brake || 0) : (braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0);
     document.getElementById('brakeFill').style.height = brakePct + '%';
     const clutchPct = standingStart ? standingStart.clutch
       : (lastSim.clutchPct[Math.min(Math.floor(sim_.t / lastSim.clutchDt), lastSim.clutchPct.length - 1)] ?? 0);
@@ -1697,7 +1807,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const cross = (p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]);
     const turnSign = cross > 0 ? -1 : (cross < 0 ? 1 : 0);
     const roadWheelDeg = Math.atan(WHEELBASE_M/Math.max(lastSim.radius[i],1)) * 180/Math.PI * turnSign;
-    const wheelDeg = Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
+    const wheelDeg = standingStart && standingStart.steer != null
+      ? standingStart.steer : Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
     document.getElementById('wheelRotor').style.transform = `rotate(${wheelDeg}deg)`;
     dashState = {speed_kmh: (standingStart ? standingStart.v : lastSim.vFinal[i])*3.6,
                  rpm: standingStart ? standingStart.rpm : lastSim.rpm[i],

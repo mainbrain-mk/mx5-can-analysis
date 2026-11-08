@@ -30,7 +30,23 @@ def test_corners_by_direction_numbers_arcs_in_driving_order():
 
 
 def test_track_without_pit_segments_loads_none():
-    assert E.load_pit_segments({"model": "gibt-es-nicht.json"}, np.zeros(2)) == []
+    assert E.load_pit_segments({"model": "gibt-es-nicht.json"}, np.zeros(2)) == ([], None)
+
+
+def test_pit_start_keeps_limit_and_joins_the_lap():
+    veh = literature_vehicle(1.0)
+    n = 400
+    pts = np.c_[np.arange(n) * 3.0 + 300.0, np.zeros(n)]
+    lap_v = np.full(n, 30.0)
+    sim = {"v": lap_v, "t": np.arange(n) * 3.0 / 30.0, "radius": np.full(n, 1e9)}
+    path = np.c_[np.arange(0.0, 300.0), np.zeros(300)]
+    tr = E.pit_start_trace(sim, pts, veh, path, 200.0)
+    s, v = np.array(tr["s"]), np.array(tr["v"])
+    assert v[0] == 0.0 and v[s < 200.0].max() <= E.PIT_LIMIT_KMH / 3.6 + 1e-3
+    assert np.diff(v[s < 150.0]).max() <= E.PIT_ACCEL_MS2 * tr["dt"] + 1e-3   # moderat, kein Vollgas
+    assert v[-1] >= 30.0 - 1e-3 and s[-1] > 200.0                             # Uebergabe im Rundentempo
+    assert 0.0 <= tr["joinT"] < sim["t"][-1] and len(tr["x"]) == len(s)
+    assert tr["x"][0] == 0.0 and abs(tr["x"][-1] - s[-1]) < 2.0
 
 
 def test_unknown_track_is_rejected():
@@ -72,6 +88,7 @@ def test_hard_target_is_exact_after_optimizing():
 if __name__ == "__main__":
     test_corners_by_direction_numbers_arcs_in_driving_order()
     test_track_without_pit_segments_loads_none()
+    test_pit_start_keeps_limit_and_joins_the_lap()
     test_unknown_track_is_rejected()
     test_brush_hits_target_and_ends_smoothly()
     test_brush_wraps_over_closure()
