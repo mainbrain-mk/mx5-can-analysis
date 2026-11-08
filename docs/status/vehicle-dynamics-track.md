@@ -100,12 +100,18 @@ die streckenbezogenen Themen.
   Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge. Geprüft 08.11.: Die Linien verlangen beim Umsetzen
   nicht mehr als in den Logs gezeigt (Querruck ≤ 2,2 g/s, Gierbeschl. ≤ 60 °/s²), und in engen Kurven gibt es keinen
   Beleg für weniger Quergrip (folgt dem Lenkrad bis 0,82 g). Eine Grenze dafür bräuchte Daten am Limit.
+- **Beschleunigung der Simulation gegen die Logs (08.11.):** Vollgasabschnitte je Gang (CAN, bereinigt um Steigung,
+  Wind, Luftdichte, Masse) gemessen/Simulation Gang 2/3/4 0,98/0,99/1,00, roh 0,93/0,97/0,99; Gang 1 0,80 (Traktion,
+  n=10), Gang 5/6 1,04/1,16 (bekannt offen, auf der Runde nicht genutzt). Durchzüge mit Schaltungen unter gleichen
+  Bedingungen: real 1-5 % schneller (50-100 0,95, 80-130 0,99, 100-150 0,95). Die Simulation rechnet mit Referenzluft
+  1,20 kg/m³ und 1181 kg, an kalten Tagen ist das Auto in echt einige Prozent schneller.
 - **Rundenzeit-Optimierung (08.11., `spreewaldring_lap_time_optimizer.py`):** minimiert die Rundenzeit von
   `simulate_lap_full()` direkt (Koordinatenabstieg über Querversätze alle ~12 m, periodischer Spline), Start = Nutzerlinie
   aus dem Editor (102,94 s). Grenzen: Korridor wie im Editor (weiße Linie, keine Curbs, Nutzerentscheid), Lenkrate ≤ 240 °/s,
   Querruck ≤ 2,7 g/s, Gierbeschleunigung ≤ 108 °/s² (in den Logs gezeigt). Ergebnis **101,32 s** im Editor nachgerechnet
   (Optimierer 101,28 s, 0,04 s davon Radius-Knicke, die der Editor glättet); Ausgangslinie 104,35 s. Import in den Editor:
-  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten).
+  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten). **Seit 08.11.
+  Standard-Ausgangslinie des Editors** (NS-R2 101,32 s, Literatur 96,01 s); ohne die Ergebnisdatei die alternierende Linie.
 - **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
   über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h
   (16 000 U/min) 4,5 m/s². Der Limiter-Faktor schneidet das jetzt ab, die alten Mittellinien-Zeiten unten waren zu schnell.

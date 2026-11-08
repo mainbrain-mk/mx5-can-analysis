@@ -46,6 +46,8 @@ from performance_simulation import REDLINE_RPM
 
 ANIMATION_HTML_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_animation.html")
 START_LINE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_optimal_summary.json")
+# Seit 08.11.2026 (Nutzerwunsch) die auf Rundenzeit optimierte Linie, falls vorhanden; schon in Editor-Reihenfolge
+OPTIMIZED_LINE_PATH = os.path.join(RESULTS_DIR, "spreewaldring_lap_time_optimizer.json")
 
 DEFAULT_PORT = 8732
 MAX_REQUEST_BYTES = 5_000_000
@@ -102,8 +104,8 @@ def load_editor_data():
     center, left, right = load_corridor()
     tangents = compute_tangents_closed(center)
     lo, hi, perp = corridor_bounds(center, left, right, tangents)
-    # Alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven nacheinander, rund 1,9 s langsamer):
-    # beste Iteration, nicht die neu gerasterte Endlinie, nur sie hat dieselben Punkte wie der Korridor.
+    # Rueckfall ohne OPTIMIZED_LINE_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
+    # nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor.
     with open(START_LINE_SUMMARY_PATH, encoding="utf-8") as f:
         optimal = json.load(f)
     start_points = np.array(min(optimal["snapshots"], key=lambda s: s["lap_time_s"])["points_utm33"])
@@ -113,6 +115,11 @@ def load_editor_data():
     roll = int(np.argmin(np.linalg.norm(center - np.array(START_FINISH_UTM33), axis=1)))
     center, left, right, perp = (np.roll(a, -roll, axis=0) for a in (center, left, right, perp))
     lo, hi, n_lat_start = (np.roll(a, -roll, axis=0) for a in (lo, hi, n_lat_start))
+    if os.path.exists(OPTIMIZED_LINE_PATH):
+        with open(OPTIMIZED_LINE_PATH, encoding="utf-8") as f:
+            optimized = np.array(json.load(f)["n_lat"])
+        if len(optimized) == len(center):  # passt nicht mehr, wenn sich das Streckenmodell aendert
+            n_lat_start = np.clip(optimized, lo, hi)
 
     reused = load_reused_assets()
     origin = np.array(reused["origin_utm33"])

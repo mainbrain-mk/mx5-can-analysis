@@ -7359,3 +7359,45 @@ Linie (Abweichung 0), eine Neuberechnung dauert dann ~6 s. Datei:
 `results/spreewaldring_lap_time_optimizer_editor_import.json`. Weiter bearbeiten lässt sie sich so kaum (alle
 Punkte hart). Bleibt offen: Knick-Grenze in den Optimierer, kleinere Schritte, anderer Startpunkt (Ausgangslinie)
 gegen lokale Optima.
+
+### Optimierte Linie ist die Editor-Ausgangslinie (2026-11-08)
+
+Nutzerwunsch: die optimierte Linie beim Start laden. `load_editor_data()` nimmt `n_lat` aus
+`results/spreewaldring_lap_time_optimizer.json`, wenn die Datei da ist und zur Punktzahl des Streckenmodells passt,
+sonst wie bisher die beste Iteration der alternierenden Linie. Die einmalige Bereinigung (`pinned_optimize` ohne
+Fixpunkte) glättet die Radius-Knicke: NS-R2 101,32 s (bisher 104,35 s), Literatur 96,01 s (bisher 99,16 s), höchstens
+0,16 m Abweichung zur Optimierer-Linie. Im Browser gespeicherte Bearbeitungen setzen jetzt auf der neuen Linie auf.
+
+### Passt die Beschleunigung der Simulation zu den Logs? (2026-11-08)
+
+Nutzerfrage. Geprüft wird, was die Rundensimulation rechnet: `accel()` mit Limiter-Faktor und Traktionsgrenze,
+Referenzmasse 1181 kg, Referenzluft 1,20 kg/m³, Schaltlücken p10 unter Last.
+
+**Je Gang** (459 CAN-Vollgasabschnitte aus `drivetrain_model_validation_summary.json`, Stand 07.11.; Messung auf
+flache Straße, Windstille, Referenzluft und -masse umgerechnet über die Modell-Differenzen je Abschnitt):
+
+| Gang | n | gemessen/Simulation roh | bereinigt (p25-p75) |
+|---|---:|---:|---|
+| 1 | 10 | 0,73 | 0,80 (0,76-0,95) |
+| 2 | 53 | 0,93 | 0,98 (0,93-1,01) |
+| 3 | 102 | 0,97 | 0,99 (0,96-1,03) |
+| 4 | 67 | 0,99 | 1,00 (0,98-1,05) |
+| 5 | 73 | 1,02 | 1,04 |
+| 6 | 154 | 1,12 | 1,16 |
+
+NS-R2 und Winter getrennt gleich (Gang 2-4 0,97-1,01). Nach Drehzahl (Gang 2-4, bereinigt): 1,05 (2000-3000),
+1,00 (3000-5000), 0,99 (5000-6000), 0,98 (6000-6800). Roh ist die Simulation im 2. Gang ~7 % zu schnell, das sind
+Steigung, Wind, Beifahrer und Luftdichte der echten Fahrten, nicht das Modell.
+
+**Durchzüge mit Schaltungen** (wahre km/h, APP ≥ 95 % außer Schaltdellen < 1,2 s, keine Bremse; Simulation mit
+Luftdichte des Tages, Masse der Fahrt und dem echten Startgang, Steigung nicht bereinigt):
+50-100 n=11 real 4,52 s / Sim 4,70 s (0,95); 80-130 n=13 5,80 / 6,14 s (0,99); 100-150 n=7 8,02 / 8,18 s (0,95).
+Mit der Median-Schaltlücke statt p10 wäre die Simulation noch 0,2-0,5 s langsamer. Die Durchzüge mit einer
+Schaltung sind ~4 % schneller als die ohne, das deutet auf eine etwas kleinere wirksame Lücke bei harten Zügen
+(n klein, Steigung offen). Lässt man die Simulation selbst den Gang wählen, startet sie bei 50 km/h im 1. und
+schaltet zweimal (4,84 s); auf der Runde kommt der 1. Gang nicht vor.
+
+**Fazit:** In den Gängen der Runde (2-4) liegt die Simulation innerhalb von 2 %, über ganze Durchzüge ist sie 1-5 %
+vorsichtig. Gang 1 ist ~20 % zu optimistisch (Traktion/TCS, betrifft nur den stehenden Start im Editor), Gang 5/6
+zu pessimistisch (offener Punkt, auf der Runde nicht genutzt). Referenzluft und Referenzmasse gehören zur Rundenzeit
+dazu: an einem kalten Tag ohne Beifahrer wäre das Auto einige Prozent schneller.
