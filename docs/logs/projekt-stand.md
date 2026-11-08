@@ -7303,3 +7303,59 @@ Zurückschalt-Verlauf, über den Rundenanfang hinweg. Der stehende Start im Edit
 Alternierende Linie: 9 Schaltungen je Runde, Kupplung ~11 % der Zeit getreten. Nur Anzeige (Editor-Balken, Dash
 über `Clutch_Pedal_Position_raw`, färbt dort die Ganganzeige); die Rundenzeit rechnet weiter nur mit der Lücke.
 Grenzen: Alltagsfahrten, kein Rennstrecken-Schalten; das Anfahren ist für einen Vollgasstart nur eine Näherung.
+
+### Umsetzen und enge Kehren: Prüfung gegen die Logs (2026-11-08)
+
+Nutzerfrage: Wie bringen wir dem Modell das Umsetzen der Karosserie bei (offener Punkt „enge V-Linie in Kehren“)?
+Anlass: Die Nutzerlinie (Editor-Edits, 102,94 s statt 104,35 s) gewinnt in 16 von 20 Abschnitten 0,02-0,24 s, also
+keine einzelne Modelllücke; eine direkte Rundenzeit-Optimierung soll folgen.
+
+**Umsetzen (NS-R2-CAN-Logs, 0,5-s-Mittel, über 30 km/h):** Querruck höchstens 1,8-2,7 g/s je Fahrt, p99,9 0,72 g/s;
+Gierbeschleunigung (`YawRate_CAN`) höchstens 108 °/s², p99,9 38 °/s². Die Simulation verlangt auf beiden Linien
+höchstens 2,2 g/s (Ausgangslinie) bzw. 2,1 g/s und 60 °/s², am meisten in der Kehre um Index 595 (R 17 m, 40 km/h)
+und bei Index 659. Eine Umsetz-Grenze in Höhe des Gezeigten griffe also kaum; mit Alltagsniveau (p99,9) an ~2 % der Runde.
+
+**Grip gegen Radius** (R = v/Gierrate, Querbeschl. 0,5-s-Mittel): höchstens 0,76 g (R < 12 m), 0,81-0,82 g (12-25 m),
+0,75-0,82 g (25-75 m), 0,89-0,90 g (75-160 m). Oberhalb 0,7 g gibt es in engen Kurven nur wenige Fahrten (2-7 je
+Bereich): Alltagsfahrten, die Werte sind Gezeigtes, keine Grenze. **Grenzanzeiger Lenkmodell** (Gierrate gemessen /
+aus Lenkwinkel und Tempo vorhergesagt): bei R < 25 m 0,92-1,04 bis 0,8 g, das Auto folgt dem Lenkrad, die
+Vorderachse schiebt nicht. Bei großen Radien fällt das Verhältnis mit der Querbeschleunigung (0,64-0,75); das ist
+das normale Untersteuern bei Tempo, das das kinematische Lenkmodell nicht enthält, kein Grenzzeichen.
+Die zwei stärksten Fälle in engen Kurven (0,81/0,82 g) sind Leistungsübersteuern mit TCS/DSC (Verhältnis 1,34/2,69):
+01.10. `142300` t = 94,75 s (1. Gang, TCS ab Ellipsenwert ~1,0, also wie im Modell), 26.09. `154000` t = 1043,35 s
+(2. Gang, APP ~50 %, TCS schon ab Ellipsenwert 0,5-0,7).
+
+**Folgerung:** Kein Beleg für weniger Quergrip in engen Kurven und keine Umsetz-Forderung über dem Gezeigten. Die
+V-Linie ist mit den Daten weder widerlegt noch bestätigt; eine radiusabhängige Grip-Grenze wäre geraten. Klären
+würden es nur Daten am Limit in engen Kurven (Strecke oder abgesperrte Fläche). Für die geplante
+Rundenzeit-Optimierung bleibt das Modell, mit Querruck ≤ 2,7 g/s und Gierbeschleunigung ≤ 108 °/s² als Leitplanke
+(das Gezeigte), damit sie keine Übergänge erfindet, die das Auto nie gefahren ist.
+
+### Ideallinie direkt auf die Rundenzeit optimiert (2026-11-08)
+
+Nutzerwunsch: eine schnellere Linie als die eigene Editor-Linie (Edits-Liste vom 08.11., lokal
+`data/track/spreewaldring_nutzerlinie_2026-11-08.json`, 102,94 s; Editor-Ausgangslinie 104,35 s). Streckenrand laut
+Nutzer wie bisher (weiße Linie, keine Curbs; später, falls Curbs ins Modell kommen: zwei Räder drauf).
+
+Neues Skript `scripts/spreewaldring_lap_time_optimizer.py`: Linie = Startlinie + periodischer kubischer Spline durch
+Querversätze an 208 Stützpunkten (alle 4 Punkte, ~12 m). Koordinatenabstieg mit Schritten 0,4/0,2/0,1/0,05 m, je
+Stützpunkt +/−, nur Verbesserungen > 0,1 ms bleiben. Grenzen: Korridor mit 0,10 m Puffer, Lenkrate ≤ 240 °/s,
+Querruck ≤ 2,7 g/s und Gierbeschleunigung ≤ 108 °/s² (0,5-s-Mittel, höchste Werte der NS-R2-Fahrten, siehe
+„Umsetzen und enge Kehren“). 0,17 s je Rundenrechnung, 6453 Rechnungen, 18 min.
+
+**Ergebnis:** 102,94 → 101,28 s (−1,66 s), im Editor nachgerechnet 101,32 s. Die 0,04 s Unterschied: der Optimierer
+erzeugt 10 statt 4 Einzelpunkt-Knicke im Radius, die der Editor (`smooth_single_point_notches`) glättet; ehrlich
+sind 101,32 s. Der letzte Durchgang brachte noch 0,012 s, ausgereizt ist es nicht.
+- Gewinn über fast alle Abschnitte, am meisten um die enge Kehre (Index 582-707: −0,62 s). Dort fährt die neue
+  Linie mit höherem Mindesttempo (35,1 statt 32,9 km/h), also runder, nicht eckiger. Größter Versatz zur
+  Nutzerlinie 1,6 m.
+- Grenzen: Querruck 2,59 g/s (nahe der Leitplanke), Gierbeschl. 66 °/s², Lenkrate 113 °/s. Lenkweg kleiner
+  (2289 statt 2435 Grad), Lenkumkehrungen ähnlich (108 statt 100).
+- Leichte Welle zwischen Index 655 und 675 im Linienbild, passt zu den Radius-Knicken.
+
+**Editor-Import:** Fixpunkte nur an den Stützpunkten taugen nicht (der Editor glättet dazwischen anders: bis 0,84 m,
+103,13 statt 102,94 s an der unveränderten Startlinie). Harte Fixpunkte an allen 832 Punkten geben exakt dieselbe
+Linie (Abweichung 0), eine Neuberechnung dauert dann ~6 s. Datei:
+`results/spreewaldring_lap_time_optimizer_editor_import.json`. Weiter bearbeiten lässt sie sich so kaum (alle
+Punkte hart). Bleibt offen: Knick-Grenze in den Optimierer, kleinere Schritte, anderer Startpunkt (Ausgangslinie)
+gegen lokale Optima.

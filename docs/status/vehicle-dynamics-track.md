@@ -97,7 +97,15 @@ die streckenbezogenen Themen.
   „clutch“) zeitgenau auf jede Schaltung der Simulation (`shift_events`, `clutch_trace()`): Hochschalten um die
   Zugkraftlücke (114 zügige Schaltungen unter Last), Zurückschalten beim Bremsen (251 einzeln, 318 mehrere Gänge),
   Anfahren im stehenden Start (118, endet bei 17 km/h). Nur Anzeige, die Rundenzeit rechnet weiter mit der Lücke. Offen: In
-  Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge.
+  Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge. Geprüft 08.11.: Die Linien verlangen beim Umsetzen
+  nicht mehr als in den Logs gezeigt (Querruck ≤ 2,2 g/s, Gierbeschl. ≤ 60 °/s²), und in engen Kurven gibt es keinen
+  Beleg für weniger Quergrip (folgt dem Lenkrad bis 0,82 g). Eine Grenze dafür bräuchte Daten am Limit.
+- **Rundenzeit-Optimierung (08.11., `spreewaldring_lap_time_optimizer.py`):** minimiert die Rundenzeit von
+  `simulate_lap_full()` direkt (Koordinatenabstieg über Querversätze alle ~12 m, periodischer Spline), Start = Nutzerlinie
+  aus dem Editor (102,94 s). Grenzen: Korridor wie im Editor (weiße Linie, keine Curbs, Nutzerentscheid), Lenkrate ≤ 240 °/s,
+  Querruck ≤ 2,7 g/s, Gierbeschleunigung ≤ 108 °/s² (in den Logs gezeigt). Ergebnis **101,32 s** im Editor nachgerechnet
+  (Optimierer 101,28 s, 0,04 s davon Radius-Knicke, die der Editor glättet); Ausgangslinie 104,35 s. Import in den Editor:
+  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten).
 - **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
   über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h
   (16 000 U/min) 4,5 m/s². Der Limiter-Faktor schneidet das jetzt ab, die alten Mittellinien-Zeiten unten waren zu schnell.
