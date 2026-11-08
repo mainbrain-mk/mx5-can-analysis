@@ -54,8 +54,8 @@ from performance_simulation import REDLINE_RPM
 
 ANIMATION_HTML_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_animation.html")
 START_LINE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_optimal_summary.json")
-# Seit 08.11.2026 (Nutzerwunsch) die auf Rundenzeit optimierte Linie, falls vorhanden; schon in Editor-Reihenfolge
-OPTIMIZED_LINE_PATH = os.path.join(RESULTS_DIR, "spreewaldring_lap_time_optimizer.json")
+# Ausgangslinie seit 08.11.2026: echte Ideallinie aus racing_line_ocp.py, falls vorhanden; schon in Editor-Reihenfolge
+SPREEWALDRING_IDEAL_PATH = os.path.join(RESULTS_DIR, "spreewaldring_ideal_line.json")
 
 DEFAULT_PORT = 8732
 MAX_REQUEST_BYTES = 5_000_000
@@ -135,7 +135,7 @@ def load_oschersleben_assets(center, radius):
 
 
 def spreewaldring_start_line(center, perp, lo, hi):
-    """Rueckfall ohne OPTIMIZED_LINE_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
+    """Rueckfall ohne SPREEWALDRING_IDEAL_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
     nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor."""
     with open(START_LINE_SUMMARY_PATH, encoding="utf-8") as f:
         optimal = json.load(f)
@@ -157,12 +157,14 @@ DEFAULT_TRACK = "spreewaldring"
 # alten Spreewaldring-Geometrie). optimized: Linie schon in Editor-Reihenfolge, falls vorhanden.
 TRACKS = {
     "spreewaldring": dict(label="Spreewaldring", model=TRACK_MODEL_PATH, start_finish=START_FINISH_UTM33,
-                          start_line=spreewaldring_start_line, optimized=OPTIMIZED_LINE_PATH, assets=load_reused_assets,
-                          storage="spreewaldring_racing_line_editor_edits_v3_modell",
+                          start_line=spreewaldring_start_line, optimized=SPREEWALDRING_IDEAL_PATH, assets=load_reused_assets,
+                          storage="spreewaldring_racing_line_editor_edits_v4_ideallinie",
                           source="Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg)"),
     "oschersleben": dict(label="Oschersleben A-Kurs", model=OSCHERSLEBEN.MODEL_JSON,
-                         start_finish=OSCHERSLEBEN.START_FINISH_UTM32, start_line=oschersleben_start_line, optimized=None,
-                         assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v1",
+                         start_finish=OSCHERSLEBEN.START_FINISH_UTM32, start_line=oschersleben_start_line,
+                         optimized=os.path.join(RESULTS_DIR, "oschersleben_ideal_line.json"),  # racing_line_ocp.py
+                         assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v2",
+                         label_positions={2: (655865.7, 5766648.9), 10: (655742.0, 5766881.0)},  # vom Nutzer in der Karte gesetzt
                          source="Motorsport Arena Oschersleben · Streckenmodell aus OSM, DOP20 und DGM1 (LVermGeo Sachsen-Anhalt, dl-de/by-2-0)"),
 }
 
@@ -194,6 +196,9 @@ def load_editor_data(name=DEFAULT_TRACK):
         i = np.flatnonzero(near)[np.argmin(radius[near])]
         corners.append({"number": c["number"], "x": float(center[i, 0] - origin[0]),
                         "y": float(center[i, 1] - origin[1]), "radius_m": float(radius[i])})
+    for c in corners:
+        if c["number"] in cfg.get("label_positions", {}):
+            c["x"], c["y"] = (np.array(cfg["label_positions"][c["number"]]) - origin).tolist()
     track = Track(center - origin, left - origin, right - origin, perp, lo, hi)
     return track, n_lat_start, corners, reused
 

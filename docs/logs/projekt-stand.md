@@ -7431,3 +7431,57 @@ Steigung und Querneigung sind nicht in der Physik. Grobe Abschätzung für die S
 **Nachtrag (08.11.2026), Linie direkt auf die Rundenzeit:** `oschersleben_lap_simulation.py --optimize` (Koordinatenabstieg aus `spreewaldring_lap_time_optimizer.py`, Start alternierende Linie, Spline alle 12 m, 9532 Rechnungen, 48 min): **120,69 → 118,92 s**, Spitze 174,2 km/h, langsamster Punkt 61,0 km/h. Grenzen eingehalten: Lenkgeschwindigkeit 43 °/s, Querruck 2,70 g/s (Grenze 2,7), Gierbeschleunigung 57 °/s². Der Gewinn von 1,5 % ist kleiner als am Spreewaldring (2,9 %). Der Querruck liegt am Anschlag, die Leitplanke begrenzt die Linie also mit.
 
 Im Editor startet die Strecke mit 119,23 s, unbearbeitet angezeigt 119,26 s. Ursache gemessen: `smooth_single_point_notches()` in `pinned_optimize()` glättet 24 Radius-Ausreißer der Spline-Linie (bis 0,38 m seitlich) und kostet 0,31 s; Reihenfolge der Punkte und Klemmung ändern nichts (118,924 s). Am Spreewaldring beträgt derselbe Effekt nur rund 0,04 s. Nicht geändert.
+
+**Nachtrag (08.11.2026), Nutzerlinie Oschersleben:** Bearbeitungsliste des Nutzers aus dem Editor (33 weiche Fixpunkte, Pinsel 75 m, `data/track/oschersleben_nutzerlinie_2026-11-08.json`) ergibt über `recompute_from_edits()` **117,95 s**, also 0,98 s schneller als die direkt optimierte Linie (118,92 s) und 1,28 s schneller als die Editor-Ausgangslinie (119,23 s). Grenzen eingehalten: Lenkgeschwindigkeit 41,6 °/s, Querruck 2,69 g/s (Grenze 2,7), Gierbeschleunigung 53 °/s². Die Linie nutzt die Breite stärker (329 von 1224 Punkten höchstens 0,15 m am Korridorrand, optimiert 89), ist 10 m länger (3596 gegen 3586 m) und liegt bis 6,0 m neben der optimierten. Der Gewinn verteilt sich auf fast alle Abschnitte, nur einer ist 0,07 s langsamer. Der Koordinatenabstieg (Start alternierende Linie, Schritte bis 0,4 m je Stützpunkt) ist dort also in einem lokalen Optimum hängen geblieben, wie schon am Spreewaldring, wo die Nutzerlinie den Ausgang ebenfalls schlug.
+
+## Echte Ideallinie: zeitoptimales Optimalsteuerungsproblem, Oschersleben (2026-11-08)
+
+Nutzerauftrag: recherchieren, wie eine echte Ideallinie berechnet wird, und sie für Oschersleben rechnen; alles an der Linienberechnung darf sich ändern, die Mazda-Modelle nicht. Skript `scripts/racing_line_ocp.py`, Test `scripts/test_racing_line_ocp.py`, neue Abhängigkeit CasADi 3.8.2 (mit IPOPT) in der `.venv`.
+
+**Recherche:** Stand der Technik ist das Minimum-Lap-Time-Problem mit freier Bahn: Linie und Tempo sind ein gemeinsames Optimalsteuerungsproblem mit der Rundenzeit als Ziel, direkt transkribiert und mit einem NLP-Löser gelöst (Veneri/Massaro 2019 quasistationär mit freier Bahn; Christ/Heilmeier TUM, `global_racetrajectory_optimization`, CasADi und IPOPT). Minimalkrümmung ist nur eine Näherung: arXiv 2511.13522 nennt rund 4 % Verlust gegen Minimalzeit. Fahrpraxis als Gegenprobe: später Scheitel vor langen Geraden, Kompromisslinie in Kurvenfolgen.
+
+**Fund, der alle bisherigen Linien betrifft:** `simulate_lap_full()` sieht die Krümmung nur über Punkte ±15 m (Menger). Der erste NLP-Lauf nutzte das aus: 113,09 s mit Knicken, die das Fenster nicht sieht (rechnerisch 16 g im 3-m-Fenster). In schwächerer Form steckt das in den bisherigen Linien, die Editor-Ausgangslinie hatte es schon vor der Nutzerbearbeitung:
+
+| Linie | Simulation (15 m) | feines Fenster (6 m) | a_lat im 9-m-Fenster |
+|---|---:|---:|---:|
+| Koordinatenabstieg | 118,92 s | 126,22 s | 1,38 g |
+| Editor-Ausgang | 119,23 s | 125,70 s | 1,35 g |
+| Nutzerlinie | 117,95 s | 130,96 s | 1,40 g |
+| **Optimalsteuerung** | **113,27 s** | **113,37 s** | 0,93 g |
+
+Die alten 15-m-Zeiten waren also zu günstig. Die Rangfolge zwischen Nutzerlinie und Koordinatenabstieg ist im feinen Fenster gedreht, aber beide Linien tragen Knicke, das feine Fenster bestraft sie hart.
+
+**Formulierung:** Je Punkt (3-m-Raster) Querversatz n, Tempo v, Beschleunigen, Bremsen. Punktkoordinaten kartesisch, damit dieselbe Krümmung wie im Simulator gilt. Grip-Ellipse des Vehicle auf der Krümmung in voller Rasterauflösung und auf der 15-m-Fenster-Krümmung, an beiden Abschnittsenden. Antrieb als Volllast-Hüllkurve über die Gänge aus `accel_true`. Korridor wie bisher (Außenkante weiße Linie, 0,10 m Abstand). Querruck im 0,5-s-Mittel als Grenze, Punktpaare aus der vorigen Lösung, äußere Iterationen. Kleine Strafe auf die Krümmungsänderung für stetige Krümmung. Schaltlücken kennt das NLP nicht, deshalb wird nur mit der unveränderten Simulation bewertet.
+
+**Prüfungen:**
+
+- Analytisch (Test): Kreisring, die Lösung fährt innen am Grip-Limit.
+- Eigene Rechnung unabhängig vom Simulator (Spline, analytische Krümmung, Vor-/Rückwärtspass, ohne Schaltlücken): 113,42 s.
+- Querbeschleunigung 0,91–0,94 g in Fenstern von 3 bis 24 m, kleinster Radius 34,9 m, keine Knicke.
+- Fünf Startlinien (Mittellinie 133,8 s, Koordinatenabstieg, Nutzerlinie, zwei Zufallsstarts mit rund 170 s) enden in derselben Linie, höchstens 0,24 m Abweichung, 113,36–113,38 s.
+- Raster 1,5 m statt 3 m: höchstens 0,14 m Abweichung.
+- Grenzen: Querruck 2,44 g/s (Grenze 2,7), Gierbeschleunigung 44 °/s² (108), Lenkgeschwindigkeit 41 °/s (240). Spitze 174,8 km/h, langsamster Punkt 64,3 km/h, Länge 3611 m, 9 Schaltungen, nur Gänge 2–4.
+- Jede Kurve berührt die Innenseite bis auf den Korridorabstand. Scheitel im letzten Drittel vor langen Geraden: K3 bei 73 % der Kurve (312 m Gerade danach), K14 bei 59 % (678 m); schnelle Kurven um die Mitte. K2 und K7 sind lange Kurven (rund 200 m) mit frühem ersten Berühren, nicht einzeln untersucht.
+
+**Einschränkungen:** Das NLP findet ein lokales Optimum, die Starts sprechen für dasselbe, beweisen aber kein globales. Das Fahrzeug bleibt quasistationär (0,911 g, Log-Untergrenze, keine Lastverschiebung). Keine eigene Fahrt dort. Der Editor rechnet weiter mit dem 15-m-Fenster und kann beim Bearbeiten wieder Knicke zulassen.
+
+**Editor:** Oschersleben startet jetzt mit dieser Linie (Editor-Ausgang 113,27 s, die Ausreißer-Glättung ändert sie nicht), neuer Speicherschlüssel `..._edits_v2`, die alte Liste bleibt im Browser unter v1 und in `data/track/oschersleben_nutzerlinie_2026-11-08.json`.
+
+**Nachtrag (08.11.2026), Rundensimulation auf feine Krümmung umgestellt (Nutzerentscheid):** `simulate_lap_full()` rechnet jetzt mit ±6 m (`LAP_CURVATURE_WINDOW_M`) statt ±15 m, das Fahrzeugmodell ist unverändert. `CURVATURE_WINDOW_M` bleibt für Lenkrate, Kurvenvorzeichen und Streckenkarten. Auch Editor, Koordinatenabstieg und alternierende Optimierung rechnen dadurch mit ±6 m, die Grenze des Knick-Problems ist also an der gemeinsamen Stelle behoben. `racing_line_ocp.py` nutzt dasselbe Fenster.
+
+| Linie | vorher (±15 m) | jetzt (±6 m) |
+|---|---:|---:|
+| Oschersleben, Ideallinie neu gerechnet | 113,27 s | **113,40 s** |
+| Oschersleben, Mittellinie | 133,76 s | 137,01 s |
+| Oschersleben, Nutzerlinie (neu durch die Editor-Rechnung) | 117,95 s | 123,60 s |
+| Spreewaldring, Editor-Ausgang | 101,32 s | **109,71 s** |
+| Spreewaldring, Nutzerlinie | 102,94 s | 110,18 s |
+| Spreewaldring, Mittellinie | 114,75 s | 117,30 s |
+
+Die neue Oschersleben-Ideallinie ist wieder von drei Startlinien aus praktisch gleich (113,40–113,41 s), Querruck 2,69 g/s, im 3-m-Fenster 0,95 g. Am Spreewaldring ist die Ausgangslinie nicht neu berechnet: 109,71 s ist die alte, geknickte Linie unter ehrlicher Krümmung (3-m-Fenster 1,64 g), nicht die erreichbare Zeit. Alle Rundenzeiten vor diesem Eintrag gelten für das ±15-m-Fenster.
+
+**Nachtrag (08.11.2026), Ideallinie Spreewaldring:** `racing_line_ocp.py --track spreewaldring` (±6 m Krümmung, NS-R2) ergibt **101,36 s** in `simulate_lap_full()`. Mittellinie, alte Editor-Ausgangslinie und Nutzerlinie enden gleich (101,358 s), zwei Zufallsstarts (178 und 177 s) laufen in dieselbe Linie (höchstens 0,24 m Abweichung, je nach Querruck-Iteration 101,28 s). Vergleich unter ±6 m: Editor-Ausgang vorher 109,71 s, Nutzerlinie 110,18 s, Mittellinie 117,30 s. Dass die 101,36 s fast den alten 101,32 s gleichen, ist Zufall, jene galten fürs ±15-m-Fenster und eine Linie mit Knicken.
+
+Prüfungen: eigene Spline-Rechnung (analytische Krümmung, ohne Schaltlücken) 101,99 s, 0,6 s über der Simulation, weil das ±6-m-Fenster in den engen Kehren die Krümmung etwas unterschätzt; Scheiteltempo dort 0,2–0,6 km/h niedriger. Querbeschleunigung 0,97 g im 3-m-Fenster, 0,91 g ab 6 m, kleinster Radius 12,2 m. Raster 1,5 m: höchstens 0,30 m Abweichung. Querruck 2,42 g/s, Gierbeschleunigung 71 °/s² (108), Lenkgeschwindigkeit 108 °/s (240). Spitze 154 km/h, langsamster Punkt 38 km/h, 7 Schaltungen, Gänge 2–4. Das NLP-Ziel (102,57 s) enthält die Strafe auf die Krümmungsänderung, die in den Kehren stärker wirkt.
+
+Editor: Spreewaldring startet mit dieser Linie (Editor-Ausgang 101,36 s), neuer Speicherschlüssel `..._edits_v4_ideallinie`. Die alte Liste bleibt im Browser unter v3, frühere Nutzerlinie in `data/track/spreewaldring_nutzerlinie_2026-11-08.json`.

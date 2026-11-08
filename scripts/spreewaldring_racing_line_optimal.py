@@ -146,6 +146,10 @@ N_OUTER = 24               # aeussere Iterationen (Geschwindigkeit<->Linie)
 INNER_STEPS = 80           # innere Glaettungsschritte pro aeusserer Iteration
 BASE_ALPHA = 0.15
 V_MIN_MS = 5.0
+# Kruemmung der Rundensimulation seit 08.11.2026 (Nutzerentscheid): +-6 m statt +-15 m. Das 15-m-Fenster sah Knicke zwischen
+# seinen drei Stuetzpunkten nicht, Optimierer und Editor-Linien fuhren dort rechnerisch 16 bis 30 g (Logbuch "Echte Ideallinie").
+# CURVATURE_WINDOW_M bleibt fuer Lenkrate, Kurvenvorzeichen und Streckenkarten.
+LAP_CURVATURE_WINDOW_M = 6.0
 # Haerteste real gemessene Bremsung (BFP_PRE_MZ Bremsdruck + OBD-Tempoabfall,
 # 229 Bremsvorgaenge ueber 7 Logs, siehe braking_model.py/results/braking_
 # model_summary.json) statt der rein theoretischen mu*g-Annahme. Nutzer
@@ -532,7 +536,7 @@ def simulate_lap_full(points, mu, natural=False, n_passes=2, brake_cap_g=None):
     n = len(points)
     ds = np.hypot(*(np.roll(points, -1, axis=0) - points).T)
     step_m = float(np.median(ds))
-    radius = compute_curvature_radius(points, CURVATURE_WINDOW_M, step_m)
+    radius = compute_curvature_radius(points, LAP_CURVATURE_WINDOW_M, step_m)
     a_lat_max = veh.lat_g * G
     v_corner = np.sqrt(np.maximum(a_lat_max * radius, V_MIN_MS ** 2))
 
