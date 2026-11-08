@@ -1,285 +1,483 @@
 """
 Spreewaldring - interaktiver Ideallinien-Editor (NEU, 30.08.2026)
 
-Nutzerauftrag: nach der alternierenden Linie/Geschwindigkeits-Optimierung
-(`spreewaldring_racing_line_optimal.py`, 96.03s bei mu=1.0) und der lokalen
-Kurve-1-Nachoptimierung (`spreewaldring_racing_line_corner.py`) wollte der
-Nutzer die entstandene Linie an einem BELIEBIGEN Punkt selbst per Maus
-verschieben koennen (Pinsel mit Falloff, verschobener Punkt wird zum harten
-Fixpunkt/Scheitelpunkt), danach automatisch neu optimieren lassen (Abbruch
-sobald eine Iteration die Rundenzeit verschlechtert, nur das Optimum wird
-behalten) und das Ergebnis (Rundenzeit, Geschwindigkeit, Bremszonen) live
-sehen - alles bei festem mu=1.0 (Nutzervorgabe, siehe Memory "mx5-tires"/
-docs/logs/projekt-stand.md).
+Nutzerauftrag: die Linie an einem beliebigen Punkt per Maus verschieben (Pinsel mit Falloff, der Punkt wird zum
+Fixpunkt), danach automatisch neu optimieren (Abbruch sobald eine Iteration die Rundenzeit verschlechtert) und das
+Ergebnis (Rundenzeit, Geschwindigkeit, Bremszonen, Schaltpunkte) sofort sehen.
 
-WICHTIGE ARCHITEKTURENTSCHEIDUNG (mit Nutzer abgestimmt): das braucht KEINEN
-Python-Backend-Server. Die Physik (kombinierter Reifenkraftkreis-Loeser aus
-`spreewaldring_racing_line_optimal.py`, Traktionsmodell aus
-`performance_simulation.py`) ist billig genug (O(n) mit n~830 Punkten), um
-1:1 nach JavaScript portiert zu werden und komplett im Browser zu laufen -
-keine Serveranfrage pro Bearbeitungsschritt, keine Wartezeit. Dieses Skript
-exportiert einmalig alle dafuer noetigen Daten (Streckenkorridor, Start-
-Ideallinie, Physik-Konstanten) in eine einzige selbststaendige HTML-Datei.
+SEIT 07.11.2026 (Nutzerentscheid) rechnet der Editor auf Python: Dieses Skript ist ein lokaler Dienst, der Browser
+zeichnet und bedient nur noch. Die Physik ist simulate_lap_full() aus spreewaldring_racing_line_optimal.py, also
+dieselbe Rechnung wie in den Skripten; der fruehere JavaScript-Port (samt Abgleich) ist entfallen. Ein Klick rechnet
+~80 ms (natuerliches Gasmodell ~230 ms), eine Optimierung nach dem Loslassen wenige Sekunden.
 
-WIEDERVERWENDUNG statt Neuberechnung: Kurvennummern (bereits um den
-Schliesspunkt-Sonderfall bereinigt, 11 statt 12) und das zugeschnittene
-Orthofoto (LGB Brandenburg, bereits als JPEG eingebettet) werden NICHT neu
-berechnet/heruntergeladen, sondern direkt aus der bestehenden
-`spreewaldring_racing_line_animation.html` (frueherer Schritt, siehe
-docs/logs/projekt-stand.md) uebernommen - beide sind dort bereits verifiziert. Alle
-uebrigen Daten (Korridor, Fixpunkt-Startlinie, Physik-Konstanten) kommen
-frisch/autoritativ aus den eigentlichen Quellskripten/-JSONs, um Drift durch
-doppelt gepflegte Werte zu vermeiden.
+INTERAKTION:
+  - Ziehen: Pinsel mit Smootherstep-Falloff verschiebt die Nachbarschaft (/api/preview), keine Relaxation.
+  - Loslassen: Der Punkt wird weicher Fixpunkt (oder hart, per Haken). Alternierende Optimierung Geschwindigkeit
+    <-> Linie (/api/solve) bis eine Iteration die Rundenzeit verschlechtert, nur das Optimum bleibt.
+  - Bremszonen sind physikalisch bestimmt: Der Rueckwaertspass hat das Tempo gegenueber dem Vorwaertspass reduziert.
+  - Persistenz: Die Bearbeitungsliste liegt im Browser (localStorage), die Linie wird daraus immer neu berechnet.
 
-INTERAKTIONS-DESIGN (mit Nutzer abgestimmt, siehe Konversation):
-  - Klick+Drag auf die Linie: Pinsel mit Cosinus-Falloff verschiebt eine
-    Nachbarschaft live waehrend des Ziehens (schneller Einzel-Speedloesungs-
-    Vorschau, keine volle Relaxation - bleibt fluessig bei 60fps).
-  - Loslassen: der exakt getroffene Punkt wird zum harten Fixpunkt (bleibt
-    JEDE Iteration exakt an dieser Stelle, wie ein Scheitelpunkt-Constraint -
-    technisch: dieser eine Index wird bei jedem Relaxationsschritt von der
-    Update-Regel ausgenommen). Alternierende Optimierung (Geschwindigkeit
-    <-> Linie, wie im Ursprungsalgorithmus) laeuft danach automatisch weiter,
-    bis eine Iteration die Rundenzeit verschlechtert - dann Abbruch, nur die
-    letzte (bessere) Iteration wird behalten (Nutzervorgabe).
-  - Kein explizites Fenster/Hann-Taper wie in `spreewaldring_racing_line_
-    corner.py` noetig: da nur EIN Punkt hart gepinnt wird (nicht ein Fenster
-    eingefroren), relaxiert der Rest der Runde ganz natuerlich um den Pin
-    herum - funktioniert automatisch auch fuer Punkte am Schliesspunkt der
-    Schleife (Modulo-Arithmetik), ohne die manuelle Sonderbehandlung, die
-    Kurve 1 im Python-Skript brauchte.
-  - Bremszonen werden NICHT per Schwellwert-Heuristik auf der Geschwindigkeit
-    bestimmt, sondern direkt aus der Physik des Zweipass-Algorithmus
-    abgeleitet: ein Punkt ist "Bremszone", wenn der RUECKWAERTS-Pass die
-    Geschwindigkeit gegenueber dem VORWAERTS-Pass an dieser Stelle reduziert
-    hat (v_final < v_vorwaerts) - das ist exakt die Definition von "hier
-    wird gebremst, um eine spaetere Kurve zu schaffen".
-  - Persistenz: bearbeitete Linie wird in localStorage gespeichert (bleibt
-    bei Neuladen erhalten), Reset-Knopf setzt auf die Ausgangslinie zurueck.
-
-Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_editor.py
-
-NACHTRAG (30.08.2026) - echte Schaltzeiten: der JS-Geschwindigkeitsloeser
-fuehrt jetzt (wie das Python-Original in spreewaldring_racing_line_optimal.py,
-siehe dortiger Docstring "Nachtrag Schaltzeiten") einen tatsaechlichen Gang
-mit und fuegt bei jedem Hochschalten die echte ATTACK-Zugkraftunterbrechung
-als Rollphase ein, statt der reinen Beschleunigungs-Huellkurve ueber alle
-Gaenge. Ein "Teillastkennfeld statt Volllastkurve" wurde NICHT uebernommen -
-empirisch an 47 echten Volllast-Segmenten geprueft, verschlechtert das die
-Vorhersage (siehe Python-Docstring fuer die genauen Zahlen).
+Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_editor.py [--port 8732]
+Dann im Browser: http://127.0.0.1:8732/
 """
+import argparse
+import functools
+import json
+import math
 import os
 import re
-import json
+import socket
+from collections import namedtuple
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import numpy as np
-from scipy.signal import savgol_filter
 
-from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M
+from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M, G, compute_curvature_radius
 from spreewaldring_track_surface import compute_tangents_closed
 from spreewaldring_racing_line import load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
-from spreewaldring_lap_simulation import V_MIN_MS
-from spreewaldring_racing_line_optimal import BRAKE_CAP_G
-from drivetrain_model_validation import (
-    MASS_KG, R_DYN_M, FINAL_DRIVE, GEAR_RATIOS, ETA, CDA_M2, RHO_KG_M3, CRR, G,
-    RPM_TABLE, TORQUE_TABLE_NM, ENGINE_INERTIA_KGM2,
+from spreewaldring_lap_simulation import (
+    CLUTCH_TRACE_DT_S, accel_true, clutch_launch, clutch_trace, coast_true, engine_controls, launch_end_kmh,
+    limiter_factor, literature_vehicle, throttle_trace,
 )
-from performance_simulation import TRACTION_MAX_FORCE_N, ATTACK_SHIFT_S, REDLINE_RPM
+from spreewaldring_racing_line_optimal import (
+    BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, simulate_lap_full, steer_from_radius,
+)
+from performance_simulation import REDLINE_RPM
 
 ANIMATION_HTML_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_animation.html")
-CORNER1_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_corners_summary.json")
-OUT_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_editor.html")
+START_LINE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_optimal_summary.json")
 
-MU_FIXED = 1.0          # Nutzervorgabe: nur noch ein Reifen-Szenario im interaktiven Tool
+DEFAULT_PORT = 8732
+MAX_REQUEST_BYTES = 5_000_000
+# Wiedergabe auf dem Dash im Auto (08.11.2026): beim Abspielen gehen die angezeigten Werte per UDP an
+# can_backend.py (EDITOR_FEED_PORT) auf dem Pi, das Dash zeigt dann nur sie.
+DASH_HOST = os.environ.get("MX5_DASH_HOST", "car")
+DASH_FEED_PORT = 51235
+DASH_FIELDS = ("speed_kmh", "rpm", "gear", "throttle_pct", "brake_pct", "steer_deg", "lap_t", "load_pct", "tp_pct", "clutch_raw")
+_dash_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+MU_FIXED = 1.0           # Literatur-Vergleich im Fahrzeugmodell-Umschalter
 BASE_ALPHA = 0.15        # wie in spreewaldring_racing_line_optimal.py
 INNER_STEPS = 80         # wie in spreewaldring_racing_line_optimal.py
-N_OUTER_MAX = 30          # Sicherheitsnetz - Abbruch bei Verschlechterung greift i.d.R. viel frueher
+N_OUTER_MAX = 30         # Sicherheitsnetz - Abbruch bei Verschlechterung greift i.d.R. viel frueher
 BRUSH_RADIUS_M_DEFAULT = 60.0
 
-# NACHTRAG (30.08.2026): Nutzer fand einen Knick in der Ideallinie an Kurve 6
-# (s~1304m, Index~435), der sich durch Ziehen NICHT wegbekommen liess - die
-# Randerkennung (spreewaldring_track_surface.py) hat dort kleinraeumiges
-# Rauschen (Pruefung ergab bis zu 2.3m Sprung der Korridorbreite von einem
-# 3m-Schritt zum naechsten, deutlich mehr als an den meisten anderen Stellen),
-# vermutlich eine Scan-Mehrdeutigkeit in dieser engen Kurve. Da eine feste
-# Fixpunkt-Relaxation den Rand als HARTE Grenze behandelt, vererbt sich jedes
-# Rauschen im Rand 1:1 in die Linie und kann durch Ziehen nicht geglaettet
-# werden. Fix HIER (nur fuer den interaktiven Editor, NICHT das "offizielle"
-# Streckenmodell in spreewaldring_track_surface_summary.json - falls die
-# Randerkennung selbst an der Wurzel korrigiert werden soll, ist das ein
-# separater, groesserer Schritt): linker/rechter Fahrbahnrand wird vor der
-# Korridor-Berechnung mit einem Savitzky-Golay-Filter (zyklisch, passend zur
-# bereits im Projekt etablierten Glaettungsmethodik) geglaettet. Getestet:
-# reduziert die maximale Randbreiten-Sprunggroesse von 2.3m auf ~1.5-1.7m pro
-# 3m-Schritt, keine invertierten (lo>hi) oder auf 0 zurueckfallenden Punkte,
-# Mindestbreite bleibt bei ueber 6m (Auto braucht nur 1.74m).
-CORRIDOR_SMOOTH_WINDOW_M = 27.0
+# Echte Start-Ziel-Linie (weisser Querstrich vor den aufgemalten Startboxen, vom Nutzer im Orthofoto
+# markiert, 30.08.2026). Seit 07.11.2026 als Koordinate statt Punktindex, das Raster aendert sich mit dem
+# Streckenmodell. Die fruehere Rand-Glaettung (27 m) gegen Rauschen der alten Raender ist entfallen.
+START_FINISH_UTM33 = (409911.995, 5761804.257)
 
-# NACHTRAG (30.08.2026) - echte Start-Ziel-Linie statt Zufallsindex: Index 0
-# der Streckenpunkt-Arrays (aus spreewaldring_track.py, LOOP_START_NODE_IDX)
-# lag bisher an Kurve 1 - ein Zufallsprodukt davon, wo sich die urspruenglichen
-# OSM-Rohdaten sauber schliessen liessen, NICHT die echte Start-Ziel-Linie.
-# Nutzer hat die echte Linie (weisser Querstrich vor den aufgemalten
-# Startboxen auf der Zielgeraden) im georeferenzierten Orthofoto markiert -
-# rechnerisch trifft das Index 779 (nur 2.5m Abstand zur Mittellinie, klar
-# eindeutig), 153m VOR dem bisherigen Index 0 auf derselben Geraden. Alle
-# Streckenpunkt-Arrays werden deshalb um -779 rotiert, damit Index 0 (und
-# damit s=0m im Editor - Drehzahl-/Geschwindigkeitsdiagramm, Schaltpunkt-
-# Liste) jetzt an der ECHTEN Start-Ziel-Linie liegt.
-START_FINISH_ROLL = 779
+# Lenkgeschwindigkeit: Ackermann-Naeherung, Nutzervorgabe 30.08.2026: 240 Grad/s am Lenkrad NIE ueberschreiten
+# (harte Randbedingung in pinned_optimize), reale kleine Korrekturen liegen eher um 70 Grad/s.
+WHEELBASE_M, STEERING_RATIO = 2.31, 15
+STEER_RATE_MAX_DEG_S = 240.0
+# Abstand zur Korridorgrenze: Mehrere Punkte hart am Anschlag ergeben eine flache "Beule" statt einer runden Kurve.
+EDGE_MARGIN_M = 0.10
+# Zug eines weichen Fixpunkts je aeusserer Iteration; die Abbruchregel entscheidet, wie weit sich das lohnt.
+SOFT_PIN_PULL = 0.3
+# Nur Ausreisser, die ein Fahrer spueren wuerde, und nur in Kurven (Radius-Schaetzung auf Geraden ist extrem empfindlich)
+MIN_NOTCH_STEER_DEG = 0.3
+MAX_NOTCH_RADIUS_M = 400.0
+MAX_NOTCH_PASSES = 8
+STANDING_START_DT_S = 1 / 60
 
-
-def smooth_closed_curve(points, window_m, step_m=RESAMPLE_STEP_M, polyorder=2):
-    """Savitzky-Golay-Glaettung eines geschlossenen Punktzugs (zyklisch,
-    mode='wrap' - die Kurve hat keinen Anfang/Ende). Glaettet x/y unabhaengig,
-    siehe Docstring bei CORRIDOR_SMOOTH_WINDOW_M fuer den Anlass."""
-    win = max(polyorder + 1, int(round(window_m / step_m)))
-    if win % 2 == 0:
-        win += 1
-    x = savgol_filter(points[:, 0], win, polyorder, mode="wrap")
-    y = savgol_filter(points[:, 1], win, polyorder, mode="wrap")
-    return np.column_stack([x, y])
+Track = namedtuple("Track", "center left right perp lo hi")
 
 
 def load_reused_assets():
-    """Kurvennummern + zugeschnittenes Orthofoto aus der bestehenden
-    Animation uebernehmen (dort bereits verifiziert, siehe Docstring)."""
+    """Kurvennummern + zugeschnittenes Orthofoto aus der bestehenden Animation (dort bereits verifiziert)."""
     with open(ANIMATION_HTML_PATH, encoding="utf-8") as f:
         html = f.read()
     m = re.search(r'<script type="application/json" id="viz-data">(.*?)</script>', html, re.S)
     old = json.loads(m.group(1))
     return {
         "origin_utm33": old["origin_utm33"],
-        "corners_local": old["corners"],
+        "corners_local": old["corners"],  # Nummern wie bisher, Position und Radius aktualisiert load_editor_data()
         "background_image_jpeg_b64": old["background_image_jpeg_b64"],
         "background_extent_local": old["background_extent_local"],
     }
 
 
-def main():
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    print("Lade Fahrbahn-Korridor (Hauptschleife) ...")
+def load_editor_data():
+    """Strecke in lokalen Koordinaten, Index 0 an der Start-Ziel-Linie, und die Ausgangslinie."""
     center, left, right = load_corridor()
     tangents = compute_tangents_closed(center)
-    lo_raw, hi_raw, _ = corridor_bounds(center, left, right, tangents)
-    print(f"Rand-Rauschen VOR Glaettung: max. Breitenaenderung pro 3m-Schritt "
-          f"{np.max(np.abs(np.diff(np.append(hi_raw-lo_raw, (hi_raw-lo_raw)[0])))):.2f}m")
-
-    # Rand glaetten, dann Korridor NEU daraus ableiten (siehe Docstring bei
-    # CORRIDOR_SMOOTH_WINDOW_M) - damit bleibt links/rechts unzweideutig
-    # (dieselbe corridor_bounds()-Logik wie im "offiziellen" Modell), nur mit
-    # geglaetteten Eingangsdaten statt eigener lo/hi-Nachbearbeitung.
-    left = smooth_closed_curve(left, CORRIDOR_SMOOTH_WINDOW_M)
-    right = smooth_closed_curve(right, CORRIDOR_SMOOTH_WINDOW_M)
     lo, hi, perp = corridor_bounds(center, left, right, tangents)
-    n_total = len(center)
-    print(f"Rand-Rauschen NACH Glaettung ({CORRIDOR_SMOOTH_WINDOW_M:.0f}m-Fenster): "
-          f"max. Breitenaenderung pro 3m-Schritt "
-          f"{np.max(np.abs(np.diff(np.append(hi-lo, (hi-lo)[0])))):.2f}m, "
-          f"Korridorbreite Median {np.median(hi - lo):.2f}m, Minimum {np.min(hi - lo):.2f}m")
+    # Alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven nacheinander, rund 1,9 s langsamer):
+    # beste Iteration, nicht die neu gerasterte Endlinie, nur sie hat dieselben Punkte wie der Korridor.
+    with open(START_LINE_SUMMARY_PATH, encoding="utf-8") as f:
+        optimal = json.load(f)
+    start_points = np.array(min(optimal["snapshots"], key=lambda s: s["lap_time_s"])["points_utm33"])
+    assert len(start_points) == len(center), "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
+    n_lat_start = np.clip(np.sum((start_points - center) * perp, axis=1), lo, hi)
 
-    print("Lade Start-Ideallinie (alle 11 Kurven nacheinander lokal optimiert) ...")
-    with open(CORNER1_SUMMARY_PATH, encoding="utf-8") as f:
-        corner1 = json.load(f)
-    # bestes Snapshot ueber ALLE Kurven/Iterationen (Lap-Time faellt pro Kurve
-    # monoton, das globale Minimum liegt daher praktisch immer im letzten
-    # bearbeiteten Fenster - kein separates "best_local_iteration"-Feld mehr,
-    # da jetzt 11 Kurven statt nur einer nacheinander optimiert werden)
-    start_snapshot = min(corner1["snapshots"], key=lambda s: s["lap_time_s"])
-    print(f"Beste Iteration: Kurve {start_snapshot['corner']}, Rundenzeit {start_snapshot['lap_time_s']:.2f}s")
-    start_points = np.array(start_snapshot["points_utm33"])
-    assert len(start_points) == n_total, "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
-    n_lat_start = np.sum((start_points - center) * perp, axis=1)
-    # die Startlinie wurde urspruenglich gegen den UNGEGLAETTETEN Korridor
-    # optimiert - an einzelnen Punkten koennte sie dadurch knapp ausserhalb
-    # des jetzt geglaetteten (i.d.R. etwas konservativeren) Korridors liegen.
-    n_clipped = np.sum((n_lat_start < lo) | (n_lat_start > hi))
-    if n_clipped:
-        print(f"Hinweis: {n_clipped} Punkte der Startlinie lagen knapp ausserhalb "
-              f"des geglaetteten Korridors, werden hineingeclippt.")
-    n_lat_start = np.clip(n_lat_start, lo, hi)
-    print(f"Start-Rundenzeit bei mu={MU_FIXED} wird im Browser neu berechnet "
-          f"(Referenzwerte aus Vorlaeufer-Skripten nutzten mu=1.3 fuer die Optimierung selbst).")
+    roll = int(np.argmin(np.linalg.norm(center - np.array(START_FINISH_UTM33), axis=1)))
+    center, left, right, perp = (np.roll(a, -roll, axis=0) for a in (center, left, right, perp))
+    lo, hi, n_lat_start = (np.roll(a, -roll, axis=0) for a in (lo, hi, n_lat_start))
 
-    print(f"Rotiere Streckenpunkte um {START_FINISH_ROLL} - Index 0/s=0m liegt jetzt an der "
-          f"echten (nutzerbestaetigten) Start-Ziel-Linie statt an Kurve 1.")
-    center = np.roll(center, -START_FINISH_ROLL, axis=0)
-    left = np.roll(left, -START_FINISH_ROLL, axis=0)
-    right = np.roll(right, -START_FINISH_ROLL, axis=0)
-    perp = np.roll(perp, -START_FINISH_ROLL, axis=0)
-    lo = np.roll(lo, -START_FINISH_ROLL, axis=0)
-    hi = np.roll(hi, -START_FINISH_ROLL, axis=0)
-    n_lat_start = np.roll(n_lat_start, -START_FINISH_ROLL, axis=0)
-
-    print("Uebernehme Kurvennummern + Orthofoto aus der bestehenden Animation ...")
     reused = load_reused_assets()
     origin = np.array(reused["origin_utm33"])
+    # Kurvennummern bleiben (Bezug in Logbuch und Gespraechen), Marke und Radius kommen aus dem Modell
+    radius = compute_curvature_radius(center, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
+    corners = []
+    for c in reused["corners_local"]:
+        near = np.linalg.norm(center - (origin + [c["x"], c["y"]]), axis=1) < 30.0
+        i = np.flatnonzero(near)[np.argmin(radius[near])]
+        corners.append({"number": c["number"], "x": float(center[i, 0] - origin[0]),
+                        "y": float(center[i, 1] - origin[1]), "radius_m": float(radius[i])})
+    track = Track(center - origin, left - origin, right - origin, perp, lo, hi)
+    return track, n_lat_start, corners, reused
 
-    def to_local(pts):
-        return (pts - origin).tolist()
 
-    # Gemessener Kraftkreis (siehe spreewaldring_lap_simulation.py-Nachtrag,
-    # Nutzerauftrag "mu aus den tatsaechlichen Daten"): optionaler Umschalter
-    # im Editor, ersetzt den isotropen mu=1.0-Kreis durch die echte (anisotrope)
-    # Ellipse aus can_traction_circle.py. Bleibt null, wenn das Skript noch
-    # nicht gelaufen ist - der Umschalter im UI wird dann deaktiviert.
-    tc_path = os.path.join(RESULTS_DIR, "can_traction_circle_summary.json")
-    measured_circle = None
-    if os.path.exists(tc_path):
-        with open(tc_path, encoding="utf-8") as f:
-            tc = json.load(f)
-        measured_circle = {
-            "mu_lat_g": tc["max_lat_g"], "mu_accel_g": tc["max_accel_g"], "mu_brake_g": tc["max_brake_g"],
-            "n_logs": tc["n_logs"], "n_samples": tc["n_samples"],
-        }
-        print(f"Gemessener Kraftkreis gefunden: {tc['n_logs']} CAN-Logs, "
-              f"max_lat={tc['max_lat_g']:.2f}g/max_accel={tc['max_accel_g']:.2f}g/max_brake={tc['max_brake_g']:.2f}g "
-              "- als optionaler Umschalter im Editor verfuegbar.")
-    else:
-        print(f"Kein gemessener Kraftkreis gefunden ({tc_path}) - Umschalter im Editor bleibt deaktiviert.")
+# ---------- Linie: Punkte, Relaxation, Fixpunkte ----------
+def points_from_n_lat(track, n_lat):
+    return track.center + n_lat[:, None] * track.perp
 
-    data = {
-        "origin_utm33": reused["origin_utm33"],
-        "centerline": to_local(center),
-        "left_edge": to_local(left),
-        "right_edge": to_local(right),
-        "perp": perp.tolist(),
-        "corridor_lo_m": lo.tolist(),
-        "corridor_hi_m": hi.tolist(),
-        "n_lat_start": n_lat_start.tolist(),
-        "corners": reused["corners_local"],
-        "background_image_jpeg_b64": reused["background_image_jpeg_b64"],
-        "background_extent_local": reused["background_extent_local"],
-        "car_half_width_m": CAR_HALF_WIDTH_M,
-        "physics": {
-            "MASS_KG": MASS_KG, "R_DYN_M": R_DYN_M, "FINAL_DRIVE": FINAL_DRIVE,
-            "GEAR_RATIOS": GEAR_RATIOS, "ETA": ETA, "CDA_M2": CDA_M2,
-            "RHO_KG_M3": RHO_KG_M3, "CRR": CRR, "G": G,
-            "RPM_TABLE": RPM_TABLE.tolist(), "TORQUE_TABLE_NM": TORQUE_TABLE_NM.tolist(),
-            "TRACTION_MAX_FORCE_N": TRACTION_MAX_FORCE_N,
-            "ENGINE_INERTIA_KGM2": ENGINE_INERTIA_KGM2,
-            "MU": MU_FIXED, "BRAKE_CAP_G": BRAKE_CAP_G, "CURVATURE_WINDOW_M": CURVATURE_WINDOW_M,
-            "RESAMPLE_STEP_M": RESAMPLE_STEP_M, "V_MIN_MS": V_MIN_MS,
-            "REDLINE_RPM": REDLINE_RPM,
-            "ATTACK_SHIFT_S": {f"{g1}-{g2}": t for (g1, g2), t in ATTACK_SHIFT_S.items()},
-            "MEASURED_CIRCLE": measured_circle,
-        },
-        "optimizer": {
-            "base_alpha": BASE_ALPHA, "inner_steps": INNER_STEPS, "n_outer_max": N_OUTER_MAX,
-            "brush_radius_m_default": BRUSH_RADIUS_M_DEFAULT,
-        },
+
+def clamp_inset(track, n_lat):
+    """Klemmt mit EDGE_MARGIN_M Abstand zur Grenze; ist der Korridor schmaler als 2x Puffer: Streckenmitte."""
+    mid = (track.lo + track.hi) / 2
+    return np.clip(n_lat, np.minimum(track.lo + EDGE_MARGIN_M, mid), np.maximum(track.hi - EDGE_MARGIN_M, mid))
+
+
+def relax_once(track, n_lat, alpha, hard_targets=()):
+    """Ein Glaettungsschritt in Weltkoordinaten. Harte Fixpunkte werden jeden Schritt exakt erzwungen."""
+    p = points_from_n_lat(track, n_lat)
+    avg = (np.roll(p, 1, axis=0) + np.roll(p, -1, axis=0)) / 2
+    p_new = p + alpha[:, None] * (avg - p)
+    n_new = clamp_inset(track, np.sum((p_new - track.center) * track.perp, axis=1))
+    for e in hard_targets:
+        n_new[e["index"]] = e["value"]
+    return n_new
+
+
+def turn_sign(pts, w):
+    """Vorzeichen der Kurve ueber die Fensterbreite des Radius, Nachbarpunkte waeren ein Diskretisierungsartefakt."""
+    p0, p2 = np.roll(pts, w, axis=0), np.roll(pts, -w, axis=0)
+    cross = (pts[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (p2[:, 0] - p0[:, 0]) * (pts[:, 1] - p0[:, 1])
+    return -np.sign(cross)
+
+
+def steer_rate_deg_s(pts, sim):
+    """Lenkrad-Winkelgeschwindigkeit je Punkt (Ackermann-Naeherung), Ableitung ueber CURVATURE_WINDOW_M."""
+    ds, n = sim["ds"], len(pts)
+    w = max(1, round(CURVATURE_WINDOW_M / float(np.median(ds))))
+    theta = np.degrees(np.arctan(WHEELBASE_M / np.maximum(sim["radius"], 1.0))) * STEERING_RATIO * turn_sign(pts, w)
+    cum = np.r_[0.0, np.cumsum(np.r_[ds, ds, ds])]
+    ip = (np.arange(n) - w) % n
+    span = cum[ip + 2 * w] - cum[ip]
+    return (np.roll(theta, -w) - np.roll(theta, w)) / np.maximum(span, 1e-6) * sim["v"]
+
+
+def find_radius_notches(track, n_lat, veh):
+    """Einzelpunkt-Ausreisser im Radiusverlauf (Nutzerbeobachtung 08.09.2026, Punkte 236-238): Die Trendrichtung kehrt
+    fuer genau einen Schritt um und danach zurueck. Ein echter Kurvenscheitel kehrt nur einmal dauerhaft um."""
+    pts = points_from_n_lat(track, n_lat)
+    ds = np.hypot(*(np.roll(pts, -1, axis=0) - pts).T)
+    radius = compute_curvature_radius(pts, CURVATURE_WINDOW_M, float(np.median(ds)))
+    steer = steer_from_radius(radius, veh)
+    s_before = np.sign(np.roll(radius, 1) - np.roll(radius, 2))
+    s_into = np.sign(radius - np.roll(radius, 1))
+    s_out = np.sign(np.roll(radius, -1) - radius)
+    jump = np.abs(steer - (np.roll(steer, 1) + np.roll(steer, -1)) / 2)
+    flagged = (radius <= MAX_NOTCH_RADIUS_M) & (s_before != 0) & (s_into == -s_before) & (s_out == s_before)
+    return np.flatnonzero(flagged & (jump >= MIN_NOTCH_STEER_DEG))
+
+
+def smootherstep(t):
+    u = 1 - t
+    return u * u * u * (u * (u * 6 - 15) + 10)
+
+
+def smooth_single_point_notches(track, n_lat, veh):
+    """Glaettet Ausreisser ueber +-w Punkte: Der Radius haengt an einem w breiten Fenster, ein einzelner Punkt kann den
+    Radiusverlauf nicht sicher glaetten (Bugfund 08.09.2026). Reine Nachbearbeitung, die Optimierung bleibt unberuehrt."""
+    n = len(n_lat)
+    cur = n_lat
+    for _ in range(MAX_NOTCH_PASSES):
+        flagged = find_radius_notches(track, cur, veh)
+        if len(flagged) == 0:
+            break
+        pts = points_from_n_lat(track, cur)
+        w = max(1, round(CURVATURE_WINDOW_M / float(np.median(np.hypot(*(np.roll(pts, -1, axis=0) - pts).T)))))
+        alpha = np.zeros(n)
+        for i in flagged:
+            for k in range(-w, w + 1):
+                j = (i + k) % n
+                alpha[j] = max(alpha[j], smootherstep(abs(k) / w))
+        cur = relax_once(track, cur, alpha)
+    return cur
+
+
+def pinned_optimize(track, n_lat_start, targets, veh, natural=False, brake_cap_g=None):
+    """Alternierende Optimierung mit allen Fixpunkten gemeinsam, querkraftgewichtet. targets: {index, value, hard}. Hart:
+    jeden Schritt exakt erzwungen. Weich (Standard): einmal je aeusserer Iteration ein Stueck hingezogen, die Abbruchregel
+    entscheidet, wie weit sich das lohnt. Solange die Lenkgeschwindigkeit verletzt ist, wird nicht abgebrochen: Das ist
+    eine harte Randbedingung, keine Praeferenz. Ohne Fixpunkte reine Durchsetzung dieser Grenze."""
+    n_lat = clamp_inset(track, np.array(n_lat_start, dtype=float))
+    hard = [e for e in targets if e["hard"]]
+    soft = [e for e in targets if not e["hard"]]
+    for e in hard:
+        n_lat[e["index"]] = e["value"]
+    prev_lap, prev_n_lat, compliant = math.inf, n_lat.copy(), False
+    for _ in range(N_OUTER_MAX):
+        pts = points_from_n_lat(track, n_lat)
+        sim = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=brake_cap_g)
+        rate = steer_rate_deg_s(pts, sim)
+        now_compliant = float(np.max(np.abs(rate))) <= STEER_RATE_MAX_DEG_S
+        if compliant and now_compliant and sim["lap_time_s"] > prev_lap:
+            n_lat = prev_n_lat
+            break
+        prev_lap, prev_n_lat, compliant = sim["lap_time_s"], n_lat.copy(), now_compliant
+        grip = np.clip(sim["v"] ** 2 / np.maximum(sim["radius"], 1e-6) / (veh.lat_g * G), 0.0, 1.0)
+        steer_excess = np.maximum(0.0, np.abs(rate) / STEER_RATE_MAX_DEG_S - 1)
+        alpha = np.minimum(0.9, BASE_ALPHA * (0.1 + 0.9 * grip) + 0.6 * steer_excess)
+        for _ in range(INNER_STEPS):
+            n_lat = relax_once(track, n_lat, alpha, hard)
+        for e in soft:
+            pulled = n_lat[e["index"]] + SOFT_PIN_PULL * (e["value"] - n_lat[e["index"]])
+            mid = (track.lo[e["index"]] + track.hi[e["index"]]) / 2
+            n_lat[e["index"]] = min(max(pulled, min(track.lo[e["index"]] + EDGE_MARGIN_M, mid)),
+                                    max(track.hi[e["index"]] - EDGE_MARGIN_M, mid))
+    return smooth_single_point_notches(track, n_lat, veh)
+
+
+def apply_brush(track, n_lat_base, index, target, radius_m):
+    """Smootherstep statt Raised-Cosine: Auch die Kruemmung ist am Fensterrand 0, sonst entsteht dort ein Knick."""
+    n = len(n_lat_base)
+    n_lat = n_lat_base.copy()
+    win = max(1, round(radius_m / RESAMPLE_STEP_M))
+    delta = target - n_lat_base[index]
+    for k in range(-win, win + 1):
+        i = (index + k) % n
+        n_lat[i] = min(max(n_lat_base[i] + delta * smootherstep(abs(k) / win), track.lo[i]), track.hi[i])
+    n_lat[index] = target
+    return n_lat
+
+
+def recompute_from_edits(track, baseline, edits, veh, natural=False, brake_cap_g=None):
+    """Linie immer aus der Bearbeitungsliste neu: Warm-Start per Pinsel, dann alle Fixpunkte gemeinsam relaxieren."""
+    n_lat = baseline.copy()
+    for e in edits:
+        n_lat = apply_brush(track, n_lat, e["index"], e["value"], e["radius"])
+    return pinned_optimize(track, n_lat, edits, veh, natural, brake_cap_g)
+
+
+def standing_start_trace(sim, veh):
+    """Reine Anzeige-Zugabe (Nutzerwunsch 09.09.2026): stehender Start bei der ersten Wiedergabe, Vollgas-Sprint bis zum
+    Rundentempo an derselben Stelle. Greift nicht in Rundenzeit oder Linie ein."""
+    f = veh.speed_factor
+    s_arr, v_final = sim["s"], sim["v"]
+    s, v, gear, shift_t = 0.0, 0.0, 1, 0.0
+    rows = [(s, v, gear, False)]
+    while True:
+        dt = STANDING_START_DT_S
+        shifting = shift_t > 0
+        if shifting:
+            v = max(0.0, v + coast_true(v, f) * dt)
+            shift_t = max(0.0, shift_t - dt)
+        elif gear < 6:
+            a_cur, rpm = accel_true(v, gear, f)
+            if rpm >= REDLINE_RPM or accel_true(v, gear + 1, f)[0] > a_cur:
+                gear += 1
+                shift_t = veh.shift_s[(gear - 1, gear)]
+            else:
+                v += max(a_cur, 0.0) * dt
+        else:
+            v += max(accel_true(v, gear, f)[0], 0.0) * dt
+        s += v * dt
+        i = int(np.searchsorted(s_arr, min(s, s_arr[-1]), side="right")) - 1
+        if v >= v_final[i] or s >= s_arr[-1]:
+            rpm = [accel_true(r[1], r[2], f)[1] for r in rows]
+            frac = [0.0 if r[3] else limiter_factor(n, r[2]) for r, n in zip(rows, rpm)]
+            load, tp, _ = engine_controls(frac, rpm, [not r[3] for r in rows])
+            # Kupplung: Anfahren schleift bis launch_end_kmh, danach die Schaltungen des Sprints
+            t_rows = np.arange(len(rows)) * dt
+            t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
+            ups = [(t, veh.shift_s[(r0[2], r1[2])], r0[2], r1[2]) for t, r0, r1 in zip(t_rows[1:], rows, rows[1:])
+                   if r1[2] != r0[2]]
+            on_lap = clutch_trace(ups, t_rows[-1] + dt)
+            on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
+            clutch = np.maximum(clutch_launch(t_rows, t_end), on_lap)
+            return {"dt": dt, "s": [r[0] for r in rows], "v": [r[1] for r in rows], "gear": [r[2] for r in rows],
+                    "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1), "clutch": round_list(clutch, 0),
+                    "pedal": [0 if r[3] else 100 for r in rows], "joinT": float(sim["t"][i])}
+        rows.append((s, v, gear, shifting))
+
+
+# ---------- Dienst ----------
+def round_list(a, digits=6):
+    return [round(float(x), digits) for x in a]
+
+
+def sim_json(sim, pts, veh):
+    load, tp, pedal = throttle_trace(sim["v"], sim["gear"], sim["ds"], veh)
+    return {
+        "loadPct": round_list(load, 1), "tpPct": round_list(tp, 1), "pedalPct": round_list(pedal, 1),
+        "clutchDt": CLUTCH_TRACE_DT_S, "clutchPct": round_list(clutch_trace(sim["shift_events"], sim["lap_time_s"]), 0),
+        "vFinal": round_list(sim["v"]), "vFwd": round_list(sim["v_fwd"]), "gear": [int(g) for g in sim["gear"]],
+        "rpm": round_list(sim["rpm"], 2), "s": round_list(sim["s"], 4), "t": round_list(sim["t"]),
+        "radius": round_list(np.minimum(sim["radius"], 1e9), 4), "ds": round_list(sim["ds"]),
+        "lapTime": sim["lap_time_s"], "coasting": [int(c) for c in sim["coasting"]],
+        "throttleFrac": round_list(sim["throttle_frac"]), "brakeFrac": round_list(sim["brake_frac"]),
+        "throttleFracNatural": round_list(sim["throttle_frac_natural"]), "naturalMode": sim["natural"],
+        "steerRate": round_list(steer_rate_deg_s(pts, sim), 3),
     }
 
-    html = build_html(data)
-    with open(OUT_PATH, "w", encoding="utf-8") as f:
-        f.write(html)
-    size_kb = os.path.getsize(OUT_PATH) / 1024
-    print(f"\nInteraktiver Editor geschrieben: {OUT_PATH} ({size_kb:.0f} KB)")
+
+class Editor:
+    """Haelt Strecke und Ausgangslinie je Fahrzeugmodell. Der Dienst bearbeitet eine Anfrage nach der anderen."""
+
+    def __init__(self):
+        self.track, self.n_lat_start, self.corners, self.reused = load_editor_data()
+        lit = literature_vehicle(MU_FIXED)
+        # Name -> (Vehicle, zusaetzliche Bremsgrenze, Beschriftung)
+        self.vehicles = {name: (veh, None, f"{name} (aus den Logs)") for name, veh in VEHICLES.items()}
+        self.vehicles["Literatur"] = (lit, BRAKE_CAP_G, f"Literatur (mu={MU_FIXED:.1f}, ATTACK-Schaltzeiten)")
+        self.baselines = {}
+
+    def baseline(self, name):
+        """Die Ausgangslinie kann an engen Scheiteln die Lenkgeschwindigkeits-Grenze verletzen, daher einmal bereinigt."""
+        if name not in self.baselines:
+            veh, cap, _ = self.vehicles[name]
+            self.baselines[name] = pinned_optimize(self.track, self.n_lat_start, [], veh, brake_cap_g=cap)
+        return self.baselines[name]
+
+    def parse_edits(self, raw):
+        n = len(self.track.center)
+        edits = []
+        for e in raw:
+            index, value = int(e["index"]), float(e["value"])
+            if not (0 <= index < n and math.isfinite(value)):
+                raise ValueError(f"Bearbeitung ungueltig: {e}")
+            radius = float(e.get("radius", BRUSH_RADIUS_M_DEFAULT))
+            edits.append({"index": index, "value": value, "hard": bool(e.get("hard")),
+                          "radius": radius if math.isfinite(radius) and radius > 0 else BRUSH_RADIUS_M_DEFAULT})
+        return edits
+
+    def parse_n_lat(self, raw):
+        n_lat = np.array(raw, dtype=float)
+        if n_lat.shape != (len(self.track.center),) or not np.isfinite(n_lat).all():
+            raise ValueError("nLat passt nicht zur Strecke")
+        return n_lat
+
+    def vehicle(self, body):
+        name = body.get("vehicle")
+        if name not in self.vehicles:
+            raise ValueError(f"Unbekanntes Fahrzeugmodell: {name}")
+        return name, *self.vehicles[name][:2]
+
+    def result(self, n_lat, veh, cap, natural):
+        pts = points_from_n_lat(self.track, n_lat)
+        sim = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=cap)
+        return {"nLat": round_list(n_lat, 9), "sim": sim_json(sim, pts, veh)}, sim
+
+    def solve(self, body):
+        name, veh, cap = self.vehicle(body)
+        natural = bool(body.get("natural"))
+        baseline = self.baseline(name)
+        n_lat = recompute_from_edits(self.track, baseline, self.parse_edits(body.get("edits", [])), veh, natural, cap)
+        out, sim = self.result(n_lat, veh, cap, natural)
+        pts = points_from_n_lat(self.track, baseline)
+        out["baselineLapTime"] = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=cap)["lap_time_s"]
+        out["standingStart"] = standing_start_trace(sim, veh)
+        return out
+
+    def simulate(self, body):
+        name, veh, cap = self.vehicle(body)
+        return self.result(self.parse_n_lat(body["nLat"]), veh, cap, bool(body.get("natural")))[0]
+
+    def preview(self, body):
+        name, veh, cap = self.vehicle(body)
+        n_lat = self.parse_n_lat(body["nLat"])
+        index = int(body["index"])
+        target, radius = float(body["target"]), float(body["radius"])
+        if not (0 <= index < len(n_lat) and math.isfinite(target) and math.isfinite(radius) and radius > 0):
+            raise ValueError("Pinsel ungueltig")
+        brushed = apply_brush(self.track, n_lat, index, target, radius)
+        return self.result(brushed, veh, cap, bool(body.get("natural")))[0]
+
+    def page(self):
+        track = self.track
+        data = {
+            "origin_utm33": self.reused["origin_utm33"],
+            "centerline": track.center.tolist(), "left_edge": track.left.tolist(), "right_edge": track.right.tolist(),
+            "perp": track.perp.tolist(), "corridor_lo_m": track.lo.tolist(), "corridor_hi_m": track.hi.tolist(),
+            "corners": self.corners,
+            "background_image_jpeg_b64": self.reused["background_image_jpeg_b64"],
+            "background_extent_local": self.reused["background_extent_local"],
+            "physics": {
+                "G": G, "RESAMPLE_STEP_M": RESAMPLE_STEP_M, "CURVATURE_WINDOW_M": CURVATURE_WINDOW_M,
+                "REDLINE_RPM": REDLINE_RPM, "DEFAULT_VEHICLE": DEFAULT_TYRE,
+                "VEHICLES": {name: {"label": label, "lat_g": veh.lat_g, "accel_g": veh.accel_g, "brake_g": veh.brake_g,
+                                    "speed_factor": veh.speed_factor}
+                             for name, (veh, _, label) in self.vehicles.items()},
+            },
+            "brush_radius_m_default": BRUSH_RADIUS_M_DEFAULT,
+        }
+        return HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False))
 
 
-def build_html(data):
-    data_json = json.dumps(data, ensure_ascii=False)
-    return HTML_TEMPLATE.replace("__DATA_JSON__", data_json)
+@functools.lru_cache(maxsize=1)
+def dash_address():
+    return socket.gethostbyname(DASH_HOST), DASH_FEED_PORT  # einmal aufloesen, der Dienst ist einfaedig
+
+
+def send_to_dash(req):
+    msg = {k: float(req[k]) for k in DASH_FIELDS if req.get(k) is not None}
+    try:
+        _dash_sock.sendto(json.dumps(msg).encode("utf-8"), dash_address())
+    except OSError as err:  # Pi aus oder nicht im Netz: Editor laeuft weiter
+        return {"ok": False, "error": str(err)}
+    return {"ok": True}
+
+
+def make_handler(editor):
+    routes = {"/api/solve": editor.solve, "/api/simulate": editor.simulate, "/api/preview": editor.preview,
+              "/api/dash": send_to_dash}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def reply(self, status, content_type, payload):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self):
+            if self.path != "/":
+                self.reply(404, "text/plain; charset=utf-8", b"nicht gefunden")
+                return
+            self.reply(200, "text/html; charset=utf-8", editor.page().encode("utf-8"))
+
+        def do_POST(self):
+            route = routes.get(self.path)
+            length = int(self.headers.get("Content-Length") or 0)
+            if route is None or self.headers.get("Content-Type") != "application/json" or length > MAX_REQUEST_BYTES:
+                self.reply(400, "text/plain; charset=utf-8", b"ungueltige Anfrage")
+                return
+            try:
+                result = route(json.loads(self.rfile.read(length)))
+            except (KeyError, TypeError, ValueError) as err:
+                self.reply(400, "text/plain; charset=utf-8", str(err).encode("utf-8"))
+                return
+            self.reply(200, "application/json", json.dumps(result).encode("utf-8"))
+
+    return Handler
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Ideallinien-Editor als lokaler Dienst")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    args = parser.parse_args()
+    print("Lade Strecke und Fahrzeugmodelle ...", flush=True)
+    editor = Editor()
+    server = HTTPServer(("127.0.0.1", args.port), make_handler(editor))
+    print(f"Ideallinien-Editor: http://127.0.0.1:{args.port}/ (rechnet in Python, Abbruch mit Strg+C)", flush=True)
+    server.serve_forever()
 
 
 HTML_TEMPLATE = r"""<meta charset="utf-8">
@@ -437,6 +635,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
   .pedal-bar.brake{border-color:var(--accent-brake);}
   .pedal-bar.throttle{border-color:#4ade80;}
+  .pedal-bar.clutch{border-color:#60a5fa;}
+  .pedal-bar.clutch .pedal-fill{background:#60a5fa;}
   .pedal-fill{width:100%; height:0%;}
   .pedal-bar.brake .pedal-fill{background:var(--accent-brake);}
   .pedal-bar.throttle .pedal-fill{background:#4ade80;}
@@ -633,7 +833,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
 <header>
   <h1>Ideallinien-Editor Spreewaldring</h1>
-  <div class="sub">Mazda MX-5 ND · Linie per Drag bearbeiten, &mu;=1.0 (konservativ)</div>
+  <div class="sub">Mazda MX-5 ND · Linie per Drag bearbeiten · <span id="vehicleSub"></span></div>
 </header>
 
 <main>
@@ -689,6 +889,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         <button class="action" id="simNextBtn" title="einen Punkt vor">Punkt &#8594;</button>
       </div>
       <div class="pedals-row">
+        <div class="pedal-bar clutch" title="Kupplung"><div class="pedal-fill" id="clutchFill"></div></div>
         <div class="pedal-bar brake"><div class="pedal-fill" id="brakeFill"></div></div>
         <div class="pedal-bar throttle"><div class="pedal-fill" id="throttleFill"></div></div>
         <div class="wheel"><div class="wheel-rotor" id="wheelRotor"><div class="wheel-dot"></div></div></div>
@@ -741,9 +942,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
         <input type="checkbox" id="naturalThrottleCb">
         <span>Natuerliches Gasmodell (unkalibriert fuer Streckenkurven!)</span>
       </label>
-      <label class="hard-toggle" id="measuredCircleRow" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
-        <input type="checkbox" id="measuredCircleCb">
-        <span id="measuredCircleLabel">Gemessener Kraftkreis (aus CAN-Daten)</span>
+      <label class="hard-toggle" id="vehicleRow" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+        <span>Fahrzeugmodell</span>
+        <select id="vehicleSelect"></select>
       </label>
     </div>
 
@@ -789,750 +990,25 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   </div>
 </main>
 
-<footer>Spreewaldring Training Center · Fahrbahn-Flaechenmodell aus Orthofoto (LGB Brandenburg, 20cm) · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py (F_max=4450N)</footer>
+<footer>Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg) · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py</footer>
 
 <script type="application/json" id="viz-data">__DATA_JSON__</script>
 <script>
 (function(){
   const data = JSON.parse(document.getElementById('viz-data').textContent);
   const P = data.physics;
-  const OPT = data.optimizer;
   const N = data.centerline.length;
   const CENTER = data.centerline;
   const PERP = data.perp;
   const LO = data.corridor_lo_m;
   const HI = data.corridor_hi_m;
-  const STORAGE_KEY = 'spreewaldring_racing_line_editor_edits_v2';
-  // Lenkgeschwindigkeit: Ackermann-Naeherung (siehe drawCar/computeSteerRateDegS)
-  // fuer Anzeige UND jetzt auch als echte physikalische Randbedingung beim
-  // Optimieren (siehe pinnedOptimize) - Nutzer-Vorgabe 30.08.2026: 240°/s am
-  // Lenkrad NIE ueberschreiten (harte Grenze), reale kleine Korrekturen
-  // liegen eher um 70°/s oder langsamer (Sanity-Check, keine eigene Grenze).
+  const STORAGE_KEY = 'spreewaldring_racing_line_editor_edits_v3_modell';  // Bearbeitungen haengen am Punktindex, v2 gehoert zur alten Geometrie
+  // Nur Anzeige (Lenkrad): Ackermann-Naeherung. Alle Rechnung liegt im Python-Dienst.
   const WHEELBASE_M = 2.31, STEERING_RATIO = 15;
-  const STEER_RATE_MAX_DEG_S = 240;
   const NEARBY_HINT_M = 80.0;   // nur fuer den Hover-Tooltip: "diese Fixpunkte beeinflussen sich spuerbar"
-  // Sicherheitsabstand zur Korridorgrenze bei der Relaxation (siehe Diskussion
-  // 2026-09-07): die querkraftbasierte Optimierung darf die Innenlinie nicht
-  // bis auf 0cm an den Rand pressen - mehrere Punkte hart am Anschlag ergeben
-  // eine unnatuerliche flache "Beule" statt einer runden Kurve. Ein paar cm
-  // Puffer erlauben eine saubere, durchgehend gekruemmte Linie.
-  const EDGE_MARGIN_M = 0.10;
-  // Staerke, mit der ein WEICHER Fixpunkt pro AEUSSERER Iteration Richtung
-  // Zielwert gezogen wird (siehe pinnedOptimize) - bewusst moderat: die
-  // bestehende "brich ab, wenn Rundenzeit schlechter wird"-Regel entscheidet
-  // dann selbst, wie weit der Zug in Richtung Zielwert tatsaechlich Zeit
-  // kostet und wann er sich nicht mehr lohnt (siehe Diskussion 2026-09-07).
-  const SOFT_PIN_PULL = 0.3;
-  // Kurze Vollgas-Inseln zwischen zwei Bremszonen sind fuer ein Punktmassen-
-  // Modell ohne Umschaltkosten zeit-optimal (bang-bang), aber in der
-  // Realitaet destabilisierend - siehe smoothWastedAccelBrake() und
-  // docs/logs/projekt-stand.md (Nutzerbeobachtung 08.09.2026). Port von
-  // MIN_ACCEL_HOLD_M/smooth_wasted_accel_brake() aus
-  // spreewaldring_racing_line_optimal.py.
-  const MIN_ACCEL_HOLD_M = 40.0;
-
-  // EXPERIMENTELL (Nutzeranfrage 08.09.2026): "natuerliches" Gasmodell statt
-  // Vollgas-sobald-Physik-es-zulaesst. Herleitung: eine reale, saubere
-  // Kurve (Strasse, R=44.5m/75km/h, siehe partial_throttle_calibration.py)
-  // zeigte einen starken Zusammenhang zwischen LENKRATE (Oeffnen der
-  // Lenkung) und Gaspedalstellung, R^2=0.76. WICHTIG - diese Formel ist
-  // NICHT verlaesslich validiert fuer Streckenkurven: eine Plausibilitaets-
-  // pruefung (spreewaldring_natural_throttle_check.py) zeigte, dass 13 von
-  // 17 Spreewaldring-Kurvenabschnitten Lenkraten weit ausserhalb des
-  // kalibrierten Bereichs brauchen (bis 392°/s vs. kalibrierte -14 bis
-  // +24°/s), UND eine breitere Aggregation ueber alle 17 verfuegbaren Logs
-  // (throttle_steering_rate_aggregate.py) fand fuer echte harte Kurvenfahrt
-  // (|a_lat|>0.5g, n=98) nur noch R^2=0.04 - die Ein-Kurven-Formel
-  // generalisiert NICHT zuverlaessig. Dieser Modus ist bewusst als
-  // Vergleichs-/Anschauungswerkzeug gebaut (Toggle "Natuerliches Gasmodell"),
-  // NICHT als Ersatz fuer das produktive, zeitoptimale Modell - siehe
-  // docs/logs/projekt-stand.md.
-  // 02.10.2026 auf die CAN-Kalibrierung umgestellt (1570 Kurven, R²=0,990; Gain steigt leicht mit dem
-  // Lenkwinkel). Vorher Handy-Kalibrierung K1=0.023382, K2=-0.00003895 (faelschlich fallender Gain).
-  const K1_STEER = 0.020555, K2_STEER = 0.0000272;  // results/steering_lateral_model_summary.json
-  const APP_STEER_A = 38.4, APP_STEER_B = 2.4;         // Kurve-1-Regression, partial_throttle_calibration.py
-  // Domain-Gatter (Nutzerbeobachtung 08.09.2026, Punkte 1-35): die Formel
-  // wurde AUSSCHLIESSLICH innerhalb einer echten Kurve kalibriert (Kurve 1s
-  // eigene Punkte lagen bei 0.68-1.05g genutzter Querkraft) und kennt daher
-  // "praktisch keine Kurve" nicht. Bei grossem Radius/kleiner Querkraft ist
-  // ausserdem die Kruemmungsschaetzung selbst rauschanfaellig (kleinste
-  // Punktabweichungen kippen den geschaetzten Radius stark), was ohne
-  // Gatter zu einem voellig unplausiblen Fladdern des Gaspedals zwischen
-  // 0% und 100% von Punkt zu Punkt fuehrte. Unterhalb dieser Schwelle
-  // (angelehnt an den harten-Kurvenfahrt-Filter aus
-  // throttle_steering_rate_aggregate.py) wird komplett auf das bestehende
-  // Vollgas-Modell (accelEnvelope) zurueckgefallen statt die Formel
-  // ausserhalb ihres kalibrierten Bereichs zu extrapolieren.
-  // Schwelle auf 0.8 angehoben (Nutzervorschlag 08.09.2026, "Optimierung
-  // der Beschleunigung in Teillast"): unterhalb bleibt es bei Vollgas,
-  // AUSSER ein Blick auf die naechsten NATURAL_THROTTLE_LOOKAHEAD_N Punkte
-  // zeigt, dass die aktuelle Geschwindigkeit dort schon ueber
-  // NATURAL_THROTTLE_LOOKAHEAD_MAX_G fuehren wuerde - dann greift die
-  // Lenkrate-Formel schon vorausschauend frueher, statt erst im letzten
-  // Moment abzubrechen. Reine Vorwaerts-Heuristik mit der AKTUELLEN
-  // Geschwindigkeit (keine echte Vorab-Simulation der naechsten Punkte) -
-  // bewusst einfach gehalten, siehe docs/logs/projekt-stand.md.
-  const NATURAL_THROTTLE_MIN_G = 0.9;
-  const NATURAL_THROTTLE_LOOKAHEAD_N = 10;
-  const NATURAL_THROTTLE_LOOKAHEAD_MAX_G = 1.0;
   let naturalThrottleMode = false;
-  // Gemessener Kraftkreis (Nutzerauftrag: "mu aus den tatsaechlichen Daten"
-  // statt Literatur-Bandbreite) - siehe MEASURED_CIRCLE in data.physics und
-  // latMaxMs2()/lonAvailMs2() unten. Nur einschaltbar, wenn MEASURED_CIRCLE
-  // nicht null ist (can_traction_circle.py schon gelaufen).
-  let measuredCircleMode = false;
-  let debugForceAppFrac = null; // Array von {index, value} - siehe __editorDebug.setDebugForceAppFrac
-  let lastPreSmoothV = null; // Debug: v VOR smoothWastedAccelBrake/smoothShortBrakeSpikes, siehe getPreSmoothV()
-  let lastMidSmoothV = null; // Debug: v NACH smoothWastedAccelBrake, VOR smoothShortBrakeSpikes
-
-  // Motorbremskraft bei APP=0/Kupplung geschlossen/Gang eingelegt
-  // (Nutzerhinweis 08.09.2026): coastAccel() (unten) modelliert nur Luft-/
-  // Rollwiderstand - das ist fuer die Rollphase WAEHREND eines Schaltvorgangs
-  // richtig (Kraftschluss kurz unterbrochen), fehlt aber fuer STEADY-STATE
-  // Rollen mit geschlossener Kupplung. Empirische v-Interpolationstabelle
-  // aus 397 realen "Schub im Gang"-Ereignissen (39 Logs), siehe
-  // engine_braking_analysis.py/results/engine_braking_model.json - ein
-  // RPM-/Gang-basiertes Modell wurde dort explizit versucht und verworfen
-  // (R^2~0), die geschwindigkeitsbasierte Kurve war dagegen sauber.
-  const ENGINE_BRAKE_V_MS = [6.94, 9.72, 12.5, 15.28, 18.06, 20.83, 25.0, 30.56, 37.5, 48.61];
-  const ENGINE_BRAKE_A_MS2 = [-0.421, -0.315, -0.314, -0.201, -0.205, -0.218, -0.143, -0.145, -0.040, -0.056];
-  function coastAccelInGear(v){
-    return coastAccel(v) + interp(v, ENGINE_BRAKE_V_MS, ENGINE_BRAKE_A_MS2);
-  }
-
-  // Loest (180/(pi*R)) = (k1+k2*|steer|)*|steer| nach |steer| [deg] auf -
-  // Umkehrung des Lenkwinkel->Giergeschwindigkeit-Modells, v-unabhaengig
-  // (siehe steer_from_radius() in spreewaldring_natural_throttle_check.py).
-  function steerFromRadius(radiusM){
-    const target = (180/Math.PI) / Math.max(radiusM, 1e-6);
-    const disc = Math.max(K1_STEER*K1_STEER + 4*K2_STEER*target, 0);
-    return Math.abs((-K1_STEER + Math.sqrt(disc)) / (2*K2_STEER));
-  }
-
-  // ---------- Physik (Port aus performance_simulation.py / spreewaldring_racing_line_optimal.py) ----------
-  function interp(x, xs, ys){
-    if (x <= xs[0]) return ys[0];
-    if (x >= xs[xs.length-1]) return ys[ys.length-1];
-    for (let i=0;i<xs.length-1;i++){
-      if (x>=xs[i] && x<=xs[i+1]){
-        const t=(x-xs[i])/(xs[i+1]-xs[i]);
-        return ys[i] + t*(ys[i+1]-ys[i]);
-      }
-    }
-    return ys[ys.length-1];
-  }
-  function rpmFromSpeed(v, gear){
-    const wheelRps = v / (2*Math.PI*P.R_DYN_M);
-    return wheelRps * P.GEAR_RATIOS[gear] * P.FINAL_DRIVE * 60.0;
-  }
-  function accel(v, gear){
-    const rpm = rpmFromSpeed(v, gear);
-    const torque = interp(rpm, P.RPM_TABLE, P.TORQUE_TABLE_NM);
-    const fWheel = torque * P.GEAR_RATIOS[gear] * P.FINAL_DRIVE * P.ETA / P.R_DYN_M;
-    const fDrag = 0.5 * P.RHO_KG_M3 * P.CDA_M2 * v * v;
-    const fRoll = P.CRR * P.MASS_KG * P.G;
-    const ig = P.GEAR_RATIOS[gear] * P.FINAL_DRIVE / P.R_DYN_M;
-    const mEff = P.MASS_KG + (P.ENGINE_INERTIA_KGM2 ?? 0) * ig * ig;
-    return Math.min((fWheel - fDrag - fRoll) / mEff, (P.TRACTION_MAX_FORCE_N - fDrag - fRoll) / P.MASS_KG);
-  }
-  function sqrtNonneg(x){ return x>0 ? Math.sqrt(x) : 0; }
-
-  // ---------- Reifenkraftkreis: isotrop (Literatur-mu) ODER gemessen (Kraftkreis-
-  // CAN-Daten, siehe MEASURED_CIRCLE) - Port aus spreewaldring_lap_simulation.py
-  // (_lon_limit(), Nutzerauftrag "mu aus den tatsaechlichen Daten"). Im
-  // gemessenen Modus ist es eine echte Ellipse (a_lat_max != a_accel_max !=
-  // a_brake_max), im Literatur-Modus weiterhin der bisherige isotrope Kreis
-  // (mathematisch identisch zur alten sqrt((mu*g)^2-aLat^2)-Formel).
-  function latMaxMs2(){
-    return (measuredCircleMode && P.MEASURED_CIRCLE ? P.MEASURED_CIRCLE.mu_lat_g : P.MU) * P.G;
-  }
-  function lonAvailMs2(aLat, kind){
-    const aLatMax = latMaxMs2();
-    const aLonMaxG = measuredCircleMode && P.MEASURED_CIRCLE
-      ? (kind === 'brake' ? P.MEASURED_CIRCLE.mu_brake_g : P.MEASURED_CIRCLE.mu_accel_g)
-      : (aLatMax / P.G);
-    const ratio = Math.min(aLat / aLatMax, 1);
-    return aLonMaxG * P.G * Math.sqrt(Math.max(0, 1 - ratio * ratio));
-  }
-
-  // ---------- Schaltzeiten (Port aus spreewaldring_racing_line_optimal.py,
-  // Nachtrag "echte Schaltzeiten statt perfekter Gangwahl") ----------
-  function coastAccel(v){
-    const fDrag = 0.5*P.RHO_KG_M3*P.CDA_M2*v*v;
-    const fRoll = P.CRR*P.MASS_KG*P.G;
-    return -(fDrag+fRoll)/P.MASS_KG;
-  }
-  function bestGearForSpeed(v){
-    // Gaenge, die bei dieser Geschwindigkeit schon ueber Redline liegen,
-    // werden ausgeschlossen (siehe Python-Docstring: torque_nm() extrapoliert
-    // sonst flach weiter und taeuscht bei stark ueberhoehter Drehzahl eine
-    // physikalisch unmoegliche hohe Beschleunigung vor).
-    let best = null, bestA = -Infinity;
-    for (let gear=1; gear<=6; gear++){
-      if (rpmFromSpeed(v, gear) > P.REDLINE_RPM) continue;
-      const a = accel(v, gear);
-      if (a > bestA){ bestA = a; best = gear; }
-    }
-    return best != null ? best : 6;
-  }
-  function forwardStepShifted(v, gear, shiftRemaining, shiftTarget, ds, radius, mu){
-    if (shiftRemaining > 0){
-      const aCoast = coastAccel(v);
-      const vFull = sqrtNonneg(v*v + 2*aCoast*ds);
-      const tFull = (v+vFull) > 1e-9 ? 2*ds/(v+vFull) : 0;
-      if (tFull <= shiftRemaining){
-        return {v: vFull, gear, shiftRemaining: shiftRemaining - tFull, shiftTarget};
-      }
-      const t = shiftRemaining;
-      const vEnd = Math.max(v + aCoast*t, 0);
-      const dsUsed = v*t + 0.5*aCoast*t*t;
-      return forwardStepShifted(vEnd, shiftTarget, 0, shiftTarget, Math.max(ds-dsUsed, 0), radius, mu);
-    }
-    const aLat = Math.min(v*v/Math.max(radius,1e-6), latMaxMs2());
-    const aLongAvail = lonAvailMs2(aLat, 'accel');
-    const rpm = rpmFromSpeed(v, gear);
-    if (rpm >= P.REDLINE_RPM && gear < 6){
-      // Harter Hochschalt-Zwang bei Redline, keine Hysterese (physikalische
-      // Grenze, siehe deriveGearTrace()).
-      const dur = P.ATTACK_SHIFT_S[`${gear}-${gear+1}`];
-      return forwardStepShifted(v, gear, dur, gear+1, ds, radius, mu);
-    }
-    // Bidirektionale Gangwahl (Hoch- ODER Runter), dieselbe Hysterese wie
-    // deriveGearTrace() (die ANZEIGE) - fehlte hier bisher komplett, siehe
-    // Nutzerfund docs/logs/projekt-stand.md (Anzeige zeigte plausible Rueckschaltungen,
-    // die reale, hier berechnete Beschleunigung blieb aber im zu hohen Gang
-    // haengen). WICHTIG: der Vergleich nutzt die ROHE Motorbeschleunigung
-    // (nicht durch aLongAvail gedeckelt!) - sonst sehen mitten in einer Kurve
-    // (aLongAvail klein) ALLE Gaenge gleich schlecht aus und es wuerde nie
-    // zurueckgeschaltet, ausgerechnet dort wo es fuer den Kurvenausgang am
-    // meisten zaehlt (erster Versuch hatte genau diesen Bug: gedeckelter
-    // Vergleich, 0 Rueckschaltungen in 830 Punkten trotz Fix). Gangwahl ist
-    // eine Drehzahl-/Motorfrage, kein Grip-Kompromiss - die Grip-Kappung
-    // greift erst danach bei der tatsaechlich genutzten Beschleunigung.
-    // Nur Nachbargaenge (nicht alle 6) - ein Schaltvorgang ueberspringt keinen
-    // Gang, ATTACK_SHIFT_S kennt nur Nachbarpaar-Zeiten.
-    let bestA = accel(v, gear), bestGear = gear, bestDur = 0;
-    if (gear < 6){
-      const aUp = accel(v, gear+1);
-      if (aUp > bestA*(1+GEAR_HYSTERESIS)){ bestA = aUp; bestGear = gear+1; bestDur = P.ATTACK_SHIFT_S[`${gear}-${gear+1}`]; }
-    }
-    if (gear > 1 && rpmFromSpeed(v, gear-1) <= P.REDLINE_RPM*REDLINE_DOWNSHIFT_MARGIN){
-      const aDown = accel(v, gear-1);
-      if (aDown > bestA*(1+GEAR_HYSTERESIS)){ bestA = aDown; bestGear = gear-1; bestDur = P.ATTACK_SHIFT_S[`${gear-1}-${gear}`]; }
-    }
-    if (bestGear !== gear){
-      return forwardStepShifted(v, gear, bestDur, bestGear, ds, radius, mu);
-    }
-    const aUse = Math.min(accel(v, gear), aLongAvail);
-    const vNew = sqrtNonneg(v*v + 2*aUse*ds);
-    return {v: vNew, gear, shiftRemaining: 0, shiftTarget: gear};
-  }
-
-  function curvatureRadius(points, windowM, stepM){
-    const n = points.length;
-    const w = Math.max(1, Math.round(windowM/stepM));
-    const radii = new Float64Array(n);
-    for (let i=0;i<n;i++){
-      const p0 = points[(i-w+n)%n], p1=points[i], p2=points[(i+w)%n];
-      const a = Math.hypot(p1[0]-p0[0], p1[1]-p0[1]);
-      const b = Math.hypot(p2[0]-p1[0], p2[1]-p1[1]);
-      const c = Math.hypot(p2[0]-p0[0], p2[1]-p0[1]);
-      const area2 = Math.abs((p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]));
-      radii[i] = (area2 < 1e-6 || a*b*c < 1e-6) ? Infinity : (a*b*c)/(2*area2);
-    }
-    return radii;
-  }
-
-  function median(arr){
-    const s = arr.slice().sort((a,b)=>a-b);
-    const mid = Math.floor(s.length/2);
-    return s.length%2 ? s[mid] : (s[mid-1]+s[mid])/2;
-  }
-
-  // Zweipass kombinierter Reifenkraftkreis (Port von simulate_lap_combined_friction()).
-  // Liefert zusaetzlich vFwd, um Bremszonen physikalisch (nicht per Schwellwert) zu erkennen:
-  // ein Punkt ist Bremszone, wenn der Rueckwaerts-Pass die Geschwindigkeit ggue. dem
-  // Vorwaerts-Pass reduziert hat (siehe Docstring des Python-Exportskripts).
-  function accelEnvelope(v){
-    return accel(v, bestGearForSpeed(v));
-  }
-
-  // Port von smooth_wasted_accel_brake() (spreewaldring_racing_line_optimal.py) -
-  // ersetzt kurze, von Bremszonen eingerahmte Vollgas-Inseln (Laenge <
-  // MIN_ACCEL_HOLD_M) durch eine konstante Teillast-Beschleunigung, die
-  // exakt auf die vom Rueckwaertspass bereits geforderte
-  // Einfahrtsgeschwindigkeit der naechsten Bremszone einschwenkt. Die
-  // erforderliche Beschleunigung darf auch leicht negativ sein (bis
-  // coastAccel(), volle Schubabschaltung) - auch ein sanftes Verzoegern
-  // bleibt so am Gaspedal statt an der Bremse. throttleFrac ist die
-  // tatsaechliche Pedalstellung als Anteil der RADKRAFT (nicht der
-  // Netto-Beschleunigung!): 0% Gas bedeutet coastAccel (Rollen/Schleppmoment),
-  // nicht "0 Nettobeschleunigung" - sonst wuerde ein exaktes Halten der
-  // Geschwindigkeit faelschlich als 0% Gas angezeigt (Nutzerbeobachtung
-  // 08.09.2026), obwohl real Kraft am Rad noetig ist, um Luft-/Rollwiderstand
-  // auszugleichen.
-  function smoothWastedAccelBrake(vBwd, vFwd, vCornerO, dsO, mu){
-    const n = vBwd.length;
-    const braking = new Uint8Array(n);
-    let anyBraking = false, allBraking = true;
-    for (let i=0;i<n;i++){
-      braking[i] = vBwd[i] < vFwd[i]-1e-3 ? 1 : 0;
-      if (braking[i]) anyBraking = true; else allBraking = false;
-    }
-    const vOut = vBwd.slice();
-    const coasting = new Uint8Array(n);       // Punkte, die diese Funktion veraendert hat
-    const throttleFrac = new Float64Array(n).fill(1);  // 1 = Vollgas/unveraendert
-    if (!anyBraking || allBraking) return {v: vOut, coasting, throttleFrac};
-    let start0 = 0;
-    for (let i=0;i<n;i++) if (braking[i]){ start0 = i; break; }
-    const order2 = new Array(n);
-    for (let k=0;k<n;k++) order2[k] = (start0+k)%n;
-    let k = 0;
-    while (k < n){
-      const idx = order2[k];
-      if (braking[idx]){ k++; continue; }
-      let j = k, arcLen = 0;
-      while (j < n && !braking[order2[j]]){ arcLen += dsO[order2[j]]; j++; }
-      const prevIdx = k > 0 ? order2[k-1] : order2[n-1];
-      const nextIdx = j < n ? order2[j] : order2[0];
-      if (arcLen < MIN_ACCEL_HOLD_M){
-        const vStart = vBwd[prevIdx], vEnd = vBwd[nextIdx];
-        const aReq = (vEnd*vEnd - vStart*vStart) / Math.max(2*arcLen, 1e-6);
-        const aMax = accelEnvelope(vStart);
-        const aMin = coastAccel(vStart);
-        if (aReq >= aMin && aReq <= aMax){
-          const frac = aMax > aMin ? (aReq-aMin)/(aMax-aMin) : 0;
-          let sLocal = 0;
-          for (let m=k; m<j; m++){
-            sLocal += dsO[order2[m]];
-            const vSmooth = sqrtNonneg(vStart*vStart + 2*aReq*sLocal);
-            const i2 = order2[m];
-            vOut[i2] = Math.min(vSmooth, vCornerO[i2]);
-            coasting[i2] = 1;
-            throttleFrac[i2] = Math.min(1, Math.max(0, frac));
-          }
-        }
-      }
-      k = j;
-    }
-    return {v: vOut, coasting, throttleFrac};
-  }
-
-  // Spiegelfall zu smoothWastedAccelBrake(): eine kurze, isolierte Bremsinsel
-  // (oft nur ein einzelner Punkt), die von Nicht-Bremsen eingerahmt ist, wird
-  // durch frueheres, sanfteres Anbremsen ersetzt statt einem abrupten
-  // Bremsstoss - Bremsbeginn rueckwaerts vorverlegt bis min. MIN_ACCEL_HOLD_M,
-  // konstante Verzoegerung, Endgeschwindigkeit der Insel bleibt exakt erhalten
-  // (Nutzerbeobachtung 08.09.2026, Punkt 492).
-  function smoothShortBrakeSpikes(vBwd, vFwd, vCornerO, dsO, mu, brakeCapG){
-    const n = vBwd.length;
-    const braking = new Uint8Array(n);
-    let anyBraking = false, allBraking = true;
-    for (let i=0;i<n;i++){
-      braking[i] = vBwd[i] < vFwd[i]-1e-3 ? 1 : 0;
-      if (braking[i]) anyBraking = true; else allBraking = false;
-    }
-    const vOut = vBwd.slice();
-    const brakeFrac = new Float64Array(n).fill(1);  // 1 = unveraendert
-    if (!anyBraking || allBraking) return {v: vOut, brakeFrac};
-    let start0 = 0;
-    for (let i=0;i<n;i++) if (!braking[i]){ start0 = i; break; }
-    const order2 = new Array(n);
-    for (let k=0;k<n;k++) order2[k] = (start0+k)%n;
-    let k = 0;
-    while (k < n){
-      const idx = order2[k];
-      if (!braking[idx]){ k++; continue; }
-      let j = k, arcLen = 0;
-      while (j < n && braking[order2[j]]){ arcLen += dsO[order2[j]]; j++; }
-      const nextIdx = j < n ? order2[j] : order2[0];
-      if (arcLen < MIN_ACCEL_HOLD_M){
-        const vEnd = vBwd[nextIdx];
-        // Rueckwaerts nur soweit ausdehnen, wie die Geschwindigkeit dort
-        // NICHT niedriger ist als am bisher besten Ankerpunkt - sonst
-        // laeuft die Verlaengerung in eine vorangehende BESCHLEUNIGUNGS-
-        // rampe zurueck (Geschwindigkeit faellt beim Rueckwaertsgehen) und
-        // verletzt vStart>vEnd unten, was die Glaettung komplett abbricht,
-        // obwohl schon die Bremsinsel selbst (ohne jede Verlaengerung)
-        // laengst machbar waere (Bugfund 08.09.2026, Nutzerbeobachtung
-        // "einzelner 100%-Bremspunkt" nach einer Kurvenausfahrt-Rampe).
-        let farK = k-1, extLen = arcLen, bestFarK = k-1;
-        while (extLen < MIN_ACCEL_HOLD_M && farK >= 0 && !braking[order2[farK]]){
-          if (vBwd[order2[farK]] < vBwd[order2[bestFarK]]) break;
-          extLen += dsO[order2[farK]];
-          bestFarK = farK;
-          farK--;
-        }
-        const farIdx = order2[bestFarK];
-        const vStart = vBwd[farIdx];
-        if (vStart > vEnd && extLen > 1e-6){
-          const aReq = (vStart*vStart - vEnd*vEnd) / (2*extLen);
-          if (aReq <= brakeCapG*P.G){
-            let sLocal = 0, m = farK+1;
-            while (order2[m] !== nextIdx){
-              sLocal += dsO[order2[m]];
-              const vSmooth = sqrtNonneg(vStart*vStart - 2*aReq*sLocal);
-              const i2 = order2[m];
-              vOut[i2] = Math.min(vSmooth, vCornerO[i2]);
-              brakeFrac[i2] = aReq > 1e-6 ? Math.min(1, aReq/(brakeCapG*P.G)) : 0;
-              m++;
-            }
-          }
-        }
-      }
-      k = j;
-    }
-    return {v: vOut, brakeFrac};
-  }
-
-  function simulateLap(points, mu){
-    const n = points.length;
-    const ds = new Float64Array(n);
-    for (let i=0;i<n;i++){
-      const j=(i+1)%n;
-      ds[i] = Math.hypot(points[j][0]-points[i][0], points[j][1]-points[i][1]);
-    }
-    const stepM = median(Array.from(ds));
-    const radius = curvatureRadius(points, P.CURVATURE_WINDOW_M, stepM);
-    const vCorner = new Float64Array(n);
-    for (let i=0;i<n;i++) vCorner[i] = Math.sqrt(Math.max(latMaxMs2()*radius[i], P.V_MIN_MS**2));
-
-    let i0=0, vmin=Infinity;
-    for (let i=0;i<n;i++) if (vCorner[i]<vmin){ vmin=vCorner[i]; i0=i; }
-    const order = new Array(n);
-    for (let k=0;k<n;k++) order[k]=(i0+k)%n;
-    const vCornerO = order.map(i=>vCorner[i]);
-    const dsO = order.map(i=>ds[i]);
-    const radiusO = order.map(i=>radius[i]);
-
-    // EXPERIMENTELL: fuer das "natuerliche Gasmodell" (siehe naturalThrottleMode
-    // oben) - Lenkwinkel-Aequivalent pro Punkt ist rein geometrisch (v-unabhaengig,
-    // siehe steerFromRadius()), daher einmal vorab berechnet statt im Vorwaerts-
-    // pass neu.
-    const steerAbsO = radiusO.map(r => steerFromRadius(r));
-    // Oeffnungsrate ueber ein BREITES Fenster (wie computeSteerRateDegS/
-    // CURVATURE_WINDOW_M, nicht ueber die unmittelbaren Nachbarpunkte) -
-    // Nutzerbeobachtung 08.09.2026 (Punkte 98-101): eine Differenzierung
-    // ueber nur 1-2 Punkte reagiert auf jedes kleine S in der eigenen
-    // Kruemmungsaenderung der Linie, obwohl Lenkwinkel und a_lat im
-    // uebergeordneten Trend laengst in eine Richtung laufen - ein realer
-    // Fahrer reagiert vorausschauend auf den Trend der naechsten ~15-20m,
-    // nicht auf jede Punkt-zu-Punkt-Fluktuation. Sicherheitsnetz bleibt
-    // unveraendert: aLongAvail (im Reifenkraftkreis unten) verhindert
-    // weiterhin, dass die gedaempfte Gasfreigabe eine Kombination aus
-    // Quer-/Laengskraft ueber mu*g hinaus verlangt, das breitere Fenster
-    // aendert daran nichts.
-    const stepMNatural = median(Array.from(dsO));
-    const wNatural = Math.max(1, Math.round(P.CURVATURE_WINDOW_M/stepMNatural));
-    const dSteerDsO = new Float64Array(n);
-    for (let i=0;i<n;i++){
-      const ip = (i-wNatural+n)%n, in_ = (i+wNatural)%n;
-      let span = 0;
-      for (let k=0;k<2*wNatural;k++) span += dsO[(ip+k)%n];
-      dSteerDsO[i] = (steerAbsO[in_]-steerAbsO[ip]) / Math.max(span, 1e-6);
-    }
-    const appFracNaturalO = new Float64Array(n).fill(1);
-
-    // Spiegelt forwardStepShifted() (Gangwahl + echte Schaltzeit als
-    // Rollphase), ersetzt darin nur die Vollgas-Beschleunigung durch die
-    // Lenkrate-Teillast - fuer einen fairen Rundenzeit-Vergleich muss auch
-    // der natuerliche Gas-Pfad Schaltzeiten kosten (Nutzerhinweis
-    // 08.09.2026: die zunaechst schaltzeitfreie Variante war faelschlich
-    // SCHNELLER als das zeitoptimale Modell - physikalisch unmoeglich fuer
-    // ein konservativeres Gasmodell).
-    function naturalStep(v, gear, shiftRemaining, shiftTarget, ds, iTarget){
-      if (shiftRemaining > 0){
-        const aCoast = coastAccel(v);
-        const vFull = sqrtNonneg(v*v + 2*aCoast*ds);
-        const tFull = (v+vFull) > 1e-9 ? 2*ds/(v+vFull) : 0;
-        if (tFull <= shiftRemaining){
-          return {v: vFull, gear, shiftRemaining: shiftRemaining - tFull, shiftTarget};
-        }
-        const t = shiftRemaining;
-        const vEnd = Math.max(v + aCoast*t, 0);
-        const dsUsed = v*t + 0.5*aCoast*t*t;
-        return naturalStep(vEnd, shiftTarget, 0, shiftTarget, Math.max(ds-dsUsed, 0), iTarget);
-      }
-      const radius = radiusO[iTarget];
-      const aLatMax = latMaxMs2();
-      const aLat = Math.min(v*v/Math.max(radius,1e-6), aLatMax);
-      const aLongAvail = lonAvailMs2(aLat, 'accel');
-      const rpm = rpmFromSpeed(v, gear);
-      if (rpm >= P.REDLINE_RPM && gear < 6){
-        // appFracNaturalO[iTarget] explizit setzen (Kupplung offen waehrend
-        // des Schaltvorgangs, keine Kraftuebertragung) - sonst behaelt das
-        // Array an GENAU diesem Punkt seinen .fill(1)-Anfangswert, weil die
-        // spaetere Zuweisung unten hier uebersprungen wird (Bugfund
-        // 09.09.2026: erzeugte einen Phantom-100%-Ausreisser mitten in einer
-        // sonst korrekt auf 0% stehenden Bremszone, siehe docs/logs/projekt-stand.md).
-        appFracNaturalO[iTarget] = 0;
-        const dur = P.ATTACK_SHIFT_S[`${gear}-${gear+1}`];
-        return naturalStep(v, gear, dur, gear+1, ds, iTarget);
-      }
-      // Bidirektionale Gangwahl - siehe forwardStepShifted() fuer die
-      // Begruendung (Nutzerfund: Anzeige zeigte Rueckschaltungen, die
-      // tatsaechlich berechnete Beschleunigung nutzte weiterhin den zu hohen,
-      // nie zurueckgeschalteten Gang). Gangwahl bleibt unabhaengig von der
-      // Teillast-Frage - ein Fahrer waehlt den Gang nach Drehzahl/
-      // Leistungsband, nicht neu je Pedalstellung. WICHTIG: Vergleich mit der
-      // ROHEN Motorbeschleunigung, nicht grip-gedeckelt - siehe
-      // forwardStepShifted() fuer den Bugfund (gedeckelter Vergleich sah
-      // mitten in der Kurve alle Gaenge gleich schlecht, nie zurueckgeschaltet).
-      {
-        let bestA = accel(v, gear), bestGear = gear, bestDur = 0;
-        if (gear < 6){
-          const aUp = accel(v, gear+1);
-          if (aUp > bestA*(1+GEAR_HYSTERESIS)){ bestA = aUp; bestGear = gear+1; bestDur = P.ATTACK_SHIFT_S[`${gear}-${gear+1}`]; }
-        }
-        if (gear > 1 && rpmFromSpeed(v, gear-1) <= P.REDLINE_RPM*REDLINE_DOWNSHIFT_MARGIN){
-          const aDown = accel(v, gear-1);
-          if (aDown > bestA*(1+GEAR_HYSTERESIS)){ bestA = aDown; bestGear = gear-1; bestDur = P.ATTACK_SHIFT_S[`${gear-1}-${gear}`]; }
-        }
-        if (bestGear !== gear){
-          appFracNaturalO[iTarget] = 0; // siehe Kommentar beim Redline-Zwangsschalt oben
-          return naturalStep(v, gear, bestDur, bestGear, ds, iTarget);
-        }
-      }
-      let cornering = (aLat / aLatMax) > NATURAL_THROTTLE_MIN_G;
-      if (!cornering){
-        // Vorausschauend (Nutzervorschlag 08.09.2026): auch unterhalb der
-        // Schwelle schon moderieren, wenn die naechsten Punkte zu eng
-        // wuerden. URSPRUENGLICH mit GLEICHBLEIBENDER Geschwindigkeit
-        // geprueft - Nutzer-Analyse 09.09.2026 (Punkt 172-179) zeigte: das
-        // ist zu pessimistisch. Selbst bei Vollgas an einem Punkt kurz vor
-        // einer Verengung rollt der Wagen bis zum Scheitel durch Luft-/
-        // Rollwiderstand UND Motorbremse (siehe coastAccelInGear, dieselbe
-        // Funktion wie aMin unten) schon spuerbar ab, auch OHNE dass
-        // irgendjemand bremst oder vom Gas geht - die "konstante
-        // Geschwindigkeit"-Annahme unterstellte faelschlich, dass gar keine
-        // Verzoegerung stattfindet, und liess das Gas dadurch frueher als
-        // noetig auf 0 fallen. Jetzt wird das Ausrollen (appFrac=0, das
-        // pessimistischste/sicherste Szenario - genau das, was passiert,
-        // WENN man ab hier vom Gas geht) bis zu jedem Vorausschau-Punkt
-        // vorsimuliert, statt v konstant zu halten.
-        let vCoast = v;
-        for (let k=1; k<=NATURAL_THROTTLE_LOOKAHEAD_N; k++){
-          const j = (iTarget+k) % n;
-          const jPrev = (iTarget+k-1) % n;
-          vCoast = sqrtNonneg(vCoast*vCoast + 2*coastAccelInGear(vCoast)*dsO[jPrev]);
-          const aLatAheadG = (vCoast*vCoast/Math.max(radiusO[j],1e-6)) / aLatMax;
-          if (aLatAheadG > NATURAL_THROTTLE_LOOKAHEAD_MAX_G){ cornering = true; break; }
-        }
-      }
-      let appFrac = 1;
-      if (cornering){
-        // Ausserhalb des kalibrierten Bereichs faellt appFrac=1 (Vollgas)
-        // zurueck - siehe NATURAL_THROTTLE_MIN_G.
-        const openingRate = -dSteerDsO[iTarget] * v;  // >0 = Kurve oeffnet sich
-        appFrac = Math.min(1, Math.max(0, (APP_STEER_A + APP_STEER_B*openingRate)/100));
-        // Sicherheitsnetz gegen die Formel selbst (Nutzererkenntnis 09.09.2026,
-        // Kurve 3, ~30 reale Runden: "zwischen 194 und 300 fahre ich alles
-        // voll") - die obige Formel ist ein Fahrgefuehl-Proxy aus NUR EINER
-        // kalibrierten Kurve (R^2=0.76) und kann hier zu vorsichtig sein,
-        // ohne dass die 1g-Haftgrenze das je verlangt haette. Deshalb: derselbe
-        // Vorausschau-Mechanismus wie oben (X% Gas HIER, danach realistisches
-        // Ausrollen statt konstanter Geschwindigkeit) sucht per Bisektion die
-        // MAXIMALE appFrac, bei der die Haftgrenze im Vorausschaufenster
-        // nirgends gerissen wird - appFrac gewinnt gegen die Formel, wenn das
-        // mehr erlaubt. Erste Version hier war ein harter 0/1-Schalter (nur
-        // "Vollgas sicher?" statt "wieviel ist sicher?") - das erzeugte an der
-        // Kippschwelle dasselbe Bang-Bang-Chattern wie der urspruengliche
-        // Lookahead-Bug (Fund bei Punkt 757-759: 0/100/18/100/46). Die
-        // Bisektion liefert stattdessen einen STETIGEN Wert, der sich mit der
-        // Position mitbewegt statt zu kippen. Kann appFrac dadurch NUR
-        // erhoehen, nie absenken (Math.max via cornering-Zweig oben) - macht
-        // also strukturell keine Stelle im Lap langsamer als vorher.
-        const aMaxHere = Math.min(accel(v, gear), aLongAvail);
-        const aMinHere = coastAccelInGear(v);
-        function safeAtFrac(frac){
-          const aUseTest = aMinHere + frac*(aMaxHere-aMinHere);
-          let vTest = sqrtNonneg(v*v + 2*aUseTest*ds);
-          for (let k=1; k<=NATURAL_THROTTLE_LOOKAHEAD_N; k++){
-            const j = (iTarget+k) % n;
-            const jPrev = (iTarget+k-1) % n;
-            vTest = sqrtNonneg(vTest*vTest + 2*coastAccelInGear(vTest)*dsO[jPrev]);
-            const aLatAheadG = (vTest*vTest/Math.max(radiusO[j],1e-6)) / aLatMax;
-            if (aLatAheadG > NATURAL_THROTTLE_LOOKAHEAD_MAX_G) return false;
-          }
-          return true;
-        }
-        if (safeAtFrac(1)){
-          appFrac = 1;
-        } else {
-          let lo = 0, hi = 1;
-          for (let iter=0; iter<12; iter++){
-            const mid = (lo+hi)/2;
-            if (safeAtFrac(mid)) lo = mid; else hi = mid;
-          }
-          appFrac = Math.max(appFrac, lo);
-        }
-      }
-      // Debug-Override fuer die Rundenzeit-Gegenprobe (siehe __editorDebug.
-      // setDebugForceAppFrac) - erzwingt appFrac an EINEM natuerlichen
-      // Streckenindex, unabhaengig vom cornering-Gate.
-      if (debugForceAppFrac){
-        const override = debugForceAppFrac.find(o => order[iTarget] === o.index);
-        if (override) appFrac = override.value;
-      }
-      // aMin = APP 0% BEI GESCHLOSSENER KUPPLUNG/eingelegtem Gang (nicht
-      // die Schaltpause) - braucht die Motorbremskraft-Korrektur, siehe
-      // coastAccelInGear().
-      const aMax = Math.min(accel(v, gear), aLongAvail), aMin = coastAccelInGear(v);
-      const aUse = aMin + appFrac*(aMax-aMin);
-      appFracNaturalO[iTarget] = appFrac;
-      const vNew = sqrtNonneg(v*v + 2*aUse*ds);
-      return {v: vNew, gear, shiftRemaining: 0, shiftTarget: gear};
-    }
-
-    let v = vCornerO.slice();
-    let vFwd = v.slice();
-    let gearO = new Int32Array(n).fill(1);
-    for (let pass=0; pass<2; pass++){
-      vFwd = v.slice();
-      let gear = bestGearForSpeed(vFwd[0]);
-      gearO[0] = gear;
-      let shiftRemaining = 0;
-      let shiftTarget = gear;
-      for (let i=1;i<n;i++){
-        const step = naturalThrottleMode
-          ? naturalStep(vFwd[i-1], gear, shiftRemaining, shiftTarget, dsO[i-1], i)
-          : forwardStepShifted(vFwd[i-1], gear, shiftRemaining, shiftTarget, dsO[i-1], radiusO[i], mu);
-        gear = step.gear; shiftRemaining = step.shiftRemaining; shiftTarget = step.shiftTarget;
-        vFwd[i] = Math.min(vCornerO[i], step.v);
-        gearO[i] = gear;
-      }
-      {
-        const step0 = naturalThrottleMode
-          ? naturalStep(vFwd[n-1], gear, shiftRemaining, shiftTarget, dsO[n-1], 0)
-          : forwardStepShifted(vFwd[n-1], gear, shiftRemaining, shiftTarget, dsO[n-1], radiusO[0], mu);
-        gear = step0.gear; shiftRemaining = step0.shiftRemaining; shiftTarget = step0.shiftTarget;
-        vFwd[0] = Math.min(vCornerO[0], step0.v, vFwd[0]);
-        gearO[0] = gear;
-      }
-      // Bremsverzoegerung zusaetzlich auf BRAKE_CAP_G begrenzt (reale,
-      // ABS-limitierte Bremsung aus BFP_PRE_MZ-Daten statt der rein
-      // theoretischen Reifenkraftkreis-Grenze - Nutzerentscheidung
-      // 08.09.2026, siehe braking_model.py/docs/logs/projekt-stand.md). Gilt nur fuer
-      // die Laengsverzoegerung beim Bremsen, nicht fuer die Kurven-
-      // Querbeschleunigung.
-      const vBwd = vFwd.slice();
-      for (let i=n-2;i>=0;i--){
-        const aLat = Math.min(vBwd[i+1]**2/Math.max(radiusO[i],1e-6), latMaxMs2());
-        const aBrake = Math.min(lonAvailMs2(aLat, 'brake'), P.BRAKE_CAP_G*P.G);
-        vBwd[i] = Math.min(vBwd[i], Math.sqrt(vBwd[i+1]**2 + 2*aBrake*dsO[i]));
-      }
-      {
-        const aLatLast = Math.min(vBwd[0]**2/Math.max(radiusO[n-1],1e-6), latMaxMs2());
-        const aBrakeLast = Math.min(lonAvailMs2(aLatLast, 'brake'), P.BRAKE_CAP_G*P.G);
-        vBwd[n-1] = Math.min(vBwd[n-1], Math.sqrt(vBwd[0]**2+2*aBrakeLast*dsO[n-1]));
-      }
-      v = vBwd;
-    }
-
-    // Einmalig NACH der Konvergenz ueber beide Passes anwenden (nicht
-    // innerhalb der Schleife) - sonst wuerde der naechste Vorwaerts-Pass
-    // wieder mit Vollgas von den geglaetteten Werten starten und dieselbe
-    // Spitze neu erzeugen. Siehe MIN_ACCEL_HOLD_M/smoothWastedAccelBrake().
-    // Debug-Snapshot VOR jeder Glaettung, in natuerliche Reihenfolge
-    // zurueckgemappt - fuer den Python-Port-Abgleich (09.09.2026), siehe
-    // __editorDebug.getPreSmoothV().
-    lastPreSmoothV = new Float64Array(n);
-    for (let k=0;k<n;k++) lastPreSmoothV[order[k]] = v[k];
-    const smoothed = smoothWastedAccelBrake(v, vFwd, vCornerO, dsO, mu);
-    v = smoothed.v;
-    lastMidSmoothV = new Float64Array(n);
-    for (let k=0;k<n;k++) lastMidSmoothV[order[k]] = v[k];
-    const spikeFixed = smoothShortBrakeSpikes(v, vFwd, vCornerO, dsO, mu, P.BRAKE_CAP_G);
-    v = spikeFixed.v;
-
-    const vFinal = new Float64Array(n), vFwdOut = new Float64Array(n);
-    const coasting = new Uint8Array(n), throttleFrac = new Float64Array(n);
-    const brakeFrac = new Float64Array(n), throttleFracNatural = new Float64Array(n);
-    const gearInternalOut = new Int32Array(n); // Debug: tatsaechlich intern genutzter Gang, siehe __editorDebug
-    for (let k=0;k<n;k++){
-      vFinal[order[k]]=v[k]; vFwdOut[order[k]]=vFwd[k];
-      coasting[order[k]]=smoothed.coasting[k]; throttleFrac[order[k]]=smoothed.throttleFrac[k];
-      brakeFrac[order[k]]=spikeFixed.brakeFrac[k];
-      throttleFracNatural[order[k]]=appFracNaturalO[k];
-      gearInternalOut[order[k]]=gearO[k];
-    }
-    let lapTime=0;
-    for (let i=0;i<n;i++) lapTime += ds[i]/vFinal[i];
-
-    // Gang-Verlauf fuer die ANZEIGE (RPM-/Gang-Diagramm, Schaltpunkt-Marker)
-    // wird BEWUSST separat aus dem fertigen vFinal(s) in NATUERLICHER
-    // Streckenreihenfolge (Index 0 = Start/Ziel) abgeleitet, NICHT aus gearO
-    // oben (das laeuft intern rotiert ab dem langsamsten Punkt, den der
-    // Zweipass-Loeser als numerischen Anker braucht). Grund: gearO haette an
-    // GENAU dieser Rotationsnaht einen kuenstlichen Ruecksprung (z.B. 4->1),
-    // der beim Ablesen in echter Streckenreihenfolge wie ein bizarrer
-    // Schaltvorgang aussieht (Bug gefunden 30.08.2026, User-Report "Schalt-
-    // vorgaenge nicht plausibel"). Die Rundenzeit selbst (oben) bleibt davon
-    // unberuehrt - sie kommt weiterhin aus dem korrekt rotierten Loeser.
-    const gear = deriveGearTrace(vFinal, radius, mu);
-    const rpm = new Float64Array(n);
-    for (let i=0;i<n;i++) rpm[i] = rpmFromSpeed(vFinal[i], gear[i]);
-    const sArr = new Float64Array(n);
-    { let s=0; for (let i=0;i<n;i++){ sArr[i]=s; s+=ds[i]; } }
-    const tArr = new Float64Array(n); // kumulierte Zeit je Punkt, fuer die Fahrsimulation unten
-    { let t=0; for (let i=0;i<n;i++){ tArr[i]=t; t+=ds[i]/vFinal[i]; } }
-
-    return {vFinal, vFwd: vFwdOut, gear, rpm, s: sArr, t: tArr, radius, ds, lapTime, coasting, throttleFrac, brakeFrac,
-             throttleFracNatural, naturalMode: naturalThrottleMode, gearInternal: gearInternalOut};
-  }
-
-  // Anteil, um den ein ANDERER Gang bei gleicher Geschwindigkeit mehr
-  // Beschleunigung liefern muss, damit deriveGearTrace() tatsaechlich
-  // wechselt (siehe Nutzer-Feedback 30.08.2026: ohne diese Hysterese
-  // schaltete die Anzeige an Stellen, wo die Geschwindigkeit knapp um eine
-  // Gangwechsel-Schwelle pendelt, mehrfach auf wenigen Metern hin und her -
-  // unrealistisch, ein echter Schaltvorgang lohnt sich erst bei einem
-  // spuerbaren Vorteil, nicht bei jedem noch so kleinen rechnerischen Gewinn).
-  const GEAR_HYSTERESIS = 0.15;
-  // Sicherheitsabstand unter der echten Redline, ab dem ein Gang ueberhaupt
-  // erst wieder als RUECKSCHALT-Kandidat gilt (siehe Bugreport 30.08.2026:
-  // ohne diesen Puffer flatterte der Gang bei Geschwindigkeiten, die genau
-  // an der Redline-Schaltschwelle liegen, zwischen zwei Gaengen - Hochschalten
-  // bei Redline hat KEINE Hysterese (harte physikalische Grenze), aber das
-  // Zurueckschalten via Hysterese sah den niedrigeren Gang sofort wieder als
-  // "deutlich besser" an, sobald die Drehzahl durch kleinstes Kurvenrauschen
-  // (z.B. aus dicht beieinanderliegenden manuellen Punkt-Edits) einen Tick
-  // unter Redline fiel - ein echter Fahrer schaltet in so einer Situation
-  // nicht sekuendlich hin und her, sondern bleibt im hoeheren Gang, bis
-  // wieder klar Luft nach unten ist).
-  const REDLINE_DOWNSHIFT_MARGIN = 0.97;
-
-  function deriveGearTrace(vFinal, radius, mu){
-    // Reine ANZEIGE-Ableitung (siehe Kommentar in simulateLap): der Gang wird
-    // jetzt STATEFUL fortgeschrieben (nicht mehr pro Punkt unabhaengig neu
-    // bestimmt) - er bleibt, bis entweder (a) Redline erzwingt einen
-    // sequenziellen Hochschalt (keine Hysterese moeglich, das ist eine harte
-    // physikalische Grenze), oder (b) ein ANDERER Gang um mehr als
-    // GEAR_HYSTERESIS bessere Beschleunigung liefert. Das ist weiterhin
-    // RICHTUNGSLOS (deckt Hoch- wie Runterschalten mit derselben Regel ab,
-    // siehe vorheriger Nachtrag), aber ohne das Chattern nahe einer
-    // Wechselschwelle.
-    const n = vFinal.length;
-    const gear = new Int32Array(n);
-    let g = bestGearForSpeed(vFinal[0]);
-    gear[0] = g;
-    for (let i=1;i<n;i++){
-      const v = vFinal[i];
-      if (rpmFromSpeed(v, g) > P.REDLINE_RPM){
-        g = Math.min(6, g+1);
-      } else {
-        let bestA = accel(v, g), bestG = g;
-        for (let cand=1; cand<=6; cand++){
-          if (cand === g || rpmFromSpeed(v, cand) > P.REDLINE_RPM*REDLINE_DOWNSHIFT_MARGIN) continue;
-          const a = accel(v, cand);
-          if (a > bestA*(1+GEAR_HYSTERESIS)){ bestA = a; bestG = cand; }
-        }
-        g = bestG;
-      }
-      gear[i] = g;
-    }
-    return gear;
-  }
+  let vehicleName = P.DEFAULT_VEHICLE;
+  function veh(){ return P.VEHICLES[vehicleName]; }
 
   function pointsFromNLat(nLat){
     const pts = new Array(N);
@@ -1542,283 +1018,21 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     return pts;
   }
 
-  // Klemmt mit EDGE_MARGIN_M Sicherheitsabstand zur Korridorgrenze statt hart
-  // auf [LO,HI] - faellt auf die Streckenmitte zurueck, falls der Korridor an
-  // dieser Stelle schmaler als 2x Puffer ist (siehe EDGE_MARGIN_M).
-  function clampInset(val, i){
-    const mid = (LO[i]+HI[i])/2;
-    const loEff = Math.min(LO[i]+EDGE_MARGIN_M, mid);
-    const hiEff = Math.max(HI[i]-EDGE_MARGIN_M, mid);
-    return Math.min(Math.max(val, loEff), hiEff);
-  }
-
-  // hardTargets: Array von {index, value} - werden JEDEN Schritt hart erzwungen
-  // (fuer den "muss getroffen werden"-Modus). Weiche Fixpunkte laufen NICHT
-  // hier hinein, sondern werden in pinnedOptimize() einmal pro AEUSSERER
-  // Iteration Richtung Ziel gezogen (siehe dort) - das gibt der "brich bei
-  // schlechterer Rundenzeit ab"-Regel eine Chance, einen zu teuren Zug wieder
-  // zu verwerfen.
-  function relaxOnce(nLat, alphaArr, hardTargets){
-    const pts = pointsFromNLat(nLat);
-    const nNew = new Float64Array(N);
-    for (let i=0;i<N;i++){
-      const prev = pts[(i-1+N)%N], next = pts[(i+1)%N];
-      const avgX=(prev[0]+next[0])/2, avgY=(prev[1]+next[1])/2;
-      const pNewX = pts[i][0] + alphaArr[i]*(avgX-pts[i][0]);
-      const pNewY = pts[i][1] + alphaArr[i]*(avgY-pts[i][1]);
-      let nVal = (pNewX-CENTER[i][0])*PERP[i][0] + (pNewY-CENTER[i][1])*PERP[i][1];
-      nNew[i] = clampInset(nVal, i);
-    }
-    if (hardTargets) for (const t of hardTargets) nNew[t.index] = t.value;
-    return nNew;
-  }
-
-  // Alternierende Optimierung mit einem harten Fixpunkt (Port der Kernidee aus
-  // optimize_alternating() in spreewaldring_racing_line_optimal.py), Abbruch
-  // sobald eine Iteration schlechter wird (Nutzervorgabe), nur letztes (bestes)
-  // Ergebnis wird behalten.
-  // Vorzeichenbehaftete Lenkrad-Winkelgeschwindigkeit [deg/s] je Punkt (siehe
-  // Ackermann-Naeherung in drawCar) - jetzt auch als echte Optimierungs-
-  // Randbedingung genutzt (siehe pinnedOptimize), nicht nur zur Anzeige.
-  // Fensterbreite = CURVATURE_WINDOW_M, dieselbe Konvention wie curvatureRadius():
-  // eine Ableitung ueber Nachbarpunkte (~6m) ist ein reines Diskretisierungsartefakt,
-  // keine reale Lenkbewegung (siehe docs/logs/projekt-stand.md, geprueft 2026-09-07).
-  function computeSteerRateDegS(pts, radius, vFinal, dsArr){
-    const n = pts.length;
-    const stepM = median(Array.from(dsArr));
-    const w = Math.max(1, Math.round(P.CURVATURE_WINDOW_M/stepM));
-    const theta = new Float64Array(n);
-    for (let i=0;i<n;i++){
-      const prevI=(i-w+n)%n, nextI=(i+w)%n;
-      const p0=pts[prevI], p1=pts[i], p2=pts[nextI];
-      const cross = (p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]);
-      const turnSign = cross>0 ? -1 : (cross<0 ? 1 : 0);
-      theta[i] = Math.atan(WHEELBASE_M/Math.max(radius[i],1)) * 180/Math.PI * STEERING_RATIO * turnSign;
-    }
-    const rate = new Float64Array(n);
-    for (let i=0;i<n;i++){
-      const prevI=(i-w+n)%n, nextI=(i+w)%n;
-      let span = 0;
-      for (let k=0;k<2*w;k++) span += dsArr[(prevI+k)%n];
-      const dThetaDs = (theta[nextI]-theta[prevI]) / Math.max(span, 1e-6);
-      rate[i] = dThetaDs * vFinal[i];
-    }
-    return rate;
-  }
-
-  // NACHBEARBEITUNG (Nutzerbeobachtung 08.09.2026, Punkte 236-238: Radius
-  // 107.8 -> 110.8 -> 106.5 - eine einzelne Kuppe mitten in einer sonst
-  // durchgehenden Verengung): findet EINZELPUNKT-Ausreisser im Radius-
-  // Verlauf und ersetzt NUR die Punktposition (nLat) dieses einen Punktes
-  // durch den Mittelwert seiner Nachbarn - KEIN erneutes Relaxieren, keine
-  // Aenderung an pinnedOptimize()/relaxOnce() selbst (Nutzervorgabe: "an
-  // der Art und Weise wie du die Linie berechnest nichts aendern").
-  //
-  // Erkennung: ein Punkt i gilt als Ausreisser, wenn die Trendrichtung des
-  // Radius (waechst/faellt) fuer GENAU einen Schritt umgekehrt wird und
-  // direkt danach wieder in die urspruengliche Richtung zurueckkehrt -
-  // s_before==s_out UND s_into==-s_before. Das unterscheidet einen
-  // einzelnen Wackler von einem echten, glatten Kurvenscheitel (dort kehrt
-  // sich die Richtung nur EINMAL dauerhaft um, s_into wuerde dort mit
-  // s_before uebereinstimmen statt es umzukehren).
-  function findRadiusNotches(nLat){
-    const pts = pointsFromNLat(nLat);
-    const ds = new Float64Array(N);
-    for (let i=0;i<N;i++){
-      const j=(i+1)%N;
-      ds[i] = Math.hypot(pts[j][0]-pts[i][0], pts[j][1]-pts[i][1]);
-    }
-    const stepM = median(Array.from(ds));
-    const radius = curvatureRadius(pts, P.CURVATURE_WINDOW_M, stepM);
-    const sign = (x) => x>0 ? 1 : (x<0 ? -1 : 0);
-    // Auf Geraden (Radius im drei- bis vierstelligen Meterbereich) kippt
-    // die Radius-SCHAETZUNG schon bei winzigstem Rauschen relativ stark,
-    // obwohl der tatsaechliche Lenkwinkel dort verschwindend klein bleibt
-    // (< 0.1deg) - reines Messrauschen, kein spuerbarer "Sprung". Erst ab
-    // MIN_NOTCH_STEER_DEG tatsaechlicher Winkelabweichung zaehlt es als
-    // Ausreisser (dieselbe Ueberlegung wie NATURAL_THROTTLE_MIN_G: nicht
-    // auf etwas reagieren, das ein Fahrer gar nicht spueren wuerde).
-    const MIN_NOTCH_STEER_DEG = 0.3;
-    // MIN_NOTCH_STEER_DEG allein reicht auf Geraden nicht: dort ist die
-    // Radius-SCHAETZUNG selbst bei winzigem Positionsrauschen extrem
-    // empfindlich (1/R-Umkehrung verstaerkt kleine Aenderungen bei grossem R
-    // stark), sodass der Winkel-Sprung trotzdem gelegentlich ueber die
-    // Schwelle rutscht. Zusaetzliche, direktere Bedingung: eine echte Kuppe
-    // kann nur INNERHALB einer Kurve liegen, nie auf einer Geraden - also
-    // nur Punkte pruefen, deren Radius ueberhaupt in Kurvenreichweite liegt
-    // (Nutzervorgabe 08.09.2026: Radius < ~300-500m; 400m gewaehlt, mit
-    // Sicherheitsabstand ueber der groessten bekannten echten Kurve von
-    // 322m, siehe docs/logs/projekt-stand.md Radius-Aufblaehung-Fund).
-    const MAX_NOTCH_RADIUS_M = 400;
-    const steerAbs = radius.map(r => steerFromRadius(r));
-    const flagged = [];
-    for (let i=0;i<N;i++){
-      if (radius[i] > MAX_NOTCH_RADIUS_M) continue;
-      const im2=(i-2+N)%N, im1=(i-1+N)%N, ip1=(i+1)%N;
-      const sBefore = sign(radius[im1]-radius[im2]);
-      const sInto = sign(radius[i]-radius[im1]);
-      const sOut = sign(radius[ip1]-radius[i]);
-      if (sBefore === 0 || sInto !== -sBefore || sOut !== sBefore) continue;
-      const jumpDeg = Math.abs(steerAbs[i] - (steerAbs[im1]+steerAbs[ip1])/2);
-      if (jumpDeg >= MIN_NOTCH_STEER_DEG) flagged.push(i);
-    }
-    return flagged;
-  }
-
-  function smoothSinglePointNotches(nLat){
-    // curvatureRadius() nutzt ein ~CURVATURE_WINDOW_M breites Fenster (der
-    // Punkt selbst plus je ein Nachbar ~w~5 Punkte weiter aussen), nicht
-    // nur die unmittelbaren Nachbarn - radius[237] haengt z.B. von Punkt
-    // 232/242 ab, radius[236]/radius[238] aber von 231/241 bzw. 233/243:
-    // DREI Berechnungen ohne gemeinsamen Punkt. Eine Ziehung nur des einen
-    // Ausreisser-Punktes kann radius[237] daher aendern, aber nicht
-    // garantiert zwischen radius[236]/radius[238] bringen (Bugfund
-    // 08.09.2026). Fix: die Korrektur auf eine ganze Nachbarschaft von
-    // +/-w Punkten ausweiten (Smootherstep-Kernel, identisch zu
-    // applyBrush() - dasselbe bewaehrte Werkzeug, nur automatisch getriggert
-    // statt per Hand gezogen), damit das gesamte ueberlappende
-    // Fenster konsistent glatt wird, nicht nur ein einzelner Punkt darin.
-    // Bis zu MAX_NOTCH_PASSES mal wiederholen, bis keine Ausreisser mehr
-    // gefunden werden.
-    const MAX_NOTCH_PASSES = 8;
-    let cur = nLat;
-    for (let pass=0; pass<MAX_NOTCH_PASSES; pass++){
-      const flagged = findRadiusNotches(cur);
-      if (flagged.length === 0) break;
-      const ptsCur = pointsFromNLat(cur);
-      const dsCur = new Float64Array(N);
-      for (let i=0;i<N;i++){
-        const j=(i+1)%N;
-        dsCur[i] = Math.hypot(ptsCur[j][0]-ptsCur[i][0], ptsCur[j][1]-ptsCur[i][1]);
-      }
-      const w = Math.max(1, Math.round(P.CURVATURE_WINDOW_M/median(Array.from(dsCur))));
-      const alphaArr = new Float64Array(N);
-      for (const i of flagged){
-        for (let k=-w;k<=w;k++){
-          const j = ((i+k)%N+N)%N;
-          const t = Math.abs(k)/w;
-          const u = 1-t;
-          const wgt = u*u*u*(u*(u*6-15)+10);  // Smootherstep, wie applyBrush()
-          alphaArr[j] = Math.max(alphaArr[j], wgt);
-        }
-      }
-      cur = relaxOnce(cur, alphaArr, null);
-    }
-    return cur;
-  }
-
-  // Gemeinsame, querkraftbasierte Relaxation ALLER aktuellen Fixpunkte
-  // gleichzeitig statt nacheinander mit unabhaengigen harten Pins (siehe
-  // Diskussion 2026-09-07: der Fahrer plant nicht Punkt-fuer-Punkt-isoliert,
-  // sondern waehlt die Ausfahrt an jedem Punkt im Hinblick auf den naechsten -
-  // genau das leistet diese bereits vorhandene, querkraftgewichtete
-  // Relaxation von selbst, wenn alle Fixpunkte gemeinsam statt sequenziell
-  // hart gepinnt einfliessen).
-  //
-  // targets: Array von {index, value, hard}. hard=true verhaelt sich wie
-  // frueher (jeden Schritt exakt erzwungen, fuer spaeteren "muss getroffen
-  // werden"-Modus zur Fahrfehler-Analyse). hard=false (Standard) ist ein
-  // WEICHER Zielwert: einmal pro AEUSSERER Iteration ein Stueck (SOFT_PIN_PULL)
-  // dorthin gezogen - die bestehende "brich ab, wenn Rundenzeit schlechter
-  // wird"-Regel entscheidet dadurch selbst, wie weit sich der Zug lohnt (ein
-  // Punkt darf geringfuegig verfehlt werden, wenn das schneller ist).
-  // targets=[] (oder leer) laeuft als reine STEER_RATE_MAX_DEG_S-Durchsetzung
-  // ohne Zielwerte (siehe Baseline-Bereinigung beim Laden).
-  let lastPreNotchNLat = null; // Debug-Snapshot, siehe __editorDebug.testNotches
-  function pinnedOptimize(nLatStart, targets, mu){
-    let nLat = nLatStart.slice();
-    // WICHTIG: den margen-sicheren Abstand schon HIER durchsetzen, nicht erst
-    // nach der ersten Relaxation - der "brich ab, wenn schlechter"-Mechanismus
-    // unten kann sonst auf DIESEN Rohzustand zurueckfallen (naemlich dann,
-    // wenn schon der erste Relaxationsversuch schlechter wird) und wuerde
-    // damit die Randbedingung umgehen (applyBrush()/direkter Zielwert kennt
-    // EDGE_MARGIN_M nicht, siehe Nutzer-Report 2026-09-07: "Innenlinie darf
-    // nicht eingebeult werden").
-    for (let i=0;i<N;i++) nLat[i] = clampInset(nLat[i], i);
-    const hardTargets = targets.filter(t => t.hard);
-    const softTargets = targets.filter(t => !t.hard);
-    for (const t of hardTargets) nLat[t.index] = t.value;
-    let prevLapTime = Infinity;
-    let prevNLat = nLat.slice();
-    let compliant = false; // wird true, sobald 240deg/s nirgends mehr ueberschritten wird
-    for (let outer=0; outer<OPT.n_outer_max; outer++){
-      const pts = pointsFromNLat(nLat);
-      const sim = simulateLap(pts, mu);
-      const steerRate = computeSteerRateDegS(pts, sim.radius, sim.vFinal, sim.ds);
-      let maxAbsRate = 0;
-      for (let i=0;i<N;i++) maxAbsRate = Math.max(maxAbsRate, Math.abs(steerRate[i]));
-      const nowCompliant = maxAbsRate <= STEER_RATE_MAX_DEG_S;
-      // Solange die Lenkgeschwindigkeits-Grenze noch verletzt ist, wird NICHT
-      // wegen einer schlechteren Rundenzeit abgebrochen - das ist eine harte
-      // Randbedingung (physikalisch unmoeglich), keine Optimierungspraeferenz,
-      // die man gegen Rundenzeit abwaegt. Erst wenn compliant, gilt wieder die
-      // normale "brich bei erster Verschlechterung ab"-Regel von vorher.
-      if (compliant && nowCompliant && sim.lapTime > prevLapTime) { nLat = prevNLat; break; }
-      prevLapTime = sim.lapTime;
-      prevNLat = nLat.slice();
-      compliant = nowCompliant;
-      const alphaArr = new Float64Array(N);
-      for (let i=0;i<N;i++){
-        const aLatReq = sim.vFinal[i]**2 / Math.max(sim.radius[i],1e-6);
-        const gripExcess = Math.min(Math.max(aLatReq/latMaxMs2(),0),1);
-        const steerExcess = Math.max(0, Math.abs(steerRate[i])/STEER_RATE_MAX_DEG_S - 1);
-        alphaArr[i] = Math.min(0.9, OPT.base_alpha*(0.1+0.9*gripExcess) + 0.6*steerExcess);
-      }
-      for (let s=0;s<OPT.inner_steps;s++) nLat = relaxOnce(nLat, alphaArr, hardTargets);
-      for (const t of softTargets){
-        const pulled = nLat[t.index] + SOFT_PIN_PULL*(t.value-nLat[t.index]);
-        nLat[t.index] = clampInset(pulled, t.index);
-      }
-    }
-    // Nachbearbeitung, siehe smoothSinglePointNotches() - reine Punkt-
-    // Korrektur, kein erneutes Relaxieren, aendert die obige Optimierung
-    // selbst nicht.
-    lastPreNotchNLat = nLat.slice(); // Debug-Snapshot fuer __editorDebug, siehe unten
-    return smoothSinglePointNotches(nLat);
-  }
-
-  function applyBrush(nLatBase, index, targetVal, radiusM){
-    const nLat = nLatBase.slice();
-    const stepM = P.RESAMPLE_STEP_M;
-    const win = Math.max(1, Math.round(radiusM/stepM));
-    const delta = targetVal - nLatBase[index];
-    for (let k=-win;k<=win;k++){
-      const i = ((index+k)%N+N)%N;
-      const t = Math.abs(k)/win;
-      // Smootherstep (Perlin) statt Raised-Cosine: Kruemmung (2. Ableitung) am
-      // Fensterrand ebenfalls auf 0, nicht nur die Steigung - sonst entsteht am
-      // Rand des Pinsels ein realer Kruemmungssprung (spuerbarer "Kink" in der
-      // Physik, siehe docs/logs/projekt-stand.md, gefunden 2026-09-07).
-      const u = 1-t;
-      const w = u*u*u*(u*(u*6-15)+10);
-      let val = nLatBase[i] + delta*w;
-      val = Math.min(Math.max(val, LO[i]), HI[i]);
-      nLat[i] = val;
-    }
-    nLat[index] = targetVal;
-    return nLat;
+  async function api(path, body){
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
   }
 
   // ---------- Zustand ----------
-  // Statt der reinen Punktposition wird die BEARBEITUNGSHISTORIE als geordnete
-  // Liste von Fixpunkten {index, value} gespeichert (chronologisch, ein erneutes
-  // Ziehen desselben Punktes aktualisiert seinen Wert und ruecken ihn ans Ende
-  // der Liste, wie eine "zuletzt beruehrt"-Reihenfolge). Die tatsaechliche Linie
-  // wird daraus IMMER durch Neuabspielen ab der Ausgangslinie erzeugt
-  // (recomputeFromEdits) - dadurch kann jede einzelne Bearbeitung, nicht nur die
-  // letzte, geloescht werden, ohne den Zustand inkonsistent werden zu lassen.
-  // Die Ausgangslinie kommt aus einem externen Kurven-Optimierer und kann an
-  // sehr engen Scheitelpunkten selbst schon die Lenkgeschwindigkeits-Grenze
-  // verletzen (gefunden 30.08.2026: 671°/s an der enttesten Kurve, in der
-  // UNBEARBEITETEN Linie - kein Bearbeitungs-Artefakt). Einmalig beim Laden
-  // per pinnedOptimize() ohne Fixpunkte (leere targets-Liste) bereinigt, damit die
-  // 240°/s-Grenze ueberall gilt, nicht nur nach einer manuellen Bearbeitung.
-  const nLatBaselineRaw = Float64Array.from(data.n_lat_start);
-  const nLatBaseline = pinnedOptimize(nLatBaselineRaw, [], P.MU);
-  let baselineLapTime = simulateLap(pointsFromNLat(nLatBaseline), P.MU).lapTime;
+  // Statt der reinen Punktposition wird die BEARBEITUNGSHISTORIE als geordnete Liste von Fixpunkten gespeichert
+  // (ein erneutes Ziehen desselben Punktes rueckt ihn ans Ende). Der Dienst erzeugt die Linie daraus immer neu,
+  // dadurch laesst sich jede einzelne Bearbeitung loeschen.
+  let baselineLapTime = 0;
   let edits = loadEditsFromStorage();
-  let nLat = recomputeFromEdits(edits);
-  let dragging = false, dragIndex = null;
+  let nLat = null;
+  let dragging = false, dragIndex = null, dragTarget = 0;
+  let solveToken = 0;
 
   function validateEditsArray(arr){
     if (!Array.isArray(arr)) return null;
@@ -1826,7 +1040,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
                             && typeof e.value === 'number' && isFinite(e.value));
     return valid.map(e => ({
       index: e.index, value: e.value,
-      radius: (typeof e.radius === 'number' && isFinite(e.radius)) ? e.radius : OPT.brush_radius_m_default,
+      radius: (typeof e.radius === 'number' && isFinite(e.radius)) ? e.radius : data.brush_radius_m_default,
       hard: !!e.hard,
     }));
   }
@@ -1843,18 +1057,27 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(edits)); } catch(e) {}
   }
 
-  function recomputeFromEdits(editList){
-    let n = nLatBaseline.slice();
-    for (const e of editList){
-      // Warm-Start: Pinsel-Falloff auf den aktuellen Zustand anwenden, damit
-      // die anschliessende gemeinsame Relaxation nicht von einer Linie
-      // startet, die an genau einem Index hart auf den Zielwert springt.
-      const radius = (e.radius != null) ? e.radius : OPT.brush_radius_m_default;
-      n = applyBrush(n, e.index, e.value, radius);
+  function applyResult(res){
+    nLat = res.nLat;
+    lastSim = res.sim;
+    lastPts = pointsFromNLat(nLat);
+  }
+
+  // Volle Neuberechnung im Dienst (Optimierung mit allen Fixpunkten). Nur die juengste Anfrage zaehlt.
+  async function solve(status, doneStatus){
+    const token = ++solveToken;
+    setStatus(status);
+    try {
+      const res = await api('/api/solve', {edits, vehicle: vehicleName, natural: naturalThrottleMode});
+      if (token !== solveToken) return;
+      applyResult(res);
+      baselineLapTime = res.baselineLapTime;
+      startTrace = res.standingStart;
+      render();
+      setStatus(doneStatus || '');
+    } catch(e) {
+      if (token === solveToken) setStatus('Python-Dienst nicht erreichbar: ' + e.message);
     }
-    // Alle aktuellen Fixpunkte GEMEINSAM (nicht nacheinander mit unabhaengigen
-    // harten Pins) querkraftbasiert relaxieren - siehe pinnedOptimize().
-    return pinnedOptimize(n, editList, P.MU);
   }
 
   // ---------- Rendering ----------
@@ -1862,11 +1085,9 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   const ctx = trackCanvas.getContext('2d');
 
   function computeShiftEvents(sim){
-    // Ein Schaltpunkt ist ein Index, an dem sich der (in natuerlicher
-    // Streckenreihenfolge abgeleitete, siehe deriveGearTrace) Gang gegenueber
+    // Ein Schaltpunkt ist ein Index, an dem sich der Gang aus der Simulation (plan_gears) gegenueber
     // dem VORHERIGEN Index aendert - liefert (index, fromGear, toGear, s_m,
-    // up) je Ereignis, BEIDE Richtungen (Hoch- UND Runterschalten, siehe
-    // Nutzer-Feedback/Nachtrag in deriveGearTrace). Bewusst NICHT zyklisch
+    // up) je Ereignis, BEIDE Richtungen. Bewusst NICHT zyklisch
     // verglichen (Index 0 vs. n-1): an der Start/Ziel-Naht wuerde ein
     // legitimer Neustart der Gangwahl sonst als Schaltvorgang erscheinen.
     const n = sim.gear.length;
@@ -1989,7 +1210,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const yOfR = r => h-padB - (r/rpmMax)*(h-padT-padB);
 
     // Bremszonen-Hintergrund (dieselbe Definition wie auf der Karte). Punkte,
-    // die smoothWastedAccelBrake() auf eine kontrollierte Teillast-
+    // die smooth_wasted_accel_brake() auf eine kontrollierte Teillast-
     // Beschleunigung umgestellt hat, zaehlen NICHT als Bremsen (siehe dort).
     for (let i=0;i<n;i++){
       if (!sim.coasting[i] && sim.vFinal[i] < sim.vFwd[i]-1e-3){
@@ -2111,10 +1332,11 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     ctx.restore();
 
     const pts = lastPts, sim = lastSim;
+    if (!sim) return;
 
     // Bremszonen als farbiges Band UNTER der Ideallinie (siehe Docstring:
     // physikalisch aus vFinal < vFwd abgeleitet, kein Schwellwert-Rateversuch).
-    // Teillast-geglaettete Punkte (siehe smoothWastedAccelBrake) zaehlen nicht
+    // Teillast-geglaettete Punkte (siehe smooth_wasted_accel_brake) zaehlen nicht
     // als Bremsen.
     for (let i=0;i<N;i++){
       const j=(i+1)%N;
@@ -2209,6 +1431,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   // ---------- Fahrsimulation (Echtzeit-Wiedergabe entlang der Runde) ----------
   const sim_ = {playing:false, t:0, speed:1, lastTs:null};
+  let dashState = null, dashBusy = false, dashSentAt = 0;  // siehe sendDash()
+  const DASH_SEND_MS = 50;
 
   // Reine Anzeige-Zugabe (Nutzerwunsch 09.09.2026): die allererste Wiedergabe
   // nach einem Seiten-Reload zeigt einen stehenden Start (v=0 an der
@@ -2222,35 +1446,22 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   // (Uebergang per sim_.t = sim.t[i], danach exakt der bisherige Codepfad).
   // Initial (vor dem ersten Play) schon gesetzt, nicht erst bei Play erzeugt
   // - dadurch steht der Wagen auch im Standbild vor dem ersten Play still.
-  let standingStart = {s: 0, v: 0, gear: 1, shiftT: 0};
+  // Der Verlauf kommt aus dem Dienst (standing_start_trace), hier wird er nur abgespielt.
+  let standingStart = {s: 0, v: 0, gear: 1, rpm: 0, load: 0, tp: null, pedal: 0, clutch: 100, clock: 0};
+  let startTrace = null;
 
   function stepStandingStart(dt){
-    const sim = lastSim;
-    let {s, v, gear, shiftT} = standingStart;
-    if (shiftT > 0){
-      v = Math.max(0, v + coastAccel(v)*dt);
-      shiftT = Math.max(0, shiftT - dt);
-    } else if (gear < 6){
-      const aCur = accel(v, gear), aNext = accel(v, gear+1);
-      if (rpmFromSpeed(v, gear) >= P.REDLINE_RPM || aNext > aCur){
-        gear += 1;
-        shiftT = P.ATTACK_SHIFT_S[`${gear-1}-${gear}`] ?? 0.15;
-      } else {
-        v = v + Math.max(aCur, 0)*dt;
-      }
-    } else {
-      v = v + Math.max(accel(v, gear), 0)*dt;
-    }
-    s += v*dt;
-    const i = findSimIndex(sim.s, Math.min(s, sim.s[N-1]));
-    // Fertig, sobald das Launch-Tempo das reale Rundentempo an dieser Position
-    // erreicht (oder als Sicherheitsnetz nach einer vollen Rundenlaenge).
-    if (v >= sim.vFinal[i] || s >= sim.s[N-1]){
+    if (!startTrace) return;
+    const clock = standingStart.clock + dt;
+    const i = Math.floor(clock/startTrace.dt);
+    if (i >= startTrace.s.length){
       standingStart = null;
-      sim_.t = sim.t[i];
+      sim_.t = startTrace.joinT;
       return;
     }
-    standingStart = {s, v, gear, shiftT};
+    standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i],
+                     load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i],
+                     clutch: startTrace.clutch[i], clock};
   }
 
   function positionFromArcLength(pts, sim, sNow){
@@ -2305,21 +1516,18 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     document.getElementById('simTime').textContent = standingStart ? 'Start' : (sim_.t.toFixed(1)+' s');
     document.getElementById('simSpeedKmh').textContent = Math.round((standingStart ? standingStart.v : lastSim.vFinal[i])*3.6)+' km/h';
     document.getElementById('simGear').textContent = standingStart ? standingStart.gear : lastSim.gear[i];
-    document.getElementById('simRpm').textContent = Math.round(standingStart ? rpmFromSpeed(standingStart.v, standingStart.gear) : lastSim.rpm[i])+' U/min';
+    document.getElementById('simRpm').textContent = Math.round(standingStart ? standingStart.rpm : lastSim.rpm[i])+' U/min';
 
-    // Bremse/Gas: ueberwiegend voll am Limit bremsend (Bremszone, gleiche
-    // Definition wie das rote Kartenband), voll beschleunigend, oder am
-    // Kurvenlimit rollend (beides 0%) - AUSSER an den von
-    // smoothWastedAccelBrake()/smoothShortBrakeSpikes() geglaetteten Stellen
-    // (kurze Vollgas-Inseln zwischen zwei Bremszonen bzw. kurze isolierte
-    // Bremsspitzen, siehe dort/docs/logs/projekt-stand.md), dort zeigt das jeweilige
-    // Pedal die tatsaechlich berechnete Teillast-/Teilbrems-Stellung.
-    const prevI = (i-1+N)%N;
+    // Bremse: voll am Limit bremsend (Bremszone, gleiche Definition wie das rote Kartenband), AUSSER an den von
+    // smooth_short_brake_spikes() geglaetteten Stellen, dort die berechnete Teilbremsung. Gas: seit 08.11.2026 das
+    // Pedal aus throttle_trace() (Tempoverlauf rueckwaerts ueber Fahrleistungsmodell und Teillastkennfeld).
     const isCoasting = !standingStart && !!lastSim.coasting[i];
     const braking = !standingStart && !isCoasting && lastSim.vFinal[i] < lastSim.vFwd[i]-1e-3;
-    const accelerating = !standingStart && !braking && !isCoasting && lastSim.vFinal[i] > lastSim.vFinal[prevI]+1e-6;
     const brakePct = braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0;
     document.getElementById('brakeFill').style.height = brakePct + '%';
+    const clutchPct = standingStart ? standingStart.clutch
+      : (lastSim.clutchPct[Math.min(Math.floor(sim_.t / lastSim.clutchDt), lastSim.clutchPct.length - 1)] ?? 0);
+    document.getElementById('clutchFill').style.height = clutchPct + '%';
     // Im experimentellen "natuerlichen Gasmodell" kommt die Gaspedal-
     // Stellung IMMER aus der Lenkrate-Formel (nicht nur an geglaetteten
     // Stellen) - siehe naturalThrottleMode. ABER: die Formel wird im
@@ -2328,9 +1536,10 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // Anzeige den (dann ueberholten) Vorwaerts-Wert nicht mehr zeigen: man
     // kann nicht gleichzeitig bremsen und Gas geben (Nutzerhinweis
     // 08.09.2026).
-    const throttlePct = standingStart ? 100 : (lastSim.naturalMode
+    // Sonst: Gaspedal rueckwaerts aus dem Tempoverlauf ueber das Teillastkennfeld (Dienst, throttle_trace()).
+    const throttlePct = standingStart ? standingStart.pedal : (lastSim.naturalMode
       ? (braking ? 0 : Math.round((lastSim.throttleFracNatural[i] ?? 0)*100))
-      : (accelerating ? 100 : (isCoasting ? Math.round(lastSim.throttleFrac[i]*100) : 0)));
+      : Math.round(lastSim.pedalPct[i]));
     document.getElementById('throttleFill').style.height = throttlePct + '%';
 
     // Lenkwinkel: im Projekt gibt es kein Lenkmodell (nur Kruemmungsradius) -
@@ -2338,7 +1547,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // ND, KEIN gemessener/validierter Wert wie der Rest des Fahrzeugmodells)
     // nur fuer diese Anzeige, keine physikalische Grundlage fuer irgendeine
     // andere Berechnung im Tool. Vorzeichen (Links-/Rechtskurve) ueber
-    // dieselbe Fensterbreite wie curvatureRadius()/computeSteerRateDegS
+    // dieselbe Fensterbreite wie compute_curvature_radius()/steer_rate_deg_s()
     // bestimmt (CURVATURE_WINDOW_M) statt ueber unmittelbare Nachbarpunkte -
     // Nutzer-Report 2026-09-08: bei Nachbarpunkten (~3m Basis) durchlief die
     // Lenkradanzeige mitten in einer durchgehenden Kurve kurz die Nullachse
@@ -2353,6 +1562,23 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const roadWheelDeg = Math.atan(WHEELBASE_M/Math.max(lastSim.radius[i],1)) * 180/Math.PI * turnSign;
     const wheelDeg = Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
     document.getElementById('wheelRotor').style.transform = `rotate(${wheelDeg}deg)`;
+    dashState = {speed_kmh: (standingStart ? standingStart.v : lastSim.vFinal[i])*3.6,
+                 rpm: standingStart ? standingStart.rpm : lastSim.rpm[i],
+                 gear: standingStart ? standingStart.gear : lastSim.gear[i],
+                 throttle_pct: throttlePct, brake_pct: brakePct,
+                 load_pct: standingStart ? standingStart.load : lastSim.loadPct[i],
+                 tp_pct: standingStart ? standingStart.tp : lastSim.tpPct[i],
+                 clutch_raw: clutchPct * 1.99,  // 0x130 roh, 199 = 100 %
+                 steer_deg: -wheelDeg,  // Dash: links positiv, hier rechts positiv
+                 lap_t: standingStart ? null : sim_.t};
+  }
+
+  // Waehrend der Wiedergabe gehen die angezeigten Werte ueber den Dienst ans Dash im Auto (/api/dash).
+  // Eine Anfrage zugleich, hoechstens DASH_SEND_MS-Takt; bei Pause verstummt das Dash nach 1 s von selbst.
+  function sendDash(ts){
+    if (!dashState || dashBusy || ts - dashSentAt < DASH_SEND_MS) return;
+    dashBusy = true; dashSentAt = ts;
+    api('/api/dash', dashState).catch(()=>{}).finally(()=>{ dashBusy = false; });
   }
 
   function simFrame(ts){
@@ -2368,6 +1594,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     sim_.lastTs = ts;
     draw();
+    sendDash(ts);
     requestAnimationFrame(simFrame);
   }
 
@@ -2433,7 +1660,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       const row = document.createElement('div');
       row.className = 'edit-row';
       // Bei weichen Fixpunkten kann der tatsaechlich erreichte Wert vom
-      // gezogenen Zielwert abweichen (siehe pinnedOptimize: Zeitvorteil vs.
+      // gezogenen Zielwert abweichen (siehe pinned_optimize: Zeitvorteil vs.
       // Zielnaehe) - das direkt anzuzeigen macht sichtbar, wo die Physik eine
       // andere Linie fuer schneller haelt, und ist die Datengrundlage fuer
       // die spaeter geplante Fahrfehler-Analyse im "hart"-Modus.
@@ -2452,12 +1679,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       hardCb.checked = !!e.hard;
       hardCb.addEventListener('change', ()=>{
         e.hard = hardCb.checked;
-        setStatus('neu berechnen ...');
-        setTimeout(()=>{
-          nLat = recomputeFromEdits(edits);
-          render();
-          setStatus('');
-        }, 10);
+        solve('neu berechnen ...');
       });
       hardLbl.appendChild(hardCb);
       hardLbl.appendChild(document.createTextNode('hart'));
@@ -2475,12 +1697,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   function deleteEdit(i){
     edits.splice(i, 1);
-    setStatus('neu berechnen ...');
-    setTimeout(()=>{
-      nLat = recomputeFromEdits(edits);
-      render();
-      setStatus('');
-    }, 10);
+    solve('neu berechnen ...');
   }
 
   function renderShiftsList(){
@@ -2506,8 +1723,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
 
   function render(){
-    lastPts = pointsFromNLat(nLat);
-    lastSim = simulateLap(lastPts, P.MU);
+    if (!lastSim) return;
     draw();
     drawTrace();
     updateReadouts();
@@ -2518,38 +1734,33 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   document.getElementById('naturalThrottleCb').addEventListener('change', (e)=>{
     naturalThrottleMode = e.target.checked;
-    setStatus(naturalThrottleMode ? 'natuerliches Gasmodell aktiv ...' : 'zeitoptimales Gasmodell ...');
-    setTimeout(()=>{ render(); setStatus(''); }, 10);
+    solve(naturalThrottleMode ? 'natuerliches Gasmodell ...' : 'zeitoptimales Gasmodell ...');
   });
 
-  // Gemessener Kraftkreis: Checkbox nur nutzbar, wenn can_traction_circle.py
-  // schon gelaufen ist (P.MEASURED_CIRCLE != null, siehe Editor-Skript).
+  // Fahrzeugmodell umschalten: Der Dienst optimiert die Linie fuer das gewaehlte Modell neu.
   {
-    const cb = document.getElementById('measuredCircleCb');
-    const label = document.getElementById('measuredCircleLabel');
-    const row = document.getElementById('measuredCircleRow');
-    const mc = P.MEASURED_CIRCLE;
-    if (mc){
-      row.title = `Ersetzt den isotropen ${P.MU.toFixed(1)}g-Kreis durch die echte, aus `
-        + `${mc.n_logs} CAN-Logs (${mc.n_samples} Samples) gemessene Ellipse: `
-        + `quer ${mc.mu_lat_g.toFixed(2)}g / beschleunigen ${mc.mu_accel_g.toFixed(2)}g / bremsen ${mc.mu_brake_g.toFixed(2)}g. `
-        + `ACHTUNG: das sind Alltagsfahrten, keine Grenzbereichsfahrt - die Huelle ist eine `
-        + `Untergrenze, kein gemessenes Reifenlimit (siehe can_traction_circle.py-Docstring).`;
-    } else {
-      cb.disabled = true;
-      label.textContent += ' (noch keine Daten - can_traction_circle.py laufen lassen)';
-      row.title = 'scripts/can_traction_circle.py wurde noch nicht ausgefuehrt, results/can_traction_circle_summary.json fehlt.';
+    const sel = document.getElementById('vehicleSelect');
+    const sub = document.getElementById('vehicleSub');
+    const m = P.VEHICLES;
+    sel.innerHTML = Object.keys(m).map(k=>`<option value="${k}">${m[k].label}</option>`).join('');
+    sel.value = vehicleName;
+    function describe(){
+      const v = veh();
+      sub.textContent = `${v.label}: quer ${v.lat_g.toFixed(2)} g, bremsen ${v.brake_g.toFixed(2)} g`;
+      document.getElementById('vehicleRow').title = `Grip-Ellipse quer ${v.lat_g.toFixed(2)} g / beschleunigen `
+        + `${v.accel_g.toFixed(2)} g / bremsen ${v.brake_g.toFixed(2)} g, wahres Tempo = ${v.speed_factor.toFixed(3)} x VehicleSpeed. `
+        + `Aus Alltagsfahrten: Untergrenze, kein gemessenes Reifenlimit (mx5_vehicle_model.py).`;
     }
-    cb.addEventListener('change', (e)=>{
-      measuredCircleMode = e.target.checked;
-      baselineLapTime = simulateLap(pointsFromNLat(nLatBaseline), P.MU).lapTime;
-      setStatus(measuredCircleMode ? 'gemessener Kraftkreis aktiv ...' : 'Literatur-mu aktiv ...');
-      setTimeout(()=>{ render(); setStatus(''); }, 10);
+    describe();
+    sel.addEventListener('change', (e)=>{
+      vehicleName = e.target.value;
+      describe();
+      solve(`${veh().label}: optimiere ...`);
     });
   }
 
   // ---------- Interaktion ----------
-  let brushRadiusM = OPT.brush_radius_m_default;
+  let brushRadiusM = data.brush_radius_m_default;
   const brushSlider = document.getElementById('brushRadius');
   brushSlider.value = brushRadiusM;
   document.getElementById('brushLabel').textContent = brushRadiusM.toFixed(0) + ' m';
@@ -2594,6 +1805,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const [px,py] = pointerPos(e);
     const w=trackCanvas.clientWidth, h=trackCanvas.clientHeight;
     const [wx,wy] = unproject(px,py,w,h);
+    if (!lastPts) return;
     const {index,dist} = nearestIndex(wx,wy);
     const hitR = pixelToHitRadiusM();
     trackCanvas.setPointerCapture(e.pointerId);
@@ -2601,6 +1813,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     if (dist <= hitR){
       dragging = true; dragIndex = index;
       nLatAtDragStart = nLat.slice();
+      dragTarget = nLat[index];
       setStatus('ziehen ...');
     } else {
       // Klick auf leeren Bereich (nicht nah genug an der Linie) -> Verschieben
@@ -2616,13 +1829,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const w=trackCanvas.clientWidth, h=trackCanvas.clientHeight;
     if (dragging){
       const [wx,wy] = unproject(px,py,w,h);
-      const target = targetLatOffset(dragIndex, wx, wy);
-      nLat = applyBrush(nLatAtDragStart, dragIndex, target, brushRadiusM);
-      lastPts = pointsFromNLat(nLat);
-      lastSim = simulateLap(lastPts, P.MU);
-      draw();
-      drawTrace();
-      updateReadouts();
+      dragTarget = targetLatOffset(dragIndex, wx, wy);
+      requestPreview();
       return;
     }
     if (panning){
@@ -2631,6 +1839,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       draw();
       return;
     }
+    if (!lastPts) return;
     // reine Hover-Rueckmeldung (Cursor + Tooltip mit naechsten Fixpunkten),
     // keine Interaktion aktiv
     const [wx,wy] = unproject(px,py,w,h);
@@ -2644,6 +1853,26 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
   });
   trackCanvas.addEventListener('pointerleave', hideHoverTooltip);
+
+  // Vorschau beim Ziehen: immer nur eine Anfrage unterwegs, danach die jeweils neueste Mausposition.
+  let previewBusy = false;
+  function requestPreview(){
+    if (previewBusy) return;
+    previewBusy = true;
+    const target = dragTarget;
+    api('/api/preview', {nLat: nLatAtDragStart, index: dragIndex, target, radius: brushRadiusM,
+                         vehicle: vehicleName, natural: naturalThrottleMode})
+      .then(res=>{
+        previewBusy = false;
+        if (!dragging) return;
+        applyResult(res);
+        draw();
+        drawTrace();
+        updateReadouts();
+        if (dragTarget !== target) requestPreview();
+      })
+      .catch(e=>{ previewBusy = false; setStatus('Python-Dienst nicht erreichbar: ' + e.message); });
+  }
 
   // Distanz zweier Punktindizes entlang der geschlossenen Strecke in Metern.
   function circularGapM(i, j){
@@ -2701,13 +1930,13 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     if (!dragging) return;
     dragging = false;
-    const finalTarget = nLat[dragIndex];
+    const finalTarget = dragTarget;
     const idx = dragIndex;
     // erneutes Ziehen eines bereits bearbeiteten Punktes: Wert aktualisieren
     // und ans Ende der Historie ruecken, statt einen zweiten Eintrag fuer
     // denselben Punkt anzulegen. Nah beieinanderliegende, aber verschiedene
     // Fixpunkte werden NICHT mehr automatisch geloescht/zusammengelegt - die
-    // gemeinsame querkraftbasierte Relaxation (siehe pinnedOptimize) kommt
+    // gemeinsame querkraftbasierte Relaxation (siehe pinned_optimize) kommt
     // mit beliebig dicht stehenden weichen Zielpunkten klar, das war nur eine
     // Notloesung fuer die inzwischen abgeloeste rein geometrische Kettenglaettung.
     const existing = edits.findIndex(e2 => e2.index === idx);
@@ -2715,14 +1944,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     if (existing >= 0) edits.splice(existing, 1);
     edits.push({index: idx, value: finalTarget, radius: brushRadiusM, hard: hardFlag});
     dragIndex = null;
-    setStatus('optimiere ...');
-    // kurze Verzoegerung, damit "optimiere ..." sichtbar aufblitzt (Relaxation
-    // selbst dauert nur ~50-150ms, siehe Docstring)
-    setTimeout(()=>{
-      nLat = recomputeFromEdits(edits);
-      render();
-      setStatus('');
-    }, 10);
+    solve('optimiere ...');
   }
   trackCanvas.addEventListener('pointerup', endDrag);
   trackCanvas.addEventListener('pointercancel', endDrag);
@@ -2730,17 +1952,11 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   document.getElementById('undoBtn').addEventListener('click', ()=>{
     if (edits.length===0) return;
     edits.pop();
-    setStatus('neu berechnen ...');
-    setTimeout(()=>{
-      nLat = recomputeFromEdits(edits);
-      render();
-      setStatus('');
-    }, 10);
+    solve('neu berechnen ...');
   });
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     edits = [];
-    nLat = Float64Array.from(nLatBaseline);
-    render();
+    solve('zuruecksetzen ...');
   });
 
   document.getElementById('exportBtn').addEventListener('click', async ()=>{
@@ -2782,12 +1998,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     edits = valid;
     document.getElementById('importBox').style.display = 'none';
     document.getElementById('importActions').style.display = 'none';
-    setStatus('optimiere ...');
-    setTimeout(()=>{
-      nLat = recomputeFromEdits(edits);
-      render();
-      setStatus(`${edits.length} Punkte importiert`);
-    }, 10);
+    solve('optimiere ...', `${edits.length} Punkte importiert`);
   });
 
   document.getElementById('zoomInBtn').addEventListener('click', ()=>{
@@ -2805,7 +2016,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
-  render();
+  solve('berechne Ausgangslinie in Python ...');
   if (document.fonts && document.fonts.ready){
     document.fonts.ready.then(()=>requestAnimationFrame(render));
   }
@@ -2817,23 +2028,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     getEdits: () => edits,
     getNLat: () => Array.from(nLat),
     getSim: () => lastSim,
-    getSteerRate: () => Array.from(computeSteerRateDegS(lastPts, lastSim.radius, lastSim.vFinal, lastSim.ds)),
+    getSteerRate: () => lastSim.steerRate,
     getCenterline: () => data.centerline,
     getPerp: () => data.perp,
     getLoHi: () => ({lo: LO, hi: HI}),
     project: (p) => project(p, trackCanvas.clientWidth, trackCanvas.clientHeight),
     clientRect: () => trackCanvas.getBoundingClientRect(),
-    // Zeigt den Zustand VOR der Einzelpunkt-Glaettung (siehe
-    // smoothSinglePointNotches) - zum Abstimmen von MIN_NOTCH_STEER_DEG/
-    // MAX_NOTCH_RADIUS_M in findRadiusNotches() gegen die echten Streckendaten.
-    testNotches: () => {
-      if (!lastPreNotchNLat) return null;
-      const pts = pointsFromNLat(lastPreNotchNLat);
-      const ds = new Float64Array(N);
-      for (let i=0;i<N;i++){ const j=(i+1)%N; ds[i]=Math.hypot(pts[j][0]-pts[i][0], pts[j][1]-pts[i][1]); }
-      const radius = curvatureRadius(pts, P.CURVATURE_WINDOW_M, median(Array.from(ds)));
-      return { flagged: findRadiusNotches(lastPreNotchNLat), radius: Array.from(radius) };
-    },
     // Pro-Punkt-Tabelle fuer den Excel-Export (spreewaldring_simulierte_runde.xlsx)
     // - dieselbe Gas/Bremse/Lenkwinkel-Logik wie updateReadouts() (siehe dort),
     // nur fuer ALLE Punkte statt nur den aktuellen Zeitpunkt.
@@ -2842,14 +2042,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       const wSign = Math.max(1, Math.round(P.CURVATURE_WINDOW_M/P.RESAMPLE_STEP_M));
       const rows = [];
       for (let i=0;i<N;i++){
-        const prevI = (i-1+N)%N;
         const isCoasting = !!sim.coasting[i];
         const braking = !isCoasting && sim.vFinal[i] < sim.vFwd[i]-1e-3;
-        const accelerating = !braking && !isCoasting && sim.vFinal[i] > sim.vFinal[prevI]+1e-6;
         const brakePct = braking ? Math.round((sim.brakeFrac[i] ?? 1)*100) : 0;
         const throttlePct = sim.naturalMode
           ? (braking ? 0 : Math.round((sim.throttleFracNatural[i] ?? 0)*100))
-          : (accelerating ? 100 : (isCoasting ? Math.round(sim.throttleFrac[i]*100) : 0));
+          : Math.round(sim.pedalPct[i]);
         const p0 = pts[(i-wSign+N)%N], p1 = pts[i], p2 = pts[(i+wSign)%N];
         const cross = (p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]);
         const turnSign = cross > 0 ? -1 : (cross < 0 ? 1 : 0);
@@ -2859,20 +2057,6 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       }
       return { lapTime: sim.lapTime, naturalMode: sim.naturalMode, rows };
     },
-    // Rundenzeit-Gegenprobe: erzwingt appFrac an einem oder mehreren
-    // Streckenindizes im natuerlichen Gasmodell (siehe naturalStep/
-    // debugForceAppFrac), dann neu simulieren. overrides=null oder []
-    // hebt den Override wieder auf. overrides: [{index, value}, ...].
-    setDebugForceAppFrac: (overrides) => {
-      debugForceAppFrac = (!overrides || overrides.length===0) ? null : overrides;
-      render();
-      return lastSim.lapTime;
-    },
-    // Manuelles Voranschreiten des Start-Sprints ohne echte requestAnimationFrame-
-    // Zeitbasis (fuer Tests in Umgebungen ohne sichtbaren Tab) - treibt exakt
-    // denselben Code wie simFrame(), nur zeitgesteuert statt frame-getrieben.
-    getPreSmoothV: () => lastPreSmoothV ? Array.from(lastPreSmoothV) : null,
-    getMidSmoothV: () => lastMidSmoothV ? Array.from(lastMidSmoothV) : null,
     tickStandingStart: (dtSeconds, steps) => {
       for (let k=0; k<(steps||1) && standingStart; k++) stepStandingStart(dtSeconds);
       return standingStart ? {...standingStart, active:true} : {active:false, t: sim_.t};

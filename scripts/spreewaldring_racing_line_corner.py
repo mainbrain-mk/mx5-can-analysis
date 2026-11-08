@@ -15,10 +15,10 @@ METHODIK: wie zuvor (Geschwindigkeit<->Linie abwechselnd, kombinierter
 Reifenkraftkreis aus `spreewaldring_racing_line_optimal.py`), Linien-
 Anpassung auf ein Fenster um die jeweilige Kurve begrenzt (Rest der Runde
 eingefroren). Fenstergrenzen jetzt AUTOMATISCH aus der Kurve selbst
-(s_start_m/s_end_m aus `corners_refined`) plus feste Puffer
-(`BRAKE_BUFFER_M` vor der Kurve, `EXIT_BUFFER_M` danach) - keine
+(seit 07.11.2026 je Scheitel `apexes` aus dem Streckenmodell, +-APEX_HALF_M)
+plus feste Puffer (`BRAKE_BUFFER_M` vor der Kurve, `EXIT_BUFFER_M` danach) - keine
 Hand-Justage mehr pro Kurve noetig. Fenster ist ZYKLISCH indiziert (wichtig
-fuer Kurve 1, die genau am Schliesspunkt der Schleife liegt).
+fuer Kurven am Schliesspunkt der Schleife).
 
 Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_corner.py
 """
@@ -35,10 +35,12 @@ from spreewaldring_track import (
 from spreewaldring_track_surface import compute_tangents_closed
 from spreewaldring_lap_simulation import TIRE_MU_RANGE, simulate_lap
 from spreewaldring_racing_line import load_corridor, corridor_bounds
-from spreewaldring_racing_line_optimal import simulate_lap_combined_friction, MU
+from spreewaldring_racing_line_optimal import simulate_lap_combined_friction, VEHICLE, VEHICLES
 
-TRACK_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_summary.json")
+TRACK_MODEL_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_model.json")
 
+APEX_HALF_M = 10.0       # Kurve je Scheitel: find_corners() fasst auf der glatten Linie ganze Kurvenfolgen zusammen.
+                         # Getestet 10/20/40/80 m: mu=1,3 93,33/93,72/93,59/94,37 s
 BRAKE_BUFFER_M = 150.0   # Fenster beginnt so weit VOR Kurvenstart (Anfahrt/Bremszone)
 EXIT_BUFFER_M = 50.0     # Fenster endet so weit NACH Kurvenende
 N_OUTER_LOCAL = 40
@@ -60,7 +62,7 @@ def window_indices(i_apex, s_lo, s_hi, step_m, n_total):
 
 
 def optimize_corner(center, lo_bound, hi_bound, perp, baseline_points, idx_window,
-                     mu=MU, n_outer=N_OUTER_LOCAL, inner_steps=INNER_STEPS, base_alpha=BASE_ALPHA):
+                     veh=VEHICLE, n_outer=N_OUTER_LOCAL, inner_steps=INNER_STEPS, base_alpha=BASE_ALPHA):
     """Optimiert nur die Punkte in idx_window, Rest bleibt eingefroren. Bricht
     ab, sobald eine Iteration schlechter wird als die bisherige Bestzeit
     (Nutzervorgabe) - liefert den seitlichen Versatz der BESTEN gefundenen
@@ -74,7 +76,7 @@ def optimize_corner(center, lo_bound, hi_bound, perp, baseline_points, idx_windo
     best_lap_time, best_n_lat = None, n_lat.copy()
     for outer in range(n_outer):
         points = center + n_lat[:, None] * perp
-        v, lap_time, radius = simulate_lap_combined_friction(points, mu)
+        v, lap_time, radius = simulate_lap_combined_friction(points, veh)
         snapshots.append({
             "iteration": outer, "lap_time_s": lap_time,
             "points_utm33": points.tolist(), "v_kmh": (v * 3.6).tolist(),
@@ -88,7 +90,7 @@ def optimize_corner(center, lo_bound, hi_bound, perp, baseline_points, idx_windo
         best_lap_time, best_n_lat = lap_time, n_lat.copy()
 
         a_lat_req = v ** 2 / np.maximum(radius, 1e-6)
-        excess = np.clip(a_lat_req / (mu * G), 0.0, 1.0)
+        excess = np.clip(a_lat_req / (veh.lat_g * G), 0.0, 1.0)
         alpha_i = alpha_mask * (0.1 + 0.9 * excess)
         for _ in range(inner_steps):
             p = center + n_lat[:, None] * perp
@@ -111,14 +113,15 @@ def main():
     lo_bound, hi_bound, perp = corridor_bounds(center, left, right, tangents)
     n_total = len(center)
     baseline_points = center
-    _, baseline_lap_time, _ = simulate_lap_combined_friction(baseline_points, MU)
+    _, baseline_lap_time, _ = simulate_lap_combined_friction(baseline_points, VEHICLE)
     print(f"Basis (Streckenmittellinie, keine Vorab-Optimierung): "
           f"Rundenzeit {baseline_lap_time:.3f}s")
 
-    with open(TRACK_SUMMARY_PATH, encoding="utf-8") as f:
-        track_summary = json.load(f)
-    corners = sorted(track_summary["orthophoto_refinement"]["corners_refined"], key=lambda c: c["s_apex_m"])
-    total_len_track = track_summary["orthophoto_refinement"]["total_length_m_refined"]
+    with open(TRACK_MODEL_PATH, encoding="utf-8") as f:
+        track_model = json.load(f)["segments"]["main_loop"]
+    corners = [{"s_apex_m": a["s_m"], "radius_min_m": a["radius_m"], "s_start_m": a["s_m"] - APEX_HALF_M,
+                "s_end_m": a["s_m"] + APEX_HALF_M} for a in sorted(track_model["apexes"], key=lambda a: a["s_m"])]
+    total_len_track = track_model["length_2d_m"]
     # Kurve am Schliesspunkt der Schleife kann als zwei Eintraege auftauchen
     # (letzte + erste, <30m auseinander ueber den Wrap) - dieselbe physische
     # Kurve, sonst wuerde sie zweimal optimiert.
@@ -157,7 +160,7 @@ def main():
         current_lap_time = best_lap_time
 
     print(f"\n=== Gesamt: {baseline_lap_time:.3f}s -> {current_lap_time:.3f}s "
-          f"({baseline_lap_time-current_lap_time:+.3f}s, mu={MU}) ===")
+          f"({baseline_lap_time-current_lap_time:+.3f}s, {VEHICLE.name}) ===")
 
     # gleichmaessige Bogenlaenge fuer die Endauswertung (Punktabstand im Fenster
     # ist nach der Optimierung nicht mehr exakt RESAMPLE_STEP_M)
@@ -177,6 +180,11 @@ def main():
               f"({t_before-lap_time_final:+.2f}s) ---")
         results[label] = {"lap_time_before_s": t_before, "lap_time_after_s": lap_time_final,
                            "v_max_kmh": float(v_final.max() * 3.6)}
+
+    for name, veh in VEHICLES.items():
+        _, lap_time_veh, _ = simulate_lap_combined_friction(points_final, veh)
+        print(f"--- gemessen {name}: {lap_time_veh:.2f}s ---")
+        results[f"gemessen {name}"] = {"lap_time_after_s": lap_time_veh}
 
     out_json = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_corners_summary.json")
     with open(out_json, "w", encoding="utf-8") as f:

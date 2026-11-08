@@ -91,6 +91,31 @@ def test_snapshot_values_are_stamped_on_the_monotonic_clock():
     assert abs(snap["t_mono"] - ts) < 1.0
 
 
+def test_editor_feed_replaces_can_values_only_while_fresh():
+    """Editor-Simulation: nur simulierte Groessen im Snapshot, nach EDITOR_FEED_STALE_S wieder CAN."""
+    backend = _backend_without_dbc()
+    backend.channel = "kein_can_test"
+    backend._set(1056, "CoolantTemp", 90, time.monotonic())
+    backend.editor_feed({"speed_kmh": 120.0, "rpm": 6500, "gear": 4, "brake_pct": 40, "steer_deg": float("nan"),
+                         "lap_t": 12.5, "oil": 100, "throttle_pct": True})
+    snap = backend.snapshot()
+    assert snap["source"] == "editor" and snap["logging"] and snap["logging_elapsed"] == 12.5
+    assert set(snap["values"]) == {"514:VehicleSpeed", "514:EngineRPM", "253:MT_Gear_Actual",
+                                   "120:_BrakePedalPercent_derived", "359:BrakeSwitch_PCM"}
+    assert snap["values"]["359:BrakeSwitch_PCM"][0] == 1 and snap["fuel_liters"] is None
+    backend.editor_feed({"speed_kmh": 90.0, "load_pct": 23.0, "tp_pct": 30.5, "clutch_raw": 99.5})
+    assert backend.snapshot()["values"]["304:Clutch_Pedal_Position_raw"][0] == 99.5
+    snap = backend.snapshot()
+    assert snap["session_max_speed"] == 120.0
+    assert snap["values"]["359:ActualEnginePercentTorque"][0] == 23.0
+    assert snap["values"]["2024:_ThrottlePosition_pct_derived"][0] == 30.5
+    backend._editor = (time.monotonic() - can_backend.EDITOR_FEED_STALE_S - 0.1,) + backend._editor[1:]
+    snap = backend.snapshot()
+    assert "source" not in snap and "1056:CoolantTemp" in snap["values"]
+    backend.editor_feed({"speed_kmh": 50.0})  # neue Wiedergabe: VMAX beginnt neu
+    assert backend.snapshot()["session_max_speed"] == 50.0
+
+
 def test_health_line_reports_value_ages_and_resets_obd_request_counts():
     backend = _backend_without_dbc()
     now = time.monotonic()
@@ -375,6 +400,7 @@ if __name__ == "__main__":
     test_kill_processes_ignores_non_matching()
     test_new_logging_session_resets_vmax_and_starts_monotonic_timer()
     test_snapshot_values_are_stamped_on_the_monotonic_clock()
+    test_editor_feed_replaces_can_values_only_while_fresh()
     test_health_line_reports_value_ages_and_resets_obd_request_counts()
     test_fuel_full_tank_reads_45_l_and_counts_down_with_the_counter()
     test_fuel_sensor_init_zero_after_ignition_is_ignored()

@@ -1059,6 +1059,15 @@ class StatusBar(BoxLayout):
         return lbl
 
     def update(self, snap):
+        self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
+        self.clock_label.color = TEXT
+        if snap.get("source") == "editor":  # Werte aus dem Ideallinien-Editor, siehe can_backend.py
+            self.can_label.text, self.can_label.color = "EDITOR-SIMULATION", WARN
+            self.dbc_label.text = self.gps_label.text = self.ntp_label.text = ""
+            t = snap.get("logging_elapsed")
+            self.log_label.text = "" if t is None else f"RUNDE  {int(t) // 60}:{t % 60:04.1f}"
+            self.log_label.color = TEXT
+            return
         fps = snap.get("frames_per_sec", 0)
         self.can_label.text = f"CAN  {fps:.0f} Hz"
         self.can_label.color = GOOD if snap.get("can_up") else RED
@@ -1080,8 +1089,6 @@ class StatusBar(BoxLayout):
             self.log_label.color = TEXT_DIM
         self.ntp_label.text, ok = clock_source()
         self.ntp_label.color = GOOD if ok else RED
-        self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
-        self.clock_label.color = TEXT
 
 
 # --- Drive-Screen (Renncockpit, Design-Vorlage 2026-09-16) --------------------------------
@@ -1255,6 +1262,8 @@ class DriveScreen(Screen):
         self.iat_card.set_value(c.get(IAT_CAN_ID, "IAT_Sensor_No1"))
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
         fuel_liters = snap.get("fuel_liters")
+        if snap.get("source") == "editor":
+            self._fuel_smooth = None  # Tank wird nicht simuliert, auch keinen alten Stand zeigen
         if fuel_liters is not None:
             # Zaehlerwert: schon ruhig, keine Glaettung (sie wuerde nach dem Tanken nur nachlaufen).
             self._fuel_smooth = _fuel_pct_from_liters(fuel_liters)

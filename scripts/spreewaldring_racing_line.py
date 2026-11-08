@@ -14,7 +14,7 @@ METHODIK - GEOMETRISCHE KRUEMMUNGS-MINIMIERUNG ("elastic band"), nicht volles
 Optimalsteuerungsproblem:
   Die Linie wird als seitlicher Versatz n(s) von der Streckenmittellinie
   dargestellt, begrenzt durch den Fahrbahnkorridor (linker/rechter Rand aus
-  `spreewaldring_track_surface_summary.json`, siehe unten) minus einem festen
+  dem Streckenmodell, siehe load_corridor()) minus einem festen
   Sicherheitsabstand fuer die halbe Fahrzeugbreite. Iterativ wird jeder Punkt
   in Weltkoordinaten ein Stueck in Richtung des Mittelpunkts seiner beiden
   Nachbarn gezogen (klassische Laplace-/"elastic band"-Glaettung, reduziert
@@ -81,7 +81,7 @@ from spreewaldring_track import (
 from spreewaldring_track_surface import compute_tangents_closed
 from spreewaldring_lap_simulation import simulate_lap, find_corner_min_speeds, TIRE_MU_RANGE
 
-SURFACE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_surface_summary.json")
+TRACK_MODEL_PATH = os.path.join(RESULTS_DIR, "spreewaldring_track_model.json")
 LAP_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_lap_simulation_summary.json")
 
 CAR_WIDTH_M = 1.74     # ANNAHME (Mazda MX-5 ND Basiskarosserie), siehe Docstring
@@ -92,13 +92,17 @@ RELAXATION_ALPHA = 0.2
 
 
 def load_corridor():
-    with open(SURFACE_SUMMARY_PATH, encoding="utf-8") as f:
-        summ = json.load(f)
-    main = summ["segments"]["main_loop"]
-    center = np.array(main["centerline_utm33"])
-    left = np.array(main["left_edge_utm33"])
-    right = np.array(main["right_edge_utm33"])
-    return center, left, right
+    """Mittellinie und Fahrbahnraender aus dem Streckenmodell (seit 07.11.2026, vorher
+    spreewaldring_track_surface_summary.json), im RESAMPLE_STEP_M-Raster dieser Skripte. Rand = Aussenkante
+    der weissen Linie, die Linie gehoert zur Fahrbahn."""
+    with open(TRACK_MODEL_PATH, encoding="utf-8") as f:
+        main = json.load(f)["segments"]["main_loop"]
+    s = np.array(main["s_m"])
+    s_new = np.arange(0.0, main["length_2d_m"], RESAMPLE_STEP_M)
+    def at_step(key):
+        pts = np.array(main[key])
+        return np.column_stack([np.interp(s_new, s, pts[:, i], period=main["length_2d_m"]) for i in (0, 1)])
+    return at_step("center"), at_step("left_outer"), at_step("right_outer")
 
 
 def corridor_bounds(center, left, right, tangents):
@@ -174,7 +178,7 @@ def plot_speed_comparison(s_center, v_center, s_line, v_line, out_path, label):
 
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    print("Lade Fahrbahn-Korridor (Hauptschleife) aus spreewaldring_track_surface_summary.json ...")
+    print("Lade Fahrbahn-Korridor (Hauptschleife) aus spreewaldring_track_model.json ...")
     center, left, right = load_corridor()
     tangents = compute_tangents_closed(center)
     lo, hi, perp = corridor_bounds(center, left, right, tangents)

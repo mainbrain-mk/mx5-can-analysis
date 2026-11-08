@@ -6447,3 +6447,55 @@ CAN/GPS 1,056 statt 1,05. Am Befund ändert das nichts. `build_datalake.py` tren
 doppelte Logik entfällt, Test ergänzt, schlug ohne Fix fehl). Danach von Hand `pair_late_gpx()` und `build_datalake.py`. Nur dieses eine Log war betroffen. Im Datalake
 jetzt alle drei mit 2114 / 1406 / 2450 Fixen im CAN-Zeitraum, Höhe im Median 71–77 m. Nebenbei: Der erste Lauf wurde auf Wunsch abgebrochen, `pending_can_logs.json` hat
 den zweiten sauber aufsetzen lassen.
+
+## Dash zeigt die Editor-Simulation (2026-11-08)
+
+Nutzerwunsch: Beim Play im Ideallinien-Editor sollen die Simulationsdaten auf dem Dash im Auto erscheinen. Was die
+Simulation nicht rechnet, wird nicht dargestellt.
+
+- **Weg:** Editor-Seite → `/api/dash` des Editor-Dienstes (höchstens alle 50 ms, eine Anfrage zugleich) → UDP an
+  `car:51235` → `can_backend.py` (`editor_feed()`) → wie bisher Snapshot auf 127.0.0.1:51234 → `dash_gui.py`. Das Dash
+  bleibt reiner Empfänger, das Backend entscheidet, welche Quelle gilt.
+- **Inhalt:** `speed_kmh` (wahres Simulationstempo, wie im Editor, also nicht der um 2,9 % zu hohe Tacho), `rpm`,
+  `gear`, `throttle_pct`, `brake_pct` (daraus Bremslicht), `steer_deg` (Ackermann-Anzeige des Editors, links positiv),
+  `lap_t`. Nur diese Schlüssel kommen in den Snapshot, alle anderen Kacheln zeigen „–“, der Tank wird nicht aus
+  dem alten Stand nachgeführt, VMAX gilt je Wiedergabe.
+- **Sicherheit:** Mit echtem `can0` verwirft das Backend jede Editor-Nachricht, eine Fahrt kann also nicht
+  überschrieben werden. Nur bekannte Größen als endliche Zahlen werden übernommen.
+- **Geprüft (PC):** Test `test_editor_feed_replaces_can_values_only_while_fresh`; 60 Pakete vom Editor-Dienst kamen
+  auf dem Pi an (Probe-Empfänger, 17/s); bei der Wiedergabe gingen in 9 s 147 Pakete raus, die Werte stimmten mit
+  der Editor-Anzeige überein. Kivy-Tests und Anzeige auf dem Pi stehen bis zum Deploy aus.
+
+## Limiter-Schwellen über alle Logs, Rampe je Gang (2026-11-08)
+
+Nutzerfrage: Was wissen wir über die Höchstdrehzahl, lässt sich die Begrenzung über ~7000/min mitsimulieren?
+Erinnerung an den Stand: Den Schaltblitz-Blau löst der ECU-Soft-Limiter aus (`_is_limiter_active`: >7000/min,
+APP ≥ 99 %, Drosselklappe < 90). Kein Klopfen/keine Zündwinkelrücknahme als Ursache (`KnockRetard_CAN` im
+Nahe-Null-Band), kein Drehzahlregler, kein Kraftstoff-Cut: das Moment (0x167) rampt auf ~0 und bleibt dort bis
+zum Gaswegnehmen.
+
+Neues Skript `scripts/ecu_limiter_events.py` (alle CAN-Logs, beide Reifensätze, Motorverhalten). Zug = APP ≥ 99 %
+bis zum Schalten (Drehzahl > 150/min unter ihrem Maximum), Volllastniveau = Median bei 6000-6800/min (≥ 70 %).
+Eingriff = Moment ≤ 80 % des Niveaus über 6900/min, Beginn = letzter Punkt davor mit ≥ 95 %. Ohne die Begrenzung auf
+den Zug vor dem Schalten zählten Schaltungen mit durchgetretenem Gas als Eingriffe (Moment fällt, Drehzahl fällt).
+
+**68 Vollgaszüge über 6900/min, 32 mit Eingriff:**
+
+| Gang | n | Beginn Median | Spanne | ohne Eingriff höchstens |
+|---|---:|---:|---|---:|
+| 1 | 3 | 7303 | 7123-7486 | 7451 |
+| 2 | 11 | 7377 | 7200-7409 | 7402 |
+| 3 | 12 | 7146 | 7127-7158 | 7213 |
+| 4 | 6 | 7194 | 7183-7211 | 7215 |
+| 5 | 0 | – | – | 7088 |
+
+Züge ohne Eingriff über der Schwelle liegen nur knapp darüber und kurz (der Fahrer schaltete, bevor das Moment unter
+80 % fiel). Gang 3 und 4 sind eng, Gang 2 streut wie schon am 26.09.
+
+**Rampe (Moment/Volllast über Drehzahl seit Beginn, Median):** Gang 3: 0,89 (0-20), 0,79 (40-60), 0,65 (80-100),
+0,38 (100-130); Gang 4: 0,93, 0,69, 0,64. Also ~0,44 %/min. Gang 2: sofort 0,3, danach 0,23-0,3 (die Drehzahl steigt
+dort kaum noch). Die Spitzen im 2. Gang liegen trotzdem bei 7400-7450/min, weil die ECU in der Zeit rampt.
+
+**In der Simulation** (`spreewaldring_lap_simulation.py`, `LIMITER_*`, `limiter_factor()`): Faktor auf die
+Antriebskraft, ab Beginn linear auf 0 über 30/min (Gang 1/2) bzw. 230/min (Gang 3-6); Gang 5/6 wie Gang 4 angenommen.
+Die Momentuntergrenze beim Halten (5-30 %) fehlt. Ergebnis siehe `projekt-stand.md` (08.11.).

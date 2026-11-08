@@ -407,9 +407,10 @@ def test_mass_from_can_fuel_tank():
     """Masse kommt aus CAN Fuel_Tank (Median ohne 0-Initwerte), nicht mehr aus der .dlg. Log ohne
     Tankwert -> kein Eintrag; Fehler eines Logs landet in errors statt den Lauf abzubrechen."""
     tmp = tempfile.mkdtemp()
-    orig = rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH
+    orig = rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH, rdp.FUEL_LEDGER_PATH
     rdp.CAN_DIR, rdp.DATALAKE_PATH = tmp, os.path.join(tmp, "dl.duckdb")
     rdp.MASS_OVERRIDE_PATH = os.path.join(tmp, "mass.json")
+    rdp.FUEL_LEDGER_PATH = os.path.join(tmp, "ledger.jsonl")
     try:
         con = rdp.duckdb.connect(rdp.DATALAKE_PATH)
         con.execute("CREATE TABLE measurements (log_id VARCHAR, channel VARCHAR, value DOUBLE, "
@@ -423,10 +424,26 @@ def test_mass_from_can_fuel_tank():
         fuel_kg = (3.0 + 1.10 * 16) * rdp.FUEL_DENSITY_KG_L
         assert masses["a"]["mass_kg"] == round(1073 + 86 + fuel_kg, 1), masses
         assert "ohne_tank" not in masses and errors == []
+        # Tankbuch schlaegt den Geber: Mittel aus Start und letztem Ende derselben Quelle, halbe Zeile egal
+        with open(rdp.FUEL_LEDGER_PATH, "w") as f:
+            for e in ({"log": "a", "event": "start", "liters": 40.0, "source": "nachberechnet"},
+                      {"log": "a", "event": "end", "liters": 1.0, "source": "nachberechnet"},
+                      {"log": "a", "event": "start", "liters": 30.0, "source": "live"},
+                      {"log": "a", "event": "end", "liters": 29.0, "source": "live"},
+                      {"log": "a", "event": "end", "liters": 28.0, "source": "live"},
+                      {"log": "b", "event": "start", "liters": 20.0, "source": "live"}):
+                f.write(json.dumps(e) + "\n")
+            f.write('{"log": "a", "ev')
+        open(os.path.join(tmp, "b.log"), "w").close()
+        masses = rdp.update_mass_overrides(["a", "b"], errors)
+        assert masses["a"]["mass_kg"] == round(1073 + 86 + 29.0 * rdp.FUEL_DENSITY_KG_L, 1), masses
+        assert masses["b"]["mass_kg"] == round(1073 + 86 + 20.0 * rdp.FUEL_DENSITY_KG_L, 1), masses  # ohne Ende
+        assert "Tankbuch" in masses["a"]["note"] and errors == []
+        os.remove(rdp.FUEL_LEDGER_PATH)
         rdp.DATALAKE_PATH = os.path.join(tmp, "gibtsnicht", "dl.duckdb")
         assert rdp.update_mass_overrides(["a"], errors) == {} and len(errors) == 1
     finally:
-        rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH = orig
+        rdp.CAN_DIR, rdp.DATALAKE_PATH, rdp.MASS_OVERRIDE_PATH, rdp.FUEL_LEDGER_PATH = orig
         shutil.rmtree(tmp, ignore_errors=True)
 
 

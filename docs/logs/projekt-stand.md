@@ -6956,3 +6956,406 @@ Der Dichtegang ist damit weg. Vergleich der Reifensätze im selben Filter: NS-R2
 **Grenzen:** Der Exponent ist weit offen, kalte Abschnitte sind wenige, Ansaugluft misst auch Motorraumwärme, Luftfeuchte fehlt. Vor der nächsten Pipeline ändern sich die Abhängigkeiten in `MODEL_CACHE_DEPS` und einige Massen, der nächste Lauf rechnet die Modellskripte also einmal vollständig neu (zuletzt rund 40 min). Bisher neu gerechnet ist nur die Volllastprüfung.
 
 **Nachtrag, gleicher Tag:** Der Nutzer hat entschieden: `drivetrain_ratio` prüft nur noch die Gänge 2–5 (`DRIVETRAIN_RATIO_GEARS`). Die Zeile im Tagesbericht nutzt dieselbe Funktion `drivetrain_ratios()`, damit Warnung und Bericht denselben Median zeigen. Der Bericht-Median ist dadurch nicht mehr direkt mit früheren Berichten vergleichbar, die alle Gänge enthielten. Gang 6 fällt damit aus der Überwachung, sein Verhältnis von rund 1,14 steht weiter in der Gesamtstatistik von `drivetrain_model_validation.py`.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-07)
+
+- `candump-2026-11-07_151339`, Masse=1255.4kg (Tank ~28.7 l (CAN Fuel_Tank Median 23.4 roh), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-07_153314`, Masse=1256.9kg (Tank ~30.7 l (CAN Fuel_Tank Median 25.2 roh), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Masse aus der gemessenen Benzinmenge, Pipeline zeigt ihren Schritt (2026-11-07)
+
+Nutzerwunsch: dieselbe Tankberechnung wie im Dash, und sichtbar machen, wo die Pipeline gerade steht.
+
+**Masse:** `compute_mass()` nimmt den Tank jetzt aus dem Tankbuch (`canlogs/fuel_ledger.jsonl`, geschrieben vom `FuelEstimator`, also 45 l nach dem Volltanken minus Kraftstoffzähler 0x420): Mittel aus Start- und Endstand des Logs. Die Pipeline holt das Tankbuch bei jedem Lauf nach `data/can/fuel_ledger.jsonl`. Ohne Eintrag (Log per Uhrkorrektur umbenannt, Backend lief nicht) rechnet sie wie bisher aus dem Median von `FuelTank_CAN_raw`; die Notiz am Log nennt die Quelle.
+
+Vergleich an den 118 CAN-Logs mit Geber-Masse: Tankbuch minus Geber im Median +0,7 l, Spanne −4,5 bis +4,9 l, also höchstens rund 3,7 kg. Beispiele: `candump-2026-10-26_080634` 1166,3 → 1170,0 kg, `candump-2026-11-07_151339` 1255,4 → 1256,9 kg.
+
+Gilt nur für neue Logs. Die vorhandenen Einträge in `data/log_mass_overrides.json` sind unverändert, weil neue Massen die Ergebnis-Caches dieser Logs ungültig machen und die Modellskripte sie neu rechnen.
+
+**Fortschritt:** `run_daily_pipeline.py` druckt `[HH:MM:SS] Schritt n/12: …` und darunter jedes Unterskript und jede Datei vom Pi, sofort geschrieben (auch bei Umleitung in eine Datei).
+
+**Nachtrag, vorhandene Logs umgestellt (Nutzerentscheid 07.11.):** Bei allen 118 CAN-Logs in `data/log_mass_overrides.json` wurde der Tankanteil auf das Tankbuch umgestellt, der Beifahreranteil blieb. Masse im Median +0,5 kg, Spanne −3,3 bis +3,6 kg. Die 54 Einträge der Handy-Logs (FLI) sind unverändert. Sicherung: `data/log_mass_overrides.backup-2026-11-07-geber.json`.
+
+Volllastprüfung und Vmax-Prüfung neu gerechnet (616 bzw. 150 Segmente, Anzahl gleich). Gemessen/Modell (korrigiert) in den Gängen 2–5 im Median 0,9969 → 0,9962, je Gang höchstens 0,0004 Unterschied. Die Massenumstellung ändert also keine Modellaussage. Die Ausrollauswertung ist nicht betroffen, ihre 14 Ereignisse stammen alle aus Handy-Logs.
+
+## Automatischer Lauf: 1 neue CAN-Logs uebernommen (2026-11-07)
+
+- `candump-2026-11-07_153314`, Masse=1256.8kg (Tank ~30.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Fahrsimulation: Machbarkeitsprobe (2026-11-07)
+
+Nutzerwunsch: Konzept für eine möglichst echte Simulation einer Fahrt. Konzept in `docs/plans/fahrsimulation-konzept.md`. Die Zahlen unten stammen aus einer Wegwerf-Probe, die Skripte liegen nicht im Repo, nichts am Modell oder an den Parametern wurde geändert.
+
+**Methode:** 94 CAN-Logs ab 300 s mit allen Pflichtkanälen, 10-Hz-Raster, abwechselnd nach Log 47 Lern-/47 Prüflogs (nicht tagesrein). Masse aus `log_mass_overrides.json`. Kupplung zu = `ClutchPosition` < 2 %, Moment = `ActualEnginePercentTorque_CAN`/100 · `torque_nm(rpm)`, Beschleunigung per Savitzky-Golay über 2 s.
+
+**Tempo im freien Lauf** (gemessenes Moment, Gang, Kupplung und Bremsdruck als Eingabe, Median über Prüflogs):
+
+| | 10 s p50/p90 | 30 s p50/p90 | 60 s p50/p90 | ganze Fahrt RMSE, Weg |
+|---|---:|---:|---:|---:|
+| Basis (Bremse linear 152 N/bar) | 3,2 / 12,4 km/h | 6,8 / 21,7 | 8,9 / 27,4 | 17,9 km/h, −6,2 % |
+| Restmoment-Tabelle und Bremskennlinie gelernt | 1,7 / 9,5 | 4,5 / 15,0 | 6,8 / 18,2 | 13,8 km/h, −9,4 % |
+
+Ursache ist die Kondition, nicht ein einzelner Fehler: 2 N·m im 4. Gang = 0,024 m/s² = 5 km/h nach 60 s. Beschleunigungsfehler in der Antriebsphase: Mittel −0,027, Streuung 0,188 m/s² (n = 1,12 Mio.). Ein Lauf mit und ohne DGM-Steigung (nur lokale Kacheln, ohne Berlin-WMS) unterschied sich im Median kaum, das ist wegen der teils fehlenden Abdeckung und der dominierenden anderen Fehler kein Befund zur Steigung. Folge fürs Konzept: Fahrer im geschlossenen Kreis statt offenes Abspielen.
+
+**Restmoment als Motormoment-Äquivalent** (gemessen − Modell, Median, ohne Steigung und Wind): gemeldetes Moment −5…5 N·m: −20,5; 5…20: −10,1; 20…40: −4,6; 40…80: +1,3; 80…120: +3,9; 120…160: +12,2; über 160: +29,6. Je Gang 1–6: −13,3 / −10,9 / −11,9 / −9,5 / −7,1 / +0,1. Noch nicht zerlegt in Reibung, Skalierung des Kanals und Fahrwiderstand. Diagnosewert, keine Parameteränderung.
+
+**Bremskennlinie** (Lernhälfte, Bremskraft über Fahrwiderstand und Motor hinaus, Median je Druckklasse): 1 bar 384 N, 2 bar 472, 3 bar 547, 4 bar 708, 6 bar 913, 8 bar 1246, 12 bar 1784, 17 bar 2481, 23 bar 3344. Gerade 152 N/bar: R² 0,65 und RMSE 642 N auf der Prüfhälfte. Offen, wie viel vom Sockel unter 5 bar Motorbremse bei getretener Kupplung oder Bremsbeginn ist.
+
+**Weitere Teilmodelle:**
+
+- Drehzahl aus Tempo und Gang: Median +1 min⁻¹, p90 12 min⁻¹ (Gang 1: 83, Gang 6: 8), n = 1,14 Mio.
+- Gierrate aus dem Lenkmodell (k1, k2 aus dem Status): r = 0,984, RMSE 0,78 °/s, n = 1,32 Mio. Die Konstanten stammen aus denselben CAN-Fahrten, LOO laut Status 1,20 °/s.
+- Koppelnavigation gegen GPS, wahre Strecke mit Faktor 0,971: mit Lenkmodell 30 s p50 36 m, p90 214 m; 60 s p50 104 m, p90 719 m (Median 1335 m Weg). Mit `YawRate_CAN` 30 s 13/40 m; 60 s 27/89 m. Die Position muss also aus der Route kommen.
+- Verbrauch `FuelRate_CAN` = 2,087e-4·rpm + 5,744e-6·T·rpm − 0,140 g/s (ohne Schub): R² 0,87, RMSE 0,46 g/s, nur im Fit. Aus MAF allein R² 0,77.
+- Kühlwasser, ein Knoten, 10-s-Mittel, Fit unter 82 °C: dT/dt = 0,277·Fuel + 0,0006·ΔT − 0,00012·ΔT·v (R² 0,62); der ΔT-Term ohne v hat das falsche Vorzeichen, der Fit ist also nur ein Prüfwert für die Größenordnung. Freier Lauf auf 27 Kaltstart-Fahrten der Prüfhälfte: RMSE Median 3,7 °C, p90 7,8 °C.
+- Gang als häufigster Gang je 5-km/h-Klasse: 81,8 % Treffer, mit APP 82,8 %, mehr als ein Gang daneben 6,8 %.
+
+**Streckenwiederholung** (46 Logs mit GPS, 1665 km, Zellen rund 100 m, richtungsgemischt): 35 % der Kilometer in Zellen mit ≥ 3 Fahrten, 28 % ≥ 5, 23 % ≥ 10 (283 Zellen), 4 % ≥ 20. Tempostreuung zwischen Fahrten je Zelle (≥ 10 Fahrten): Median 15,6 km/h, p90 26,6 km/h. Durch die gemischten Richtungen eher zu hoch.
+
+**CAN:** `candump-2026-11-07_151339` hat 103 IDs, alle im DBC (151 Botschaften, 242 Signale), 649 072 Frames in 223 s. Pipeline-Sync und Dash-Liste greifen nach `candump-*`, synthetische Logs brauchen also einen eigenen Präfix und Ordner.
+
+## Spreewaldring: Höhendaten nachgeladen (2026-11-07)
+
+Nutzerfrage, warum dort Höhendaten fehlen. Es gab keinen sachlichen Grund: Am 30.08. lieferte `als_33409-5761.zip` einen 404 („nicht weiter verfolgt“). Die am 06.09. gefundene Quelle DGM-XYZ wurde für diese Stelle nie ausprobiert, weil dort keine Fahrt lag. Der Satz „keine Höhendaten“ blieb seither im Status stehen.
+
+Geprüft 07.11.: ALS weiterhin 404, `dgm_33409-5761.zip` vorhanden (3,8 MB, Stand LGB 16.09.2025). Nach `höhendaten/` geladen, nur diese Kachel gebaut (`build_tile_from_xyz`, `data/elevation/tiles/409_5761.npz`, 1000×1000 Punkte, 100 % Abdeckung). Kein `--rebuild`: Der Brücken-Cache ist unverändert, und die Kachel liegt innerhalb seiner bisherigen Bbox (die Kachel E426/N5743 reicht schon weiter nach Süden).
+
+Entlang der Mittellinie aus `spreewaldring_lap_simulation.load_track()` (829 Punkte, 2489,9 m): alle Punkte in der Kachel, keine Lücken, keine Brücke interpoliert. Höhe 53,54–54,97 m, Spanne 1,42 m, Runde schließt auf 2 cm (54,09/54,11 m).
+
+| Glättung | \|Steigung\| p50 | \|Steigung\| p95 | max / min | Höhenmeter je Runde |
+|---:|---:|---:|---:|---:|
+| 10 m | 0,31 % | 0,92 % | +2,43 / −1,31 % | 4,7 m |
+| 30 m | 0,32 % | 0,65 % | +2,03 / −0,96 % | 4,0 m |
+| 50 m | 0,31 % | 0,62 % | +1,66 / −0,75 % | 3,8 m |
+| 100 m | 0,25 % | 0,58 % | +0,97 / −0,64 % | 3,3 m |
+
+Einordnung: 0,65 % Steigung sind 0,064 m/s², die Runde ist netto eben. Die Rundenzeit-Simulation bekommt deshalb vorerst keinen Steigungsterm, die Wirkung auf die Rundenzeit ist aber nicht gerechnet. Die Höhen sind nicht gegen GPS geprüft, weil keine eigene Fahrt dort vorliegt.
+
+Nebenbefund, nicht weiter verfolgt: `load_track()` liefert 2489,9 m, der Status nennt für die verfeinerte Mittellinie 2529,5 m.
+
+## Spreewaldring: Streckenmodell aus Orthofoto und DGM (2026-11-07)
+
+Nutzerauftrag: PhotoCraft aktualisieren, damit das Orthofoto auswerten, Streckengrenzen möglichst präzise bestimmen, daraus mit den Höhen ein möglichst genaues Streckenmodell bauen. Skript `scripts/spreewaldring_track_model.py`, Test `scripts/test_spreewaldring_track_model.py`.
+
+**PhotoCraft-Update nicht erledigt:** Installiert bleibt 0.18.0 (stable 0.20.1, im App-Dialog 0.21.0). `snap refresh` scheiterte erst an 11 laufenden `photocraft-cli`-Brücken, teils aus anderen Sitzungen, die nicht beendet wurden. Danach lief `snap refresh --ignore-running` zweimal in den sudo-Timeout. Karten und Modell stammen also aus 0.18.0.
+
+**Karten in PhotoCraft** aus `ortho_crop.png` (Kachel `dop_33409-5761`, Spalte ab 2700, Zeile ab 300, 2300×2700 px), jeweils auf einer Dokumentkopie:
+
+- Linienkarte: `image.adjustments.blackWhite` (alle Farben 33), `filter.other.highPass` Radius 6, `image.adjustments.levels` inBlack 128, inWhite 178.
+- Asphaltkarte: `select.colorRange` mit 30 Stichproben entlang der alten Mittellinie, Fuzziness 22; Auswahl weiß auf Schwarz gefüllt.
+
+Beide liegen unter `data/orthophoto/spreewaldring_crop_{linemap,asphalt}.png`. Dokument mit Overlay: `~/Bilder/PhotoCraft/spreewaldring/spreewaldring_streckenmodell.pcraft`. In der Automation ist `file.placeEmbedded` gesperrt, das Overlay kam per Kopieren und `edit.pasteSpecial.pasteInPlace`. Der Schreibpfad von `doc_export` ist relativ zum Schreib-Root.
+
+**Verfahren:** Die Vorarbeit klassifizierte jeden Querschnitt einzeln und glättete danach. Querprofile zeigen aber eine klare weiße Linie, Helligkeit rund 196 gegen Asphalt 147, außen Gras mit Sättigung über 20 %. Deshalb wird die Linie selbst verfolgt: Score aus Linienkamm und Stufe Asphalt innen/kein Asphalt außen, Viterbi je Rand über die ganze Runde (höchstens 0,5 m seitlich je Meter), danach Sub-Pixel-Schwerpunkt, Mittellinie als geschlossener Spline, Querschnitte im 1-m-Raster. Höhe je Querschnitt (Mitte, links, rechts) aus der neuen DGM-Kachel, längs mit σ = 5 m geglättet. Boxengasse zusätzlich: Hinter der ersten Asphaltlücke von mindestens 1 m wird bestraft, sonst nimmt die Spur die Randlinie der Hauptstrecke hinter der Barriere.
+
+**Ergebnis:**
+
+| Segment | Länge | Breite Linienmitte, Median (p5–p95) | Linie gesehen links/rechts |
+|---|---:|---:|---:|
+| Hauptschleife | 2494,7 m (3D 2494,8) | 8,88 m (8,71–9,10) | 98 / 97 % |
+| Verbindung A | 57,1 m | 8,95 m (8,73–9,82) | 60 / 100 % |
+| Verbindung C | 84,9 m | 8,89 m (7,89–9,00) | 61 / 96 % |
+| Boxengasse | 389,3 m | 4,78 m (1,71–6,39) | 73 / 84 % |
+
+Bei der Hauptschleife ohne Linie sind es vor allem die Einmündungen (s ≈ 0, 950, 1650, 2400, 2455), dort überbrückt die Spur glatt. Boxengasse: Norden und Mitte visuell passend, vor den Zelten ziehen Personen und Fahrzeuge den Rand nach innen, die kleinen Breiten sind keine echten Engstellen. Linienbreite im mittleren Querprofil: links 0,55 m, rechts 0,50 m, einschließlich Bildunschärfe. Außenkante zu Außenkante rund 9,4 m, die Betreiberangabe 10 m bleibt offen (ob dort Bankett mitzählt, ist unbekannt).
+
+**Prüfungen:**
+
+- Bekannte Gerade (s = 2261–2396 m), Streuung um die Ausgleichsgerade: Mitte 0,057 m (alt 0,143), links 0,053 m (alt 0,269), rechts 0,107 m (alt 0,610). Maximalabweichung rechts 0,54 m gegen alt 1,14 m.
+- Nur Linienkamm gegen nur Asphaltstufe, zwei Merkmale aus demselben Bild: Median +0,01 / −0,03 m, Streuung um den Median p50 0,01 / 0,02 m, p95 0,54 / 0,19 m.
+- Kreisfit getrennt je Rand an 23 Radiusminima: Der Unterschied Innen-/Außenradius trifft in den meisten Kurven die Breite (8,1–9,6 m bei 8,7–9,1 m), Ausnahmen liegen an Einmündungen und in schwachen Kurven (z. B. s = 5: 3,3 m). Mittel beider Randradien ≈ Mittellinienradius.
+- DGM und Foto unabhängig: Querneigung in engen Kurven nach innen (Linkskurve −2,03 %, Rechtskurve +2,54 %, Korrelation mit der Krümmung −0,65), auf Geraden |2,3 %|.
+- Synthetischer Ring: Selbsttest trifft bekannte Ränder auf 0,1 m, auch über eine 8-m-Lücke in der Linie.
+
+Abstand neue zu alter Mittellinie: p50 0,98 m, p95 1,71 m, max 3,51 m. Höhe 53,58–54,90 m, 4,1 Höhenmeter je Runde, Steigung |p50| 0,31 %, |p95| 0,68 %.
+
+**Radien und Rundenzeit:** Die alten Radien waren oft zu klein, weil die Mittellinie wackelte (s = 330 m: 34,2 statt 24,1 m; s = 373 m: 62,6 statt 41,2 m). Engste Kurve fast gleich (11,7 gegen 11,5 m). 22 Scheitel unter 100 m stehen als `apexes` im JSON. `find_corners()` fasst auf der glatten Linie ganze Kurvenfolgen zusammen, deshalb ist deren Kurvenzahl (9 gegen 12) nicht vergleichbar. Gleiche Physik (`simulate_lap`, ohne Steigung und Querneigung): μ=1,0 107,21 → 102,85 s, μ=1,3 96,41 → 92,44 s. Die Rundenzeit-Simulation selbst ist **nicht** umgestellt.
+
+Nebenbefund erledigt: 2529,5 m im Status war der Stand vor der Glättung vom 30.08., seither 2489,9 m. Status korrigiert.
+
+**Offen:** Keine eigene Fahrt dort, also keine Prüfung gegen die Realität. Das Foto zeigt die Sommer-Aufnahme, Änderungen an der Strecke seither sind nicht ausgeschlossen. Querneigung ist in der Simulation nicht berücksichtigt. Boxengasse vor den Zelten bräuchte Handarbeit.
+
+**Nachtrag (07.11.2026), PhotoCraft-Update erledigt:** Der Nutzer hat `sudo snap refresh --ignore-running photocraft` selbst ausgeführt, installiert ist jetzt 0.20.1 (Revision 31). Beide Karten mit denselben Schritten neu erzeugt: pixelgleich zu 0.18.0 (Unterschied überall 0). Das Modell bleibt damit unverändert, Abstand aller Punkte 0,000 m. Die Einschränkung „Karten und Modell stammen aus 0.18.0“ oben ist damit gegenstandslos.
+
+### Nachtrag: Nutzerskizze eingearbeitet (2026-11-07)
+
+Nutzer-Review in PhotoCraft (eigene Ebene, mit Maus gezeichnet, ausdrücklich nur als Hinweis): Blau Boxengasse, rot Hauptstrecke an der Boxenausfahrt. Sachinfo vom Nutzer: Strecke und Boxengasse trennt die rot/weiße Boxenmauer, ihr Schatten fällt auf die Fahrbahn der Boxengasse; vor dem Zelt ist die skizzierte Linie die Fahrbahnmarkierung. Skizze: `data/track/spreewaldring_skizze_nutzer_2026-11-07.png`.
+
+Alle drei Hinweise trafen echte Fehler: Mein Rand lag an der Ostkante des Schattens statt am Mauerfuß (Querprofil: Mauer 210–220, Schatten 60–90 über rund 1,6 m, Fahrbahn um 150). Vor dem Zelt zogen Personen und Fahrzeuge den Rand von der Markierung (um 190, Zelt 250) weg. An der Boxenausfahrt lief der rechte Rand zu weit innen.
+
+**Änderungen in `spreewaldring_track_model.py`:**
+
+- Skizze als Korridor (`hint_targets()`): Sollversatz je Station, zwischen den Strichen linear, Abzug 0,5·(Abstand/1 m)². Die Kante kommt weiter aus dem Bild, ohne Bildmerkmal folgt die Spur der Skizze. Betroffene Stationen sind markiert (`left_hinted`, `right_hinted`).
+- Neues Merkmal Mauer → Schatten (`wall_step()`, nur Boxengasse rechts) aus einer dritten PhotoCraft-Karte `spreewaldring_crop_gray.png` (`image.adjustments.blackWhite`, alle Farben 33). Schatten zählt als Fahrbahn.
+- Eigener Fehler behoben: Die Asphaltlücken-Sperre begann direkt am Lückenanfang, also an der Mauer. Sie beginnt jetzt 1 m dahinter, sonst sprang der Rand am Südende auf die Schattenkante.
+
+**Ergebnis**, Abstand Skizze zur nächsten Kante (die Mausungenauigkeit steckt mit drin):
+
+| | vorher p50 / p95 | nachher p50 / p95 |
+|---|---:|---:|
+| Boxengasse (1059 Pixel) | 1,96 / 3,69 m | 0,19 / 0,54 m |
+| Boxenausfahrt (60 Pixel) | 0,58 / 2,86 m | 0,18 / 0,53 m |
+
+Boxengasse 390,4 m. Breite je Abschnitt: Mauer 8,2–8,3 m (Station 160–240), Zelt 7,2–7,6 m (240–360), Haarnadel rund 4,9–5,8 m. Die Breite von 4,8 m Median aus dem ersten Lauf war also falsch. Hauptschleife: 2494,7 m, Breite im Skizzenbereich 8,99–10,18 m (Median 9,57 m). Die Linien selbst bleiben außerhalb der Skizzenzone fast gleich (Median 2 mm), die Mittellinie um rund 6 mm, weil der Spline neu angepasst wird. Das verschiebt auf Radiusplateaus einzelne Scheitel um bis zu rund 30 m bei gleichem Radius (s = 967 → 937 m, 23,7 → 23,6 m), an den Prüfwerten ändert sich kaum etwas (Gerade links 0,055 m, rechts 0,106 m). Rundenzeit mit gleicher Physik: μ=1,0 102,81 s, μ=1,3 92,38 s.
+
+Überbrückt bleibt: An der Mauer wurde das Ende an den Schraffuren nicht eigens geprüft. Dort läuft der Rand entlang der Schraffur.
+
+### Nachtrag: Rundenzeit-Simulation auf das Streckenmodell umgestellt (2026-11-07)
+
+Nutzerentscheid. `spreewaldring_lap_simulation.load_track()` liest jetzt die Hauptschleife aus `results/spreewaldring_track_model.json`, in 1-m- statt 3-m-Schritten. `find_corner_min_speeds()` rechnete fest mit 3 m, das Zusammenfassen der Kurven wäre bei 1 m falsch geworden. Die Schrittweite kommt jetzt aus `s`, die Aufrufer mit 3-m-Linien verhalten sich unverändert (Test ergänzt).
+
+| Szenario | alte Linie (2489,9 m) | Modell (2494,7 m) | Differenz |
+|---|---:|---:|---:|
+| μ=1,0 | 107,21 s | 102,81 s | −4,40 s |
+| μ=1,3 | 96,41 s | 92,38 s | −4,04 s |
+| μ=1,0, Kraftkreis | 111,21 s | 105,61 s | −5,61 s |
+| μ=1,3, Kraftkreis | 99,54 s | 94,44 s | −5,11 s |
+| gemessener Kraftkreis | 105,62 s | 100,47 s | −5,15 s |
+
+Topspeed μ=1,0 von 177 auf 185 km/h. Das Raster spielt keine Rolle: neue Geometrie in 3-m-Schritten 102,82 s (μ=1,0) und 92,38 s (μ=1,3). Der Gewinn kommt also von den größeren Radien. Die Physik ist unverändert, Steigung und Querneigung gehen nicht ein. Die Kurvenzahl in der Zusammenfassung (12 → 9) ist nicht vergleichbar, siehe oben; die einzelnen Scheitel stehen als `apexes` im Modell. `results/spreewaldring_lap_simulation_summary.json` ist überschrieben.
+
+Noch auf alter Geometrie: `spreewaldring_racing_line*.py` samt Editor, `spreewaldring_track_surface.py`. Die Skripte `spreewaldring_racing_line.py`, `_corner.py` und `_optimal.py` lesen aus der neuen Zusammenfassung die Mittellinienzeit als Vergleich. Laufen sie neu, vergleichen sie also Linien auf den alten Rändern mit einer Mittellinienzeit auf der neuen Geometrie, die Differenzen wären dann nicht aussagekräftig.
+
+### Nachtrag: Ideallinien und Editor auf das Streckenmodell umgestellt (2026-11-07)
+
+Nutzerentscheid. `spreewaldring_racing_line.load_corridor()` ist die gemeinsame Quelle und liest jetzt das Modell, im 3-m-Raster dieser Skripte; als Rand gilt die Außenkante der weißen Linie, die Linie gehört zur Fahrbahn. Kurven-Nachoptimierung: Fenster je Scheitel (`apexes`, 21 Scheitel) statt `corners_refined`. Halbbreite 10 m nach Test (μ=1,3: 10 m 93,33 s, 20 m 93,72 s, 40 m 93,59 s, 80 m 94,37 s; die 9 zusammengefassten `corners` 95,93 s). Editor: Start-Ziel als Koordinate statt Index 779 (jetzt Index 780 von 832), Kurvennummern wie bisher mit Marke und Radius aus dem Modell, Randglättung (27 m) entfallen, sie war nur gegen das Rauschen der alten Ränder da. Falsche Fußzeile (F_max=4450 N) korrigiert.
+
+Die vorhandenen Ergebnisse stammten von August/September, also älterer Physik. Für einen fairen Vergleich zuerst die alte Geometrie mit heutiger Physik durchgerechnet:
+
+| Linie | μ | alte Geometrie | Modell |
+|---|---:|---:|---:|
+| Krümmungsminimierung | 1,0 | 96,93 s | 97,31 s |
+| Krümmungsminimierung | 1,3 | 87,54 s | 87,81 s |
+| Alternierend | 1,0 | 92,72 s | 92,48 s |
+| Alternierend | 1,3 | 83,53 s | 83,43 s |
+| Kurven nacheinander | 1,0 | 93,45 s | 94,03 s |
+| Kurven nacheinander | 1,3 | 84,26 s | 84,64 s |
+| Editor-Ausgangslinie (mit Bremsgrenze, Schaltzeiten) | 1,0 | 99,51 s | 100,40 s |
+
+Die Mittellinie gewann 4,4 s, die Ideallinien bleiben innerhalb von ±0,6 s (Editor +0,9 s). Plausible Lesart: Eine Ideallinie glättet das Wackeln ohnehin weg. Der Korridor für den Fahrzeugmittelpunkt ist im Median fast gleich (7,73 → 7,66 m), aber das Maximum fällt von 14,36 m auf 8,93 m, das Minimum steigt von 5,85 auf 7,24 m. Die Einmündungen zählen also nicht mehr als Aufweitung. Die Trennung einzelner Ursachen ist nicht gerechnet. Bremsvergleich auf der neuen Bestlinie: Theorie 102,64 s, mit 0,762 g 103,17 s (+0,53 s, vorher +0,27 s).
+
+Editor im Browser geprüft: lädt ohne Konsolenfehler, 832 Punkte, Länge 2410 m; Ziehen speichert die Bearbeitung und rechnet neu, Zurücksetzen stellt die 100,40 s wieder her. `STORAGE_KEY` auf v3: Bearbeitungen hängen am Punktindex, unter v2 gespeicherte gehören zur alten Geometrie und werden nicht übernommen. Der alte Editor liegt als `results/spreewaldring_racing_line_editor_altgeometrie_2026-11-07.html` und liest weiter v2.
+
+`spreewaldring_racing_line_search.py` lasse ich liegen: Referenz und 25 Testbearbeitungen gehören zur alten Geometrie, die Portprüfung scheiterte schon vor der Umstellung (99,92 gegen 101,06 s), der Python-Port hat auch die Rückschaltlogik nicht. Veraltet bleiben außerdem `spreewaldring_racing_line_animation.html` (kein Erzeuger-Skript mehr, der Editor nimmt daraus nur Orthofoto und Kurvennummern), `spreewaldring_racing_line_editor_natural_throttle.html` und `spreewaldring_simulierte_runde.xlsx`.
+
+## Streckensimulation mit den Modellen aus den Logs, Editor rechnet in Python (2026-11-07)
+
+Nutzerauftrag: Die Simulation auf der Strecke soll die aus den Logs berechneten Modelle nutzen. Im Lauf der Arbeit zweiter Auftrag: Trennung von Editor und Python-Simulation beenden, der Editor rechnet auf dem Python-Skript.
+
+**Fahrzeugmodell (`scripts/mx5_vehicle_model.py`, `results/mx5_vehicle_model.json`).** Antrieb, Trägheit, Fahrwiderstände und Traktionsgrenze kamen schon aus den Logs. Neu, je Reifensatz (112 CAN-Logs ab 60 s, NS-R2 1131 km, Winter 1718 km):
+
+| Größe | NS-R2 | Winter | Herkunft |
+|---|---:|---:|---|
+| quer | 0,819 g | 0,807 g | `LateralAcc_CAN`, 0,3 s geglättet, 1 s gehalten (15.09. bei 115 km/h; 31.10. bei 77 km/h) |
+| bremsen | 0,740 g | 0,650 g | NS-R2: `BRAKE_CAP_G` 0,762 im wahren Rahmen, ABS. Winter: 1,5 s gehalten aus dem Tempoabfall, 0,0 s ABS, also Untergrenze |
+| Reifengrenze Antrieb | 0,574 g | 0,574 g | `TRACTION_MAX_FORCE_N`. Die Beschleunigungs-Hülle (0,53 g) ist bis auf Gang 1 Motorkraft |
+| wahres Tempo / `VehicleSpeed` | 0,971 | 0,972 | GPS, Status Punkt 9 |
+
+Zum Vergleich gehalten: 0,5 s / 1 s / 2 s / 3 s quer aus dem Sensor NS-R2 0,83/0,82/0,75/0,70, Winter 0,85/0,81/0,76/0,71. Die früher genannten 1,15 g und 1,09 g sind kurze Spitzen. Gierrate·v liegt in Rutschern höher (Winter 1 s: 0,92 gegen Sensor 0,81), deshalb gilt der Sensor. Die Bremswerte 0,808 g (01.10., 1,5 s, ABS) passen nicht zur Regel „Mittel des Ereignisses“ hinter `BRAKE_CAP_G`; nicht geändert, das war ein Nutzerentscheid.
+
+Ellipse quer/längs: 0,03 % (NS-R2) und 0,02 % (Winter) der 0,5-s-Punkte liegen außerhalb. TCS-Eingriffe liegen bei beiden Sätzen am Rand (Ellipsenwert p50 0,6, p90 1,03), n = 94 und 113. Die Grenze im Antrieb ist damit plausibel. Alle Logs sind Alltagsfahrten, quer ist das keine Grenzmessung, der Telefon-Fall mit ESP lag bei 1,0–1,1 g.
+
+Zugkraftlücke je Gangpaar: p10 der Schaltungen unter Last (obere Hälfte Vorschalt-Beschleunigung): 1-2 0,30 s, 2-3 0,30 s, 3-4 0,45 s, 4-5 0,60 s, 5-6 0,40 s (n = 102/168/119/40/10). Rückschaltungen sind nicht gemessen, sie bekommen dieselbe Lücke. Mediane unter Last 0,40/0,50/0,90/1,50/0,95 s.
+
+Wahres Tempo: Modelle rechnen in `VehicleSpeed`, die Strecke in Metern. `accel_true()` rechnet v und a um, die Modellparameter bleiben, der offene Neufit (Punkt 9) ist damit nicht erledigt. Probe am Pull 26.09. (1266 kg, 50–100 km/h wahr): mit Umrechnung 4,43 s, ohne 4,20 s, real 4,50 s.
+
+**Wirkung auf der alternierend optimierten Linie, gleiche Linie, schrittweise:**
+
+| Schritt | Runde | Differenz |
+|---|---:|---:|
+| Literatur μ=1,0, ATTACK, Bremse 0,762 g | 98,36 s | |
+| + wahres Tempo | 98,83 s | +0,47 s |
+| + gemessene Schaltlücken | 99,29 s | +0,46 s |
+| + Quergrenze Winter 0,81 g | 106,89 s | +7,60 s |
+| + Antriebsgrenze auf der Ellipse 0,57 g | 107,87 s | +0,98 s |
+| + Bremsellipse Winter 0,65 g | 109,19 s | +1,32 s |
+
+NS-R2 komplett 108,23 s; mit Quer-μ 1,0 oder 1,3 und sonst Log-Modell 101,01 s und 92,95 s. Die Quergrenze ist also die größte Unbekannte. Schaltungen: ATTACK 108,56 s, Median unter Last 109,60 s. Steigung und Querneigung gehen weiter nicht ein. Python-Skripte: Die alternierende Linie wird jetzt für Winter optimiert. Mittellinie mit Einfach-Löser ohne Schaltungen: Winter 118,28 s, NS-R2 116,82 s. Das Skript läuft nicht in der Tagespipeline, die Werte ändern sich also nur bewusst.
+
+**Editor rechnet in Python.** `spreewaldring_racing_line_editor.py` ist jetzt ein lokaler Dienst (`http.server`, nur 127.0.0.1, Port 8732, Start per Skript oder launch.json `racing-line-editor`). Der Browser zeichnet und bedient nur noch, rund 1000 Zeilen JS-Physik sind weg (Datei 2887 → gut 2000 Zeilen). `simulate_lap_full()` in `spreewaldring_racing_line_optimal.py` ist die einzige Rundensimulation, einschließlich Teillast-Glättung, natürlichem Gasmodell und Gangverlauf; Pinsel, Fixpunkte, Optimierung und Lenkrate liegen im Editor-Skript. `results/spreewaldring_racing_line_editor.html` wird nicht mehr erzeugt und ist gelöscht, die Altgeometrie-Kopie läuft weiter eigenständig. Bearbeitungen liegen weiter im Browser unter demselben Schlüssel, aber der Ursprung ist jetzt `127.0.0.1:8732`: bisher dort gespeicherte Stände zieht er nicht mit. Beim Fahrzeugwechsel optimiert der Dienst die Linie neu; das Delta des natürlichen Gasmodells bezieht sich jetzt auf die Ausgangslinie im selben Modus.
+
+Beweis der Gleichheit: Vor dem Umbau Referenzwerte aus dem JS-Editor aufgezeichnet (Rundenzeit, Summen von Tempo, Vorwärts-Tempo, Gang, internem Gang, Drehzahl, Teillast-, Brems- und Natürlich-Anteil, Bogenlänge, Lenkrate) für Winter, natürliches Gasmodell, NS-R2, Literatur und einen Stand mit drei Fixpunkten (zwei weich, einer hart). Alle Felder stimmen im Python-Kern überein. Zwischendurch vor dem Umbau: Rundenzeit JS und Python auf dem Punkt vor der Glättung identisch (108,72046883057224 s). Danach zwei Fehler behoben: Die Korrektur der Bremsinsel vom 08.09. fehlte im Python-Port (daher 0,7–0,9 s Unterschied). Eine Bremsinsel über die Rotationsnaht lief über das Array hinaus, im alten JS wäre das eine Endlosschleife gewesen, auf der Strecke trat das nicht auf, ein neuer Test hat es gefunden.
+
+Beabsichtigte Abweichung: natürliches Gasmodell, Winter 112,18 → 111,61 s. Im ersten Einbau verglich die Vorausschau das Verhältnis zum Grip mit `lat_g` statt mit 1.
+
+Im Browser geprüft (localhost:8732): Laden Winter 111,10 s, NS-R2 109,76 s, Literatur 100,19 s, natürlich 111,61 s; Mausziehen legt Fixpunkt an (+0,41 s), Rückgängig und Zurücksetzen stellen 111,10 s wieder her; Wiedergabe mit stehendem Start läuft; ungültige Anfragen ergeben 400; bei gestopptem Dienst Meldung im Editor. Antwortzeit Ziehen 129 ms, Optimierung 406 ms (lokal, rund 100 kB je Antwort).
+
+Offen: Editor-Ausgangslinie (Kurven nacheinander, 111,10 s) ist langsamer als die alternierende Linie (109,19 s), der Start bleibt vorerst wie bisher. `spreewaldring_racing_line_search.py` hat einen eigenen Physik-Port, liest die entfallene HTML und läuft nicht mehr (scheiterte schon vorher an der Portprüfung).
+
+### Nachtrag: Editor startet von der alternierenden Linie, Befund Gangwahl (2026-11-07)
+
+Nutzerentscheid. Der Editor nimmt die beste Iteration aus `spreewaldring_racing_line_optimal_summary.json` statt der Kurven-nacheinander-Linie; nur die Iteration hat dieselben Punkte wie der Korridor. Ausgangslinie nach der Bereinigung: Winter 109,68 s (vorher 111,10 s), NS-R2 108,45 s, Literatur 98,90 s, natürliches Gasmodell Winter 110,05 s. Die neu gerasterte Endlinie lag bei 109,19 s; die 0,5 s Unterschied sind nicht zerlegt (10-cm-Randabstand, Lenkraten-Bereinigung und Raster kommen infrage). Im Browser geprüft: lädt ohne Konsolenfehler, Linie im Korridor, höchste Lenkrate 114 Grad/s.
+
+Zwei Beobachtungen auf dieser Linie, nicht geändert:
+
+- Haarnadel: Radius 9,3 m bei s = 1746 m, die Mittellinie hat dort 11,8 m. Die Linie läuft nah am Innenrand (130 von 832 Punkten am 10-cm-Randabstand) und wechselt auf rund 30 m von außen nach innen. Das Punktmassenmodell kennt keine Übergänge, es bevorzugt so eine V-Linie. Ein Fahrer würde das vermutlich runder fahren.
+- Gangwahl: `derive_gear_trace` und der Vorwärtspass wählen den Gang nur nach Momentanbeschleunigung (15 % Hysterese) und berücksichtigen die Zugkraftlücke nicht. Mit den niedrigeren Kurventempi aus den Log-Modellen ergibt das 253 m je Runde in Gang 1 und 31 interne Schaltungen, etwa 2→1 bei 169 m und 1→2 bei 182 m. Test mit gesperrtem Gang 1: **109,23 s statt 109,68 s bei 16 Schaltungen**, die Schaltungen kosten also mehr als sie bringen. In den Logs ist Gang 1 mit geschlossener Kupplung über 25 km/h sehr selten (zügige Kurven über 0,5 g bei 25–40 km/h: Gang 2 61 %, Gang 3 34 %, Gang 1 5 %; über 0,7 g nur 6 Samples, alle Gang 1). Das ist Alltagsfahrt, keine Grenzfahrt. Vorschlag: Schaltkosten in die Gangwahl.
+
+### Nachtrag: Gangplan für die ganze Runde (2026-11-07)
+
+Nutzerentscheid. Erst per Vorausrechnung je Schaltung (120 m, Bleiben gegen Schalten mit Lücke) gebaut: 16 Schaltungen, 109,36 s, aber kurzsichtig. In der Kehre ging es in der Bremszone gratis in Gang 1, direkt nach dem Scheitel kostete die Rückkehr die Lücke; ohne Gang 1 war es mit 109,23 s schneller. Deshalb verworfen.
+
+**`plan_gears()`** bestimmt den Plan für die ganze Runde: je Punkt und Gang die beste Ankunftszeit, Bleiben und Wechsel sind Übergänge (dynamische Programmierung, je Punkt und Gang nur die schnellste Ankunft, also eine Näherung). Mit Lücke kostet ein Wechsel zusätzlich 0,01 s, kostenlos 0,001 s, damit nichts ohne Nutzen schaltet. Verzögert das Auto ohnehin (Tempogrenze fällt), ist Schalten kostenlos. Der Plan überschreitet die Redline nicht. Die Tempogrenze kommt aus Kurven und Bremsen allein, nicht aus dem Vorlauf: Sonst pendelte der Plan (2/3/4 Durchläufe 109,12/109,34/109,12 s), jetzt sind sie identisch, und ±5 cm Linienänderung bewegen die Zeit typisch um 11 ms, höchstens 73 ms. Die Beschleunigung im Plan kommt aus einer Tabelle je Tempo-Rahmen (0,25 m/s), die eigentliche Fahrt rechnet exakt.
+
+Der Vorwärtspass folgt jetzt dem echten Tempo (auf die Tempogrenze begrenzt) statt in Bremszonen einem Phantomtempo. Die Anzeige zeigt den gerechneten Gang, `derive_gear_trace` ist entfallen; die Spur beginnt am langsamsten Punkt mit freiem Gang, deshalb gibt es an der Naht keinen Sprung. Das frühere Bremspunkt-Kriterium der Anzeige (Rückwärts unter Vorwärts) bleibt gültig. In Bremszonen schaltet der Plan spät, das kostet nichts, sieht in der Drehzahlkurve aber tiefer aus, als ein Fahrer es zeigen würde (etwa 3→2 erst bei 31 km/h).
+
+Vorher/nachher, Editor-Ausgangslinie Winter: 109,68 → **109,36 s**, 31 → **12 Schaltungen**, Gang 1 253 → **0 m**, maximale Drehzahl 7596 → 7500 U/min. Alternierende Linie neu optimiert: Winter 109,19 → 108,61 s, NS-R2 108,23 → 107,82 s. Editor: NS-R2 108,22 s, Literatur 99,14 s (auf der für Winter gebauten Ausgangslinie etwas langsamer als vorher mit 98,90 s, bei 19 Schaltungen), natürliches Gasmodell Winter 109,81 s. Eine Runde rechnet rund 120 ms, natürlich rund 300 ms, Ziehen im Browser 117 ms. Geprüft im Browser: Laden, Fahrzeugwechsel, Gasmodell, Ziehen und Zurücksetzen ohne Fehler.
+
+Zerlegung neu auf der alternierenden Linie (gleiche Schrittfolge wie oben): Literatur 98,37 s, wahres Tempo +0,44 s, Schaltlücken +0,27 s, Quergrenze +7,68 s, Antriebsgrenze +0,71 s, Bremse +1,14 s, zusammen 108,61 s. NS-R2 107,82 s, mit Quer-μ 1,0 und 1,3 sonst Log-Modell 100,65 und 92,39 s. Schaltlücken ATTACK 108,43 s, Median unter Last 108,80 s: Mit dem Plan macht die Schaltzeit nur noch rund 0,4 s aus.
+
+Offen: Ausgangslinie im Editor 109,36 s gegen 108,61 s für die neu gerasterte Linie (Randabstand, Lenkraten-Bereinigung, Raster; nicht zerlegt). Keine Prüfung gegen eine echte Runde, das Fahrermodell ist ein Bestfall mit zügigen, aber in den Logs belegten Schaltlücken.
+
+### Korrektur: NS-R2-Quergrenze 0,911 g, Winterreifen raus aus der Streckensimulation (2026-11-07)
+
+Nutzerhinweis: Die NS-R2-Werte in den Logs waren die Haftabrissgrenze, und die lag deutlich über 0,82 g. Zutreffend: Das Kriterium „1 s gehalten“ misst Dauerlast. Am Abriss bricht die Querbeschleunigung zusammen, sie lässt sich nicht eine Sekunde halten.
+
+Nachgeprüft:
+
+- Die stärksten NS-R2-Kurven laut Kurvenauswertung (bis 1,15 g) sind einzelne 100-Hz-Werte. Kurvenauswertung und `corner_peak_best.json` führen dabei noch die alten Namen der am 26.09. umbenannten Logs (`candump-2026-09-20_002313` = `…26_130440`, `004532` = `…26_135855`, `010853` = `…26_142216`, `020042` = `…26_154000`), für die neuen Namen fehlt die Kurvenauswertung. Nicht behoben.
+- Rohsignal je Ereignis ab 0,9 g Spitze (15 Kurven): über 0,2 s gemittelt 0,67–0,94 g, über 0,5 s 0,60–0,91 g. Höchster Wert 15.09. (`171047`, t = 1880 s, 117 km/h): 0,94 / 0,91 / 0,89 g für 0,2/0,5/1 s, Gierrate·v 0,98 g, kein Eingriff, Gierrate passt zum Lenkwinkel (Haften). 01.10. t = 94,6 s: Leistungsübersteuern (Gierrate 19 Grad/s über dem Lenkmodell, APP 90 %, DSC und TCS aktiv) bei 0,87 g (0,2 s). Weitere TCS-/DSC-Ereignisse am Kurvenausgang unter Gas bei 0,82–0,92 g (0,2 s): kombinierte Grenze der Hinterachse.
+- Handy-Logs: Die Gyro-Werte widersprechen dem GPS-Kurs (A111 27.08.: Gyro im Mittel 0,85 g über 7 s, früher 1,21 g über 4 s; GPS-Kursrate·v 0,54 g. 26.08. `154244`: Gyro 1,02 g, GPS 0,62 g). Der Halter-Fehler ist bekannt, die Handy-Werte gehen deshalb nicht ein. Der ESP-Fall 09.09. (`170146`, 1,14/1,02 g) stammt ebenfalls aus dem Handy-Gyro.
+
+**Neu:** Quergrenze = höchstes 0,5-s-Mittel des CAN-Sensors über alle NS-R2-Logs: **0,911 g** (bisher 0,819 g). Ellipse: 0,027 % der Punkte außerhalb, TCS-Eingriffe Ellipsenwert p50 0,52, p90 0,95. Bremsen bleibt `BRAKE_CAP_G` im wahren Rahmen (0,740 g); das Plateau 0,81 g über 1,5 s am 01.10. (ABS) passt nicht zur Regel „Mittel des Ereignisses“, unverändert gelassen.
+
+**Fehler von mir, behoben:** Ich hatte „Winter“ zum Standard-Fahrzeugmodell gemacht und Winter-Rundenzeiten gerechnet, entgegen der Nutzerregel vom 01.10. (keine Rundenzeit-, Ideallinien- oder Grip-Rechnungen mit den Winterreifen, im Logbuch und im Reifen-Memory). `mx5_vehicle_model.py` rechnet nur noch NS-R2, Editor und Skripte bieten Winter nicht mehr an. Die Winter-Zahlen der Abschnitte oben sind ungültig. Die Schaltlücken kommen weiter aus allen Logs (fahrerabhängig, so in der Regel vorgesehen).
+
+**Ergebnis NS-R2:** alternierende Linie 103,71 s (Winter-Stand vorher 108,61 s, NS-R2 mit 0,82 g 107,82 s), Kurven nacheinander 104,85 s, Mittellinie (Einfach-Löser) 112,24 s, Editor-Ausgangslinie 104,39 s (Literatur 99,11 s), 11 Schaltungen, höchstens 7484 U/min, Querbeschleunigung höchstens 0,911 g. Zerlegung: Literatur μ=1,0 98,34 s; wahres Tempo +0,47, Schaltlücken +0,29, Quergrenze +3,37, Antrieb +0,56, Bremse +0,69 s. Empfindlichkeit Quer-μ 1,0 / 1,1 / 1,3 (Rest aus Logs): 100,62 / 97,48 / 92,42 s.
+
+### Drehzahl-Limiter in der Rundensimulation, Gangplan mit Pareto-Front (2026-11-08)
+
+Nutzerwunsch: die beobachtete Begrenzung über ~7000/min mitsimulieren. Messung und Werte: `logs/can-bus-status.md`,
+„Limiter-Schwellen über alle Logs“. Umsetzung: `limiter_factor(rpm, gear)` in `spreewaldring_lap_simulation.py`
+als `bias` auf die Antriebskraft in `accel_true()`, daran hängen Gangplan, Vorwärtsschritt, stehender Start und der
+einfache Löser. `performance_simulation.py` und die validierten Fahrleistungsmodelle bleiben unverändert.
+
+**Dabei gefunden, Gangplan:** `plan_gears()` behielt je Punkt und Gang nur die früheste Ankunft. Mit dem Limiter blieb
+die Simulation auf der Geraden im 3. Gang bei 137 km/h hängen (7322/min, ~24 % Moment, 130 m lang, 103,87 s): Im 4.
+Gang kam immer die gerade erst geschaltete Variante knapp am frühesten an, die früher geschaltete und schon
+schnellere fiel raus. Jetzt bleibt je Punkt und Gang die Pareto-Front aus Zeit und Tempo. Laufzeit 0,08 → 0,18 s.
+Ohne Limiter ergibt der neue Plan dieselben 103,71 s wie vorher.
+
+**Dabei gefunden, einfacher Löser:** `accel_envelope()` (Mittellinie, `simulate_lap`) nahm das Maximum über alle Gänge
+ohne Redline-Ausschluss. `torque_nm()` läuft über 7500/min flach weiter: Gang 1 lieferte bei 120 km/h (16 000/min)
+4,5 m/s² statt nichts. Der Limiter-Faktor schneidet das ab. Mittellinie gemessen NS-R2 112,24 → 114,75 s, die alten
+Mittellinien-Zeiten waren zu schnell.
+
+**Ergebnis NS-R2:** alternierende Linie 103,71 → 103,76 s (3→4 jetzt bei 6379/min in einem Knick statt bei 7436/min,
+2→3 bei 7340-7417/min, im 2. Gang höchstens 7477/min wie in den echten Zügen), Kurven nacheinander 104,85 → 104,88 s,
+Referenzlinie natürliches Gas 105,13 → 105,16 s, Editor-Ausgangslinie 104,39 → 104,35 s (Literatur 99,11 → 99,16 s).
+Der Limiter kostet auf dieser Strecke also kaum Zeit, weil er nur die Schaltpunkte nach vorn schiebt.
+
+### Motorlast, Drosselklappe und Gaspedal aus dem simulierten Tempoverlauf (2026-11-08)
+
+Nutzerfrage: Rechnet die Simulation ohne Motorlast, warum nutzen wir das Teillastkennfeld nicht? Die Rundensimulation
+sucht die schnellste Runde: Gas ist dort Folge des Tempoverlaufs, keine Eingabe. Das Kennfeld (Drosselklappe →
+Moment) gehört deshalb rückwärts hinein; für die Rundenzeit selbst braucht es das nicht.
+
+**Umsetzung (`spreewaldring_lap_simulation.py`, `throttle_trace()`/`engine_controls()`):**
+- Nötige Radkraft je Punkt = umgekehrtes `accel()`: Masse mit Motor-Drehträgheit × Beschleunigung aus v(s) + Luft +
+  Rollen, im `VehicleSpeed`-Rahmen. Geteilt durch die Volllast-Radkraft = Anteil am Volllastmoment.
+- Motorlast in der 0x167-Skala = Anteil × Kennfeld bei voller Drosselklappe (je Drehzahl 78-93 %, so liest 0x167 bei
+  Vollgas). Drosselklappe = Kennfeld rückwärts, als TP-% wie im Dash. Pedal aus Drosselklappe × Drehzahl.
+- Vollgas, wo die Simulation so stark beschleunigt wie der Motor kann (`accel_true`, mit Limiter und
+  Traktionsgrenze): Pedal 100. Im Limiter fällt die Last, die Klappe schließt (TP < 90), das Pedal bleibt bei 100,
+  wie im Auto, und der Dash-Schaltblitz blinkt blau. Schub und Bremsen: 0 (0x167 liest dort leicht negativ).
+- Tabellen rechnet `mx5_vehicle_model.py` in `results/mx5_vehicle_model.json` (`throttle`): Kennfeld aus
+  `partial_load_model.py` (LOO 6,8 pp, 124 Logs) und Pedal als Median je (Drosselklappe, Drehzahl) aus 51 CAN-Fahrten,
+  Pedal ≥ 2 % und ruhig. Beide werden über der Drosselklappe monoton gemacht (dünne Bins, Nearest-Neighbor-Ränder:
+  bei 7000/min und wenig Klappe stand sonst Pedal 100).
+- **Verworfen:** Kennfeld direkt über dem Pedal (`partial_load_model.load_fit_points(x_channel="APP")`, neu):
+  LOO 12,2 pp statt 6,8, und bei Pedal 0 und 4000-5000/min 43-62 % Moment. Das ist der Tempomat (Pedal 0, Klappe
+  offen), den der Datalake nicht als Kanal hat.
+- Pedal × Drosselklappe streut bei 50-80 % Pedal stark (IQR bis 45°, wenig Daten). Das Pedal ist deshalb eine
+  Anzeige, keine Messgröße.
+
+**Ergebnis alternierende Linie NS-R2:** 46 % der Punkte Vollgas, 35 % Pedal 0, 19 % Teilgas (Kurvenausgänge, wo die
+Grip-Ellipse begrenzt: z. B. 58 km/h im 2., Pedal 20 %, Last 49 %). Rechenzeit 10 ms je Runde. Editor (Anzeige,
+Export, stehender Start) und Dash zeigen jetzt dieses Pedal; Motorlast und Drosselklappe gehen mit ans Dash
+(`can_backend.py` `EDITOR_FEED_KEYS`). Die Rundenzeiten ändern sich nicht.
+
+### Kupplung in der Simulation (2026-11-08)
+
+Nutzerwunsch: die Kupplung mitsimulieren. Die Rundenzeit rechnet schon mit der Zugkraftlücke je Schaltung (p10 unter
+Last, `shift_gaps`); das Pedal selbst fehlte. Jetzt: gemessene Pedalverläufe aus den CAN-Logs (`CPP_PER_MZ` = 0x130 roh
+× 0,5), Median je Art, in `mx5_vehicle_model.py` (`clutch_profiles()`, JSON-Abschnitt `clutch`).
+
+| Art | Grundlage | Verlauf (Median) |
+|---|---|---|
+| Hochschalten | 114 zügige Schaltungen unter Last (unteres Viertel der Lücke), an Lückenbeginn/-ende ausgerichtet | 0,15 s vor der Lücke runter, bei Beginn 66 %, nach 0,1 s ~95 %; bei Lückenende 56 %, dann 38/28/20/13 % in 0,1-s-Schritten, nach ~0,6 s oben |
+| Zurückschalten, ein Gang (> 30 km/h) | 251 | in 0,2 s auf 99 %, dann ~0,6 s bei 45-50 % (Zwischengas), nach ~1,5 s oben |
+| Mehrere Gänge zugleich | 318 | ~0,4 s länger voll, sonst wie oben, nach ~2 s oben |
+| Anfahren | 118 Alltagsanfahrten | ab ~56 % ausschleifen, Kupplung zu bei 17 km/h (2300/min) |
+
+Die Kupplung schleift beim Hochschalten nach der Zugkraftlücke noch ~0,6 s und überträgt dabei schon Moment, deshalb
+ist die Kupplungsphase (Median 0,49 s, unter Last oft > 1 s) länger als die Lücke (0,30-0,60 s).
+
+**In der Simulation:** `simulate_lap_full()` gibt `shift_events` aus (Beginn, Lücke, von, nach, aus dem Gangplan der
+letzten Vorwärtsfahrt). `clutch_trace()` legt die Verläufe im 0,05-s-Raster darauf: mit Lücke der Hochschalt-Verlauf
+um die Lücke, ohne Lücke (Wechsel beim Bremsen, auch die seltenen kostenlosen Hochschaltungen dort) der
+Zurückschalt-Verlauf, über den Rundenanfang hinweg. Der stehende Start im Editor nimmt den Anfahr-Verlauf (bis
+17 km/h) und die Schaltungen des Sprints. Vor dem ersten Play steht die Kupplung auf 100 % (Auto steht eingelegt).
+Alternierende Linie: 9 Schaltungen je Runde, Kupplung ~11 % der Zeit getreten. Nur Anzeige (Editor-Balken, Dash
+über `Clutch_Pedal_Position_raw`, färbt dort die Ganganzeige); die Rundenzeit rechnet weiter nur mit der Lücke.
+Grenzen: Alltagsfahrten, kein Rennstrecken-Schalten; das Anfahren ist für einen Vollgasstart nur eine Näherung.
+
+### Umsetzen und enge Kehren: Prüfung gegen die Logs (2026-11-08)
+
+Nutzerfrage: Wie bringen wir dem Modell das Umsetzen der Karosserie bei (offener Punkt „enge V-Linie in Kehren“)?
+Anlass: Die Nutzerlinie (Editor-Edits, 102,94 s statt 104,35 s) gewinnt in 16 von 20 Abschnitten 0,02-0,24 s, also
+keine einzelne Modelllücke; eine direkte Rundenzeit-Optimierung soll folgen.
+
+**Umsetzen (NS-R2-CAN-Logs, 0,5-s-Mittel, über 30 km/h):** Querruck höchstens 1,8-2,7 g/s je Fahrt, p99,9 0,72 g/s;
+Gierbeschleunigung (`YawRate_CAN`) höchstens 108 °/s², p99,9 38 °/s². Die Simulation verlangt auf beiden Linien
+höchstens 2,2 g/s (Ausgangslinie) bzw. 2,1 g/s und 60 °/s², am meisten in der Kehre um Index 595 (R 17 m, 40 km/h)
+und bei Index 659. Eine Umsetz-Grenze in Höhe des Gezeigten griffe also kaum; mit Alltagsniveau (p99,9) an ~2 % der Runde.
+
+**Grip gegen Radius** (R = v/Gierrate, Querbeschl. 0,5-s-Mittel): höchstens 0,76 g (R < 12 m), 0,81-0,82 g (12-25 m),
+0,75-0,82 g (25-75 m), 0,89-0,90 g (75-160 m). Oberhalb 0,7 g gibt es in engen Kurven nur wenige Fahrten (2-7 je
+Bereich): Alltagsfahrten, die Werte sind Gezeigtes, keine Grenze. **Grenzanzeiger Lenkmodell** (Gierrate gemessen /
+aus Lenkwinkel und Tempo vorhergesagt): bei R < 25 m 0,92-1,04 bis 0,8 g, das Auto folgt dem Lenkrad, die
+Vorderachse schiebt nicht. Bei großen Radien fällt das Verhältnis mit der Querbeschleunigung (0,64-0,75); das ist
+das normale Untersteuern bei Tempo, das das kinematische Lenkmodell nicht enthält, kein Grenzzeichen.
+Die zwei stärksten Fälle in engen Kurven (0,81/0,82 g) sind Leistungsübersteuern mit TCS/DSC (Verhältnis 1,34/2,69):
+01.10. `142300` t = 94,75 s (1. Gang, TCS ab Ellipsenwert ~1,0, also wie im Modell), 26.09. `154000` t = 1043,35 s
+(2. Gang, APP ~50 %, TCS schon ab Ellipsenwert 0,5-0,7).
+
+**Folgerung:** Kein Beleg für weniger Quergrip in engen Kurven und keine Umsetz-Forderung über dem Gezeigten. Die
+V-Linie ist mit den Daten weder widerlegt noch bestätigt; eine radiusabhängige Grip-Grenze wäre geraten. Klären
+würden es nur Daten am Limit in engen Kurven (Strecke oder abgesperrte Fläche). Für die geplante
+Rundenzeit-Optimierung bleibt das Modell, mit Querruck ≤ 2,7 g/s und Gierbeschleunigung ≤ 108 °/s² als Leitplanke
+(das Gezeigte), damit sie keine Übergänge erfindet, die das Auto nie gefahren ist.
+
+### Ideallinie direkt auf die Rundenzeit optimiert (2026-11-08)
+
+Nutzerwunsch: eine schnellere Linie als die eigene Editor-Linie (Edits-Liste vom 08.11., lokal
+`data/track/spreewaldring_nutzerlinie_2026-11-08.json`, 102,94 s; Editor-Ausgangslinie 104,35 s). Streckenrand laut
+Nutzer wie bisher (weiße Linie, keine Curbs; später, falls Curbs ins Modell kommen: zwei Räder drauf).
+
+Neues Skript `scripts/spreewaldring_lap_time_optimizer.py`: Linie = Startlinie + periodischer kubischer Spline durch
+Querversätze an 208 Stützpunkten (alle 4 Punkte, ~12 m). Koordinatenabstieg mit Schritten 0,4/0,2/0,1/0,05 m, je
+Stützpunkt +/−, nur Verbesserungen > 0,1 ms bleiben. Grenzen: Korridor mit 0,10 m Puffer, Lenkrate ≤ 240 °/s,
+Querruck ≤ 2,7 g/s und Gierbeschleunigung ≤ 108 °/s² (0,5-s-Mittel, höchste Werte der NS-R2-Fahrten, siehe
+„Umsetzen und enge Kehren“). 0,17 s je Rundenrechnung, 6453 Rechnungen, 18 min.
+
+**Ergebnis:** 102,94 → 101,28 s (−1,66 s), im Editor nachgerechnet 101,32 s. Die 0,04 s Unterschied: der Optimierer
+erzeugt 10 statt 4 Einzelpunkt-Knicke im Radius, die der Editor (`smooth_single_point_notches`) glättet; ehrlich
+sind 101,32 s. Der letzte Durchgang brachte noch 0,012 s, ausgereizt ist es nicht.
+- Gewinn über fast alle Abschnitte, am meisten um die enge Kehre (Index 582-707: −0,62 s). Dort fährt die neue
+  Linie mit höherem Mindesttempo (35,1 statt 32,9 km/h), also runder, nicht eckiger. Größter Versatz zur
+  Nutzerlinie 1,6 m.
+- Grenzen: Querruck 2,59 g/s (nahe der Leitplanke), Gierbeschl. 66 °/s², Lenkrate 113 °/s. Lenkweg kleiner
+  (2289 statt 2435 Grad), Lenkumkehrungen ähnlich (108 statt 100).
+- Leichte Welle zwischen Index 655 und 675 im Linienbild, passt zu den Radius-Knicken.
+
+**Editor-Import:** Fixpunkte nur an den Stützpunkten taugen nicht (der Editor glättet dazwischen anders: bis 0,84 m,
+103,13 statt 102,94 s an der unveränderten Startlinie). Harte Fixpunkte an allen 832 Punkten geben exakt dieselbe
+Linie (Abweichung 0), eine Neuberechnung dauert dann ~6 s. Datei:
+`results/spreewaldring_lap_time_optimizer_editor_import.json`. Weiter bearbeiten lässt sie sich so kaum (alle
+Punkte hart). Bleibt offen: Knick-Grenze in den Optimierer, kleinere Schritte, anderer Startpunkt (Ausgangslinie)
+gegen lokale Optima.

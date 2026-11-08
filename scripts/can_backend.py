@@ -62,6 +62,19 @@ DBC_CANDIDATES = [
 ]
 UDP_PORT = int(os.environ.get("MX5_DASH_UDP_PORT", "51234"))
 PUBLISH_HZ = 50
+# Editor-Simulation (07.11.2026): spreewaldring_racing_line_editor.py schickt beim Abspielen die
+# angezeigten Werte per UDP aus dem LAN. Solange sie frisch sind, besteht der Snapshot NUR aus ihnen,
+# alles nicht Simulierte zeigt das Dash leer. Mit echtem can0 (im Auto) wird nichts angenommen.
+EDITOR_FEED_PORT = int(os.environ.get("MX5_EDITOR_FEED_PORT", "51235"))
+EDITOR_FEED_STALE_S = 1.0
+EDITOR_FEED_KEYS = {
+    "speed_kmh": "514:VehicleSpeed", "rpm": "514:EngineRPM", "gear": "253:MT_Gear_Actual",
+    "throttle_pct": "514:APP_Accelerator_Pedal_Position", "brake_pct": "120:_BrakePedalPercent_derived",
+    "steer_deg": "130:Steering_Wheel_Absolute_Angle",  # Lenkrad, links positiv
+    # seit 08.11.: aus dem Tempoverlauf rueckgerechnet (Teillastkennfeld); TP < 90 bei Pedal 100 = Limiter-Blitz
+    "load_pct": "359:ActualEnginePercentTorque", "tp_pct": "2024:_ThrottlePosition_pct_derived",
+    "clutch_raw": "304:Clutch_Pedal_Position_raw",  # gemessener Pedalverlauf je Schaltung, 199 = 100 %
+}
 
 # Gleiche kuratierte Signalliste wie bisher status_gui.py LIVE_SIGNALS - Checkliste/
 # Statusbildschirm braucht sie unveraendert, siehe dash_gui.py.
@@ -523,15 +536,56 @@ class CanBackend:
         # Arbeit - werden deshalb nur 1x/s in run_process_watch() aktualisiert statt
         # bei jedem snapshot()-Aufruf neu erhoben.
         self._proc_state = {"can_up": False, "logging": False, "session_logger_running": False}
+        self._editor = None  # (Empfang monoton, {Snapshot-Schluessel: Wert}, Rundenzeit, VMAX)
+
+    def editor_feed(self, msg, now=None):
+        """Eine Nachricht vom Editor uebernehmen. Nur bekannte Groessen als endliche Zahlen."""
+        now = time.monotonic() if now is None else now
+        if not isinstance(msg, dict) or can0_up(self.channel):
+            return
+        values = {}
+        for name, key in EDITOR_FEED_KEYS.items():
+            v = msg.get(name)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+                values[key] = float(v)
+        if "120:_BrakePedalPercent_derived" in values:  # Bremslicht folgt der simulierten Bremse
+            values["359:BrakeSwitch_PCM"] = int(values["120:_BrakePedalPercent_derived"] > 0)
+        lap_t = msg.get("lap_t")
+        lap_t = float(lap_t) if isinstance(lap_t, (int, float)) and math.isfinite(lap_t) else None
+        prev = self._editor
+        vmax = prev[3] if prev and now - prev[0] <= EDITOR_FEED_STALE_S else 0.0
+        self._editor = (now, values, lap_t, max(vmax, values.get("514:VehicleSpeed", 0.0)))
+
+    def _editor_snapshot(self, now_mono):
+        received, values, lap_t, vmax = self._editor
+        return {
+            "t": time.time(), "t_mono": now_mono, "clock": "monotonic", "source": "editor",
+            "values": {k: (v, received) for k, v in values.items()},
+            "error": None, "dbc_ok": self.db is not None, "frames_per_sec": 0,
+            "session_max_speed": round(vmax, 1), "logging_since": None, "logging_elapsed": lap_t,
+            "fuel_liters": None, "can_up": True, "logging": True, "session_logger_running": True,
+        }
+
+    def run_editor_feed(self, port=EDITOR_FEED_PORT):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", port))
+        while True:
+            data, _ = sock.recvfrom(4096)
+            try:
+                self.editor_feed(json.loads(data))
+            except (ValueError, RecursionError):
+                pass
 
     def _set(self, can_id, signal, value, ts):
         with self._lock:
             self._values[f"{can_id}:{signal}"] = (value, ts)
 
     def snapshot(self):
+        now_mono = time.monotonic()
+        if self._editor and now_mono - self._editor[0] <= EDITOR_FEED_STALE_S:
+            return self._editor_snapshot(now_mono)
         with self._lock:
             values = dict(self._values)
-        now_mono = time.monotonic()
         since_mono = self._logging_since_mono
         return {
             "t": time.time(),
@@ -779,5 +833,6 @@ if __name__ == "__main__":
     threading.Thread(target=backend.run_process_watch, daemon=True).start()
     threading.Thread(target=backend.run_publisher, daemon=True).start()
     threading.Thread(target=backend.run_health_log, daemon=True).start()
+    threading.Thread(target=backend.run_editor_feed, daemon=True).start()
     print(f"{time.strftime('%F %T')} can_backend.py gestartet (Kanal {backend.channel})", flush=True)
     backend.run_decode_loop()

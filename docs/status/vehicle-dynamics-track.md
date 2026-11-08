@@ -50,20 +50,82 @@ die streckenbezogenen Themen.
   Gefällekorrektur **0,170 m/s²** (73 von 94 Top-Speed-Segmenten mit
   vertrauenswürdiger Korrektur, Bayern ausgeschlossen), ~5 % besser als ohne
   Korrektur.
-- Spreewaldring selbst liegt außerhalb der Brandenburg-DGM-Kernabdeckung
-  (E~409,8/N~5761,6km) - für die Rundenzeit-Simulation liegen **keine
-  Höhendaten** vor (bekannte, nicht behobene Einschränkung).
+- Spreewaldring: seit 07.11.2026 Kachel `409_5761` aus DGM-XYZ da (ALS liefert dort 404), deckt die
+  ganze Mittellinie ab. Die Strecke ist fast eben: 1,4 m Höhenspanne, Steigung |p95| 0,65 %, örtlich
+  bis +2,0 % (je über 30 m geglättet). Die Rundenzeit-Simulation rechnet weiterhin ohne Steigung. Nicht
+  gegen eine eigene Fahrt geprüft. Siehe Logbuch „Spreewaldring: Höhendaten nachgeladen“.
 
 ## Spreewaldring Racing-Line & Rundenzeit
 
+- **Streckenmodell (NEU 07.11.2026, `scripts/spreewaldring_track_model.py`):** weiße Randlinie aus dem Orthofoto
+  verfolgt (Karten aus PhotoCraft, Viterbi über die ganze Runde), dazu Höhe je Querschnitt aus dem DGM. Ergebnis
+  `results/spreewaldring_track_model.{json,csv}`, 1-m-Schritte, Hauptschleife 2494,7 m (3D 2494,8 m). Breite von
+  Linienmitte zu Linienmitte 8,88 m (p5 8,71, p95 9,10), Linie selbst rund 0,5 m, außen also rund 9,4 m. Linie
+  gesehen links 98 %, rechts 97 %, sonst überbrückt und markiert (Einmündungen). Prüfung: Rand auf dem geraden Stück
+  Streuung 0,05–0,11 m (Altstand 0,27–0,61 m). Innen- und Außenrand unterscheiden sich in den Kurven wie erwartet um
+  die Breite. Das DGM zeigt rund 2–2,5 % Querneigung, in Kurven nach innen. **Die alten Radien waren oft zu klein**
+  (s = 330 m: 34 statt 24 m), Rundenzeit mit gleicher Physik μ=1,0 107,21 → 102,81 s, μ=1,3 96,41 → 92,38 s. Die
+  Rundenzeit-Simulation `spreewaldring_lap_simulation.py` rechnet seit 07.11. auf diesem Modell (noch in der Ebene,
+  ohne Steigung und Querneigung), siehe Tabelle im nächsten Punkt. Ideallinien-Skripte und Editor seit 07.11. ebenfalls,
+  Tabelle im übernächsten Punkt, die Zeiten weiter unten sind Altstand. `spreewaldring_track_surface.py` bleibt nur
+  Führungslinie für die Randverfolgung. Nutzerskizze
+  (Boxengasse, Boxenausfahrt) dient als Korridor: Die Boxengasse läuft jetzt vom Mauerfuß (Schatten gehört zur Fahrbahn)
+  bis zur Markierung vor dem Zelt, 7,2–8,3 m in den Abschnitten an der Mauer, sonst rund 5–5,8 m. Nicht gegen eine eigene Fahrt geprüft. Logbuch: „Spreewaldring:
+  Streckenmodell aus Orthofoto und DGM“.
+- **Fahrzeugmodell aus den Logs in der Streckensimulation (07.11.2026, `scripts/mx5_vehicle_model.py`,
+  `results/mx5_vehicle_model.json`), nur NS-R2:** Winterreifen sind laut Nutzer ausdrücklich ausgenommen (keine
+  Rundenzeit-, Ideallinien- oder Grip-Rechnungen, Regel vom 01.10.). Grip-Ellipse: quer **0,911 g** (höchstes
+  0,5-s-Mittel des CAN-Sensors, 15.09. bei 115 km/h; am Haftabriss bricht die Querbeschleunigung ein, deshalb kein
+  „gehalten“), bremsen 0,74 g (`BRAKE_CAP_G`, ABS), Antrieb 0,57 g (Traktionsgrenze). Zugkraftlücken aus den Logs
+  0,30/0,30/0,45/0,60/0,40 s statt ATTACK 0,15–0,25 s. Wahres Tempo: Fahrzeugmodell in `VehicleSpeed`, Strecke in
+  Metern, v und a werden mit 0,971 umgerechnet, die Parameter bleiben (offener Punkt 9 in `performance-model.md`).
+  Rundenzeit auf der alternierenden Linie **103,76 s** (ohne Drehzahl-Limiter 103,71 s) statt Literatur μ=1,0 98,34 s; davon Quergrenze +3,4 s, Bremse
+  +0,7 s, Antrieb +0,6 s, wahres Tempo +0,5 s, Schaltlücken +0,3 s. Mit Quer-μ 1,0/1,1/1,3 sonst gleich: 100,6/97,5/92,4 s.
+  Gemessen ist die höchste erreichte Grenze, keine gezielte Grenzfahrt. Das Skript läuft nicht in der Tagespipeline.
+  Steigung und Querneigung gehen nicht ein. Editor-Ausgangslinie (alternierende Linie): NS-R2 104,35 s, Literatur
+  99,16 s. **Gangplan für die ganze Runde (`plan_gears`):** wägt jede Schaltung gegen ihre Lücke ab, in Bremszonen
+  kostet Schalten nichts, je Punkt und Gang bleibt die Pareto-Front aus Zeit und Tempo (seit 08.11.); die Anzeige zeigt
+  den gerechneten Gang. **ECU-Soft-Limiter (08.11.):** ab Gang 1–4 7303/7377/7146/7194 U/min (Gang 5/6 wie 4,
+  ohne Daten) fällt das Moment linear auf 0, über 30 U/min (Gang 1/2) bzw. 230 U/min (Gang 3–6), aus 32 Eingriffen in
+  68 Vollgaszügen (`ecu_limiter_events.py`). Kostet auf der alternierenden Linie 0,05 s: der Plan schaltet 3→4 früher.
+  Im 2. Gang kommt die Simulation wie die echten Züge bis ~7480 U/min. **Motorlast, Drosselklappe, Gaspedal (08.11.):**
+  `throttle_trace()` rechnet sie rückwärts aus dem simulierten Tempo (umgekehrtes `accel()`, dann Teillastkennfeld
+  ETC → Moment rückwärts, Pedal aus gemessenem ETC × Drehzahl). Vollgas = Simulation beschleunigt so stark wie der
+  Motor kann (Last 78-93 % wie 0x167, TP 90 %); im Limiter schließt die Klappe bei Pedal 100. Alternierende Linie:
+  46 % der Punkte Vollgas, 35 % Pedal 0, 19 % Teilgas. Editor und Dash zeigen dieses Pedal statt 100/0/Anteil;
+  Rundenzeit unverändert (reine Rückrechnung). **Kupplung (08.11.):** gemessene Pedalverläufe (`mx5_vehicle_model.py`
+  „clutch“) zeitgenau auf jede Schaltung der Simulation (`shift_events`, `clutch_trace()`): Hochschalten um die
+  Zugkraftlücke (114 zügige Schaltungen unter Last), Zurückschalten beim Bremsen (251 einzeln, 318 mehrere Gänge),
+  Anfahren im stehenden Start (118, endet bei 17 km/h). Nur Anzeige, die Rundenzeit rechnet weiter mit der Lücke. Offen: In
+  Kehren entsteht eine enge V-Linie, das Modell kennt keine Übergänge. Geprüft 08.11.: Die Linien verlangen beim Umsetzen
+  nicht mehr als in den Logs gezeigt (Querruck ≤ 2,2 g/s, Gierbeschl. ≤ 60 °/s²), und in engen Kurven gibt es keinen
+  Beleg für weniger Quergrip (folgt dem Lenkrad bis 0,82 g). Eine Grenze dafür bräuchte Daten am Limit.
+- **Rundenzeit-Optimierung (08.11., `spreewaldring_lap_time_optimizer.py`):** minimiert die Rundenzeit von
+  `simulate_lap_full()` direkt (Koordinatenabstieg über Querversätze alle ~12 m, periodischer Spline), Start = Nutzerlinie
+  aus dem Editor (102,94 s). Grenzen: Korridor wie im Editor (weiße Linie, keine Curbs, Nutzerentscheid), Lenkrate ≤ 240 °/s,
+  Querruck ≤ 2,7 g/s, Gierbeschleunigung ≤ 108 °/s² (in den Logs gezeigt). Ergebnis **101,32 s** im Editor nachgerechnet
+  (Optimierer 101,28 s, 0,04 s davon Radius-Knicke, die der Editor glättet); Ausgangslinie 104,35 s. Import in den Editor:
+  `results/spreewaldring_lap_time_optimizer_editor_import.json` (harte Fixpunkte an allen 832 Punkten).
+- **Mittellinie, einfacher Löser, gemessen NS-R2 (08.11.): 114,75 s statt 112,24 s.** `accel_envelope()` nahm das Maximum
+  über alle Gänge ohne Redline-Ausschluss, das Kennfeld läuft über 7500 flach weiter: Gang 1 lieferte bei 120 km/h
+  (16 000 U/min) 4,5 m/s². Der Limiter-Faktor schneidet das jetzt ab, die alten Mittellinien-Zeiten unten waren zu schnell.
+- **Rundenzeiten auf der Mittellinie des Modells (07.11.2026, gleiche Physik, alte Linie → neu):** μ=1,0 107,21 → 102,81 s,
+  μ=1,3 96,41 → 92,38 s, μ=1,0 Kraftkreis 111,21 → 105,61 s, μ=1,3 Kraftkreis 99,54 → 94,44 s, gemessener Kraftkreis
+  105,62 → 100,47 s. Das sind Mittellinie und Hotlap-Modell, keine gemessene Runde.
+- **Ideallinien auf dem Modell (07.11.2026, gleiche heutige Physik, alte Geometrie → Modell):** Krümmungsminimierung
+  μ=1,0 96,93 → 97,31 s, μ=1,3 87,54 → 87,81 s; alternierend 92,72 → 92,48 s, 83,53 → 83,43 s; Kurven nacheinander
+  93,45 → 94,03 s, 84,26 → 84,64 s; Editor-Ausgangslinie 99,51 → 100,40 s (alles noch mit Literatur-μ). Die Ideallinie hing kaum an der wackelnden
+  Mittellinie. Der Korridor ist aber schmaler (Maximum 14,4 → 8,9 m für den Fahrzeugmittelpunkt): Einmündungen zählen nicht mehr als
+  Fahrbahnaufweitung. `spreewaldring_racing_line_search.py` ist veraltet und bricht an der eigenen Portprüfung ab,
+  das tat es schon vor der Umstellung (1,14 s).
 - **Streckengeometrie:** vollständig aus OSM rekonstruiert (way `172927073`,
   Knoten 3 bis 94, die dieselben OSM-Punkte sind - Runde schließt sich in den
   Rohdaten selbst, **keine erfundene Schließgerade mehr nötig**). Siehe
   "Spreewaldring Training Center - Streckenrekonstruktion aus OSM (NEU,
   30.08.2026)". Länge OSM-roh 2488,3 m.
 - **Orthofoto-Verfeinerung** (LGB-Orthofoto, 20 cm Bodenauflösung) + Savitzky-
-  Golay-Glättung (90 m Fenster) der Mittellinie: Länge **2529,5 m**, 13 Kurven,
-  Radien 11–73 m. Siehe "Orthofoto-Verfeinerung der Streckengeometrie (NEU,
+  Golay-Glättung (90 m Fenster) der Mittellinie: Länge **2489,9 m** (die früher hier
+  genannten 2529,5 m, 13 Kurven waren der Stand vor der Glättung), 12 Kurven, Radien 11–72 m. Siehe "Orthofoto-Verfeinerung der Streckengeometrie (NEU,
   30.08.2026)".
 - **Fahrbahn als Fläche statt Mittellinie** (Sättigungsschwelle statt
   Farbabstand, erfasst die weiße Randlinie korrekt mit): Hauptschleife Breite
@@ -84,9 +146,9 @@ die streckenbezogenen Themen.
   Siehe "Erste Rundenzeit-Simulation Spreewaldring", "Erster Ideallinien-Versuch
   fuer den MX-5 ND", "Alternierende Linie/Geschwindigkeits-Optimierung ..."
   (alle NEU, 30.08.2026).
-- **Interaktiver Ideallinien-Editor** (`results/spreewaldring_racing_line_editor.html`,
-  reines Client-JS, kompletter Port des Fahrzeug-/Rundenzeitmodells, kein
-  Server nötig): Lenkgeschwindigkeit ist jetzt eine echte physikalische
+- **Interaktiver Ideallinien-Editor** (`scripts/spreewaldring_racing_line_editor.py`, seit 07.11.2026 lokaler
+  Python-Dienst, http://127.0.0.1:8732/; der Browser zeichnet nur, die Rechnung ist dieselbe wie in den Skripten):
+  Lenkgeschwindigkeit ist jetzt eine echte physikalische
   Randbedingung (**max. 240°/s**, realistische Korrekturen ~70°/s). Nach drei
   verworfenen Fixpunkt-Ansätzen (Smootherstep-Kette, Hermite-Spline,
   Minimum-Krümmungs-QP - alle rein geometrisch, ignorieren Geschwindigkeit)
@@ -127,13 +189,9 @@ die streckenbezogenen Themen.
   nicht fahrbar.
 - **Bremsmodell in der Rundenzeit-Simulation** integriert (reales, nicht
   theoretisches Kraftkreis-Modell) - Details siehe Abschnitt Bremsmodell unten.
-- **Offen/bekannte Einschränkungen:** kein Gewichtstransfer, keine Aero; die
-  Editor-Simulation nutzt weiterhin einen isotropen Reifen (ein mu für Längs-
-  UND Querrichtung), obwohl der CAN-Kraftkreis-Check eine reale Asymmetrie
-  zeigt (siehe Kraftkreis-Abschnitt); Fahrzeugbreite 1,74 m und Radstand
+- **Offen/bekannte Einschränkungen:** kein Gewichtstransfer, keine Aero; Fahrzeugbreite 1,74 m und Radstand
   2,31 m sind Annahmen (Herstellerangabe bzw. Literatur, nicht G184-vermessen);
-  der separate Python-Port (`spreewaldring_racing_line_search.py`) hat die
-  Rückschalt-Logik **noch nicht** nachgezogen.
+  `spreewaldring_racing_line_search.py` hat einen eigenen, veralteten Physik-Port und läuft nicht mehr.
 
 ## Lenkwinkel/Kurvenradius/Quergrip
 
