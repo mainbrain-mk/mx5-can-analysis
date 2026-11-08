@@ -19,6 +19,8 @@ Editor-Simulation aufs Dash, `can_backend.py` lauscht zusätzlich auf UDP 51235.
 Wiedergabe am Display geprüft.
 **Nachtrag 2026-11-08 (2):** `deployed` = `731d0e8`, nur `can_backend.py` neu gestartet: Motorlast und Drosselklappe aus
 der Editor-Simulation, am Display geprüft (Teilgas 21 %/Last 28 %, VMAX = Maximum der gesendeten Werte).
+**Nachtrag 2026-11-08 (3):** `deployed` = `ddb4398`, nur `can_backend.py` neu gestartet: Kupplung aus der Editor-Simulation,
+am Display geprüft (Ganganzeige navy bei getretener Kupplung).
 
 ## Hardware
 
