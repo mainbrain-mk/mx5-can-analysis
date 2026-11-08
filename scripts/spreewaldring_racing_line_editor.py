@@ -17,6 +17,9 @@ INTERAKTION:
   - Bremszonen sind physikalisch bestimmt: Der Rueckwaertspass hat das Tempo gegenueber dem Vorwaertspass reduziert.
   - Persistenz: Die Bearbeitungsliste liegt im Browser (localStorage), die Linie wird daraus immer neu berechnet.
 
+Seit 08.11.2026 (Nutzerwunsch) mehrere Strecken: TRACKS, Auswahlfeld im Editor, je Strecke eine Seite (/?track=...)
+mit eigener Bearbeitungsliste. Eine Strecke wird erst beim ersten Aufruf geladen.
+
 Aufruf: .venv/bin/python scripts/spreewaldring_racing_line_editor.py [--port 8732]
 Dann im Browser: http://127.0.0.1:8732/
 """
@@ -27,27 +30,32 @@ import math
 import os
 import re
 import socket
+import base64
+import io
+import urllib.parse
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import numpy as np
+from PIL import Image
 
+import oschersleben_track_model as OSCHERSLEBEN
 from spreewaldring_track import RESULTS_DIR, CURVATURE_WINDOW_M, RESAMPLE_STEP_M, G, compute_curvature_radius
 from spreewaldring_track_surface import compute_tangents_closed
-from spreewaldring_racing_line import load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
+from spreewaldring_racing_line import TRACK_MODEL_PATH, load_corridor, corridor_bounds, CAR_HALF_WIDTH_M
 from spreewaldring_lap_simulation import (
     CLUTCH_TRACE_DT_S, accel_true, clutch_launch, clutch_trace, coast_true, engine_controls, launch_end_kmh,
     limiter_factor, literature_vehicle, throttle_trace,
 )
 from spreewaldring_racing_line_optimal import (
-    BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, simulate_lap_full, steer_from_radius,
+    BRAKE_CAP_G, DEFAULT_TYRE, VEHICLES, lon_avail, simulate_lap_full, steer_from_radius,
 )
 from performance_simulation import REDLINE_RPM
 
 ANIMATION_HTML_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_animation.html")
 START_LINE_SUMMARY_PATH = os.path.join(RESULTS_DIR, "spreewaldring_racing_line_optimal_summary.json")
-# Seit 08.11.2026 (Nutzerwunsch) die auf Rundenzeit optimierte Linie, falls vorhanden; schon in Editor-Reihenfolge
-OPTIMIZED_LINE_PATH = os.path.join(RESULTS_DIR, "spreewaldring_lap_time_optimizer.json")
+# Ausgangslinie seit 08.11.2026: echte Ideallinie aus racing_line_ocp.py, falls vorhanden; schon in Editor-Reihenfolge
+SPREEWALDRING_IDEAL_PATH = os.path.join(RESULTS_DIR, "spreewaldring_ideal_line.json")
 
 DEFAULT_PORT = 8732
 MAX_REQUEST_BYTES = 5_000_000
@@ -81,11 +89,25 @@ MIN_NOTCH_STEER_DEG = 0.3
 MAX_NOTCH_RADIUS_M = 400.0
 MAX_NOTCH_PASSES = 8
 STANDING_START_DT_S = 1 / 60
+# Boxenstart (Oschersleben, Nutzerwunsch 08.11.2026): in der Boxengasse Alltagsfahrt, bis zur gelben Linie hoechstens 80 km/h.
+# ponytail: Alltagswerte geschaetzt, nicht aus den Logs; hier nachstellen, falls es sich falsch anfuehlt.
+PIT_LIMIT_KMH = 80.0
+PIT_ACCEL_MS2 = 1.2
+PIT_LAT_MS2 = 2.0
+PIT_UPSHIFT_RPM = 2800.0
+PIT_KICKDOWN_MAX_RPM = 4500.0       # hinter der gelben Linie: Runterschalten nur bis zu dieser Drehzahl
+PIT_IDLE_RPM = 850.0                # Anzeige beim Anfahren, das Modell kennt keine schleifende Kupplung
+PIT_CURVATURE_WINDOW_M = 6.0
+PIT_JOIN_MAX_POINTS = 300           # so weit darf der Anschluss auf der Ideallinie dauern
+PIT_MAX_STEPS = 30000
 
 Track = namedtuple("Track", "center left right perp lo hi")
 
+CORNER_SPLIT_RADIUS_M = 150.0  # Oschersleben: 100-200 m ergibt dieselben 14 Kurven (7 links, 7 rechts, wie der Betreiber)
+BACKGROUND_DOWNSCALE, BACKGROUND_JPEG_QUALITY = 2, 80   # 0,4 m je Pixel, Spreewaldring-Hintergrund hat 0,36 m
 
-def load_reused_assets():
+
+def load_reused_assets(center, radius):
     """Kurvennummern + zugeschnittenes Orthofoto aus der bestehenden Animation (dort bereits verifiziert)."""
     with open(ANIMATION_HTML_PATH, encoding="utf-8") as f:
         html = f.read()
@@ -99,38 +121,115 @@ def load_reused_assets():
     }
 
 
-def load_editor_data():
-    """Strecke in lokalen Koordinaten, Index 0 an der Start-Ziel-Linie, und die Ausgangslinie."""
-    center, left, right = load_corridor()
-    tangents = compute_tangents_closed(center)
-    lo, hi, perp = corridor_bounds(center, left, right, tangents)
-    # Rueckfall ohne OPTIMIZED_LINE_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
-    # nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor.
+def corners_by_direction(center, radius):
+    """Kurve = zusammenhaengendes Stueck gleicher Richtung mit R < CORNER_SPLIT_RADIUS_M, nummeriert in Fahrtrichtung.
+    Index 0 muss auf einer Geraden liegen, Start-Ziel tut das."""
+    sign = turn_sign(center, max(1, round(CURVATURE_WINDOW_M / RESAMPLE_STEP_M))) * (radius < CORNER_SPLIT_RADIUS_M)
+    pieces = [p for p in np.split(np.arange(len(center)), np.flatnonzero(np.diff(sign)) + 1) if sign[p[0]] != 0]
+    apexes = [p[np.argmin(radius[p])] for p in pieces]
+    return [{"number": k + 1, "x": float(center[i, 0]), "y": float(center[i, 1])} for k, i in enumerate(apexes)]
+
+
+def load_oschersleben_assets(center, radius):
+    """Hintergrund aus dem DOP20, Kurven aus dem Modell. Ursprung = untere linke Bildecke."""
+    with open(OSCHERSLEBEN.DOP_GEO_PATH, encoding="utf-8") as f:
+        geo = json.load(f)
+    photo = Image.open(OSCHERSLEBEN.DOP_PATH).convert("RGB")
+    width_m, height_m = photo.width * geo["px"], photo.height * geo["px"]
+    origin = np.array([geo["origin_e"], geo["origin_n"] - height_m])
+    buf = io.BytesIO()
+    photo.resize((photo.width // BACKGROUND_DOWNSCALE, photo.height // BACKGROUND_DOWNSCALE), Image.LANCZOS).save(
+        buf, "JPEG", quality=BACKGROUND_JPEG_QUALITY)
+    return {"origin_utm33": origin.tolist(), "corners_local": corners_by_direction(center - origin, radius),
+            "background_image_jpeg_b64": base64.b64encode(buf.getvalue()).decode("ascii"),
+            "background_extent_local": [0.0, 0.0, width_m, height_m]}
+
+
+def spreewaldring_start_line(center, perp, lo, hi):
+    """Rueckfall ohne SPREEWALDRING_IDEAL_PATH: alternierend optimierte Linie (seit 07.11.2026, Nutzerentscheid, vorher Kurven
+    nacheinander, rund 1,9 s langsamer), beste Iteration, nur sie hat dieselben Punkte wie der Korridor."""
     with open(START_LINE_SUMMARY_PATH, encoding="utf-8") as f:
         optimal = json.load(f)
     start_points = np.array(min(optimal["snapshots"], key=lambda s: s["lap_time_s"])["points_utm33"])
     assert len(start_points) == len(center), "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
-    n_lat_start = np.clip(np.sum((start_points - center) * perp, axis=1), lo, hi)
+    return np.sum((start_points - center) * perp, axis=1)
 
-    roll = int(np.argmin(np.linalg.norm(center - np.array(START_FINISH_UTM33), axis=1)))
+
+def oschersleben_start_line(center, perp, lo, hi):
+    """Beste Linie aus oschersleben_lap_simulation.py, in Modell-Reihenfolge."""
+    with open(OSCHERSLEBEN.LAP_SIM_JSON, encoding="utf-8") as f:
+        n_lat = np.array(json.load(f)["n_lat"])
+    assert len(n_lat) == len(center), "Startlinie und Korridor muessen dieselbe Punktanzahl haben"
+    return n_lat
+
+
+DEFAULT_TRACK = "spreewaldring"
+# storage: Schluessel der Bearbeitungsliste im Browser, sie haengt am Punktindex der jeweiligen Strecke (v2 gehoert zur
+# alten Spreewaldring-Geometrie). optimized: Linie schon in Editor-Reihenfolge, falls vorhanden.
+TRACKS = {
+    "spreewaldring": dict(label="Spreewaldring", model=TRACK_MODEL_PATH, start_finish=START_FINISH_UTM33,
+                          start_line=spreewaldring_start_line, optimized=SPREEWALDRING_IDEAL_PATH, assets=load_reused_assets,
+                          storage="spreewaldring_racing_line_editor_edits_v4_ideallinie",
+                          source="Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg)"),
+    "oschersleben": dict(label="Oschersleben A-Kurs", model=OSCHERSLEBEN.MODEL_JSON,
+                         start_finish=OSCHERSLEBEN.START_FINISH_UTM32, start_line=oschersleben_start_line,
+                         optimized=os.path.join(RESULTS_DIR, "oschersleben_ideal_line.json"),  # racing_line_ocp.py
+                         assets=load_oschersleben_assets, storage="oschersleben_racing_line_editor_edits_v2",
+                         label_positions={2: (655865.7, 5766648.9), 10: (655742.0, 5766881.0)},  # vom Nutzer in der Karte gesetzt
+                         pit_segments=("pit_entry", "pit_fastlane", "pit_exit", "pit_work_area", "paddock_east", "paddock_west"),
+                         pit_start=True,
+                         source="Motorsport Arena Oschersleben · Streckenmodell aus OSM, DOP20 und DGM1 (LVermGeo Sachsen-Anhalt, dl-de/by-2-0)"),
+}
+
+
+def load_pit_segments(cfg, origin):
+    """Boxengasse aus dem Streckenmodell, nur zur Anzeige: Raender oder (Fahrerlager-Anbindung) nur Mittellinie."""
+    if "pit_segments" not in cfg:
+        return [], None
+    with open(cfg["model"], encoding="utf-8") as f:
+        segments = json.load(f)["segments"]
+    keys = lambda name: ("left", "right") if "left" in segments[name] else ("center",)
+    out = [{"name": name, **{k: np.round(np.array(segments[name][k]) - origin, 2).tolist() for k in keys(name)}}
+           for name in cfg["pit_segments"]]
+    return out, segments
+
+
+def load_editor_data(name=DEFAULT_TRACK):
+    """Strecke in lokalen Koordinaten, Index 0 an der Start-Ziel-Linie, und die Ausgangslinie."""
+    cfg = TRACKS[name]
+    center, left, right = load_corridor(cfg["model"])
+    tangents = compute_tangents_closed(center)
+    lo, hi, perp = corridor_bounds(center, left, right, tangents)
+    n_lat_start = np.clip(cfg["start_line"](center, perp, lo, hi), lo, hi)
+
+    roll = int(np.argmin(np.linalg.norm(center - np.array(cfg["start_finish"]), axis=1)))
     center, left, right, perp = (np.roll(a, -roll, axis=0) for a in (center, left, right, perp))
     lo, hi, n_lat_start = (np.roll(a, -roll, axis=0) for a in (lo, hi, n_lat_start))
-    if os.path.exists(OPTIMIZED_LINE_PATH):
-        with open(OPTIMIZED_LINE_PATH, encoding="utf-8") as f:
+    if cfg["optimized"] and os.path.exists(cfg["optimized"]):
+        with open(cfg["optimized"], encoding="utf-8") as f:
             optimized = np.array(json.load(f)["n_lat"])
         if len(optimized) == len(center):  # passt nicht mehr, wenn sich das Streckenmodell aendert
             n_lat_start = np.clip(optimized, lo, hi)
 
-    reused = load_reused_assets()
+    radius = compute_curvature_radius(center, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
+    reused = cfg["assets"](center, radius)
     origin = np.array(reused["origin_utm33"])
     # Kurvennummern bleiben (Bezug in Logbuch und Gespraechen), Marke und Radius kommen aus dem Modell
-    radius = compute_curvature_radius(center, CURVATURE_WINDOW_M, RESAMPLE_STEP_M)
     corners = []
     for c in reused["corners_local"]:
         near = np.linalg.norm(center - (origin + [c["x"], c["y"]]), axis=1) < 30.0
         i = np.flatnonzero(near)[np.argmin(radius[near])]
         corners.append({"number": c["number"], "x": float(center[i, 0] - origin[0]),
                         "y": float(center[i, 1] - origin[1]), "radius_m": float(radius[i])})
+    for c in corners:
+        if c["number"] in cfg.get("label_positions", {}):
+            c["x"], c["y"] = (np.array(cfg["label_positions"][c["number"]]) - origin).tolist()
+    reused["pit_segments"], model = load_pit_segments(cfg, origin)
+    reused["pit_path"] = None
+    if cfg.get("pit_start"):
+        path, reused["pit_limit_end_s"] = OSCHERSLEBEN.pit_out_path(model)
+        reused["pit_path"] = path - origin
+        reused["pit_segments"].append({"name": "pit_out_path", "center": np.round(reused["pit_path"], 2).tolist()})
     track = Track(center - origin, left - origin, right - origin, perp, lo, hi)
     return track, n_lat_start, corners, reused
 
@@ -269,6 +368,99 @@ def recompute_from_edits(track, baseline, edits, veh, natural=False, brake_cap_g
     return pinned_optimize(track, n_lat, edits, veh, natural, brake_cap_g)
 
 
+def start_clutch(rows, dt, veh):
+    """Kupplungspedal einer Startfahrt: Anfahren schleift bis launch_end_kmh, danach ihre Schaltungen. rows: (s, v, Gang, ...)."""
+    t_rows = np.arange(len(rows)) * dt
+    t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
+    ups = [(t, veh.shift_s[(max(r0[2], r1[2]) - 1, max(r0[2], r1[2]))], r0[2], r1[2])  # auch Spruenge ueber mehrere Gaenge
+           for t, r0, r1 in zip(t_rows[1:], rows, rows[1:]) if r1[2] != r0[2]]
+    on_lap = clutch_trace(ups, t_rows[-1] + dt)
+    on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
+    return np.maximum(clutch_launch(t_rows, t_end), on_lap)
+
+
+def pit_start_trace(sim, pts, veh, path, s_limit_end):
+    """Reine Anzeige-Zugabe wie standing_start_trace(): Fahrt aus der Box ueber path bis auf die Ideallinie. Bis s_limit_end
+    Alltagsfahrt (PIT_*), danach Vollgas und Grip-Grenze; Uebergabe in die Runde, sobald das Rundentempo erreicht ist."""
+    f, n_path = veh.speed_factor, len(path)
+    lap_v = sim["v"]
+    join = int(np.argmin(np.linalg.norm(pts - path[-1], axis=1)))
+    lap_idx = (join + np.arange(1, PIT_JOIN_MAX_POINTS)) % len(pts)
+    xy = np.vstack([path, pts[lap_idx]])
+    ds = np.hypot(*np.diff(xy, axis=0).T)
+    station = np.r_[0.0, np.cumsum(ds)]
+    w = int(round(PIT_CURVATURE_WINDOW_M))
+    r_path = compute_curvature_radius(path, PIT_CURVATURE_WINDOW_M, 1.0)
+    r_path[:w], r_path[-w:] = r_path[w], r_path[-w - 1]         # offene Linie, die Formel rechnet zyklisch
+    radius = np.r_[r_path, sim["radius"][lap_idx]]
+    lat_max = veh.lat_g * G
+    in_pit = station < s_limit_end
+    limit = np.minimum(np.sqrt(np.where(in_pit, PIT_LAT_MS2, lat_max) * radius),
+                       np.where(in_pit, PIT_LIMIT_KMH / 3.6, 1e3))
+    limit[n_path - 1] = min(limit[n_path - 1], lap_v[join])
+    limit[n_path:] = lap_v[lap_idx]
+    for i in range(len(limit) - 2, -1, -1):                     # Bremsen vor Engstellen und vor dem Anschluss
+        brake = lon_avail(min(limit[i + 1] ** 2 / radius[i], lat_max), veh, veh.brake_g)
+        limit[i] = min(limit[i], math.sqrt(limit[i + 1] ** 2 + 2 * brake * ds[i]))
+
+    s, v, gear, shift_t, free, dt = 0.0, 0.0, 1, 0.0, False, STANDING_START_DT_S
+    rows = [(s, v, gear, False, False, 0)]
+    for _ in range(PIT_MAX_STEPS):
+        i = min(int(np.searchsorted(station, s, side="right")) - 1, len(ds) - 1)
+        a = 0.0
+        shifting = shift_t > 0
+        if shifting:
+            a, shift_t = coast_true(v, f), max(0.0, shift_t - dt)
+        elif s < s_limit_end:
+            a_eng, rpm = accel_true(v, gear, f)
+            if gear < 6 and rpm > PIT_UPSHIFT_RPM:
+                gear, shift_t, shifting = gear + 1, veh.shift_s[(gear, gear + 1)], True
+            else:
+                a = min(PIT_ACCEL_MS2, a_eng, lon_avail(min(v ** 2 / radius[i], lat_max), veh, veh.accel_g))
+        else:
+            # einmal runterschalten fuer Vollgas, aber nicht bis knapp unter die Redline
+            usable = [g for g in range(1, 7) if accel_true(v, g, f)[1] <= PIT_KICKDOWN_MAX_RPM] or [gear]
+            best = gear if free else max(usable, key=lambda g: accel_true(v, g, f)[0])
+            free = True
+            a_cur, rpm = accel_true(v, gear, f)
+            if best != gear:
+                top = max(gear, best)
+                gear, shift_t, shifting = best, veh.shift_s[(top - 1, top)], True
+            elif gear < 6 and (rpm >= REDLINE_RPM or accel_true(v, gear + 1, f)[0] > a_cur):
+                gear, shift_t, shifting = gear + 1, veh.shift_s[(gear, gear + 1)], True
+            else:
+                a = min(a_cur, lon_avail(min(v ** 2 / radius[i], lat_max), veh, veh.accel_g))
+        v_free = max(v + a * dt, 0.0)
+        v_limit = float(np.interp(s, station, limit))
+        v = min(v_free, v_limit)
+        s += v * dt
+        rows.append((s, v, gear, shifting, v_free > v_limit + 1e-6, i))
+        on_lap = i >= n_path
+        if (on_lap and v >= lap_v[lap_idx[i - n_path]] - 1e-3) or s >= station[-1]:
+            break
+    idx = rows[-1][5]
+    join_index = lap_idx[max(idx - n_path, 0)]
+
+    sr, vr = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
+    gears, seg = np.array([r[2] for r in rows]), np.array([r[5] for r in rows])
+    step = np.maximum(0.5 * (vr + np.r_[vr[1:], vr[-1]]) * dt, 1e-6)
+    load, tp, pedal = throttle_trace(vr, gears, step, veh)
+    load[-1], tp[-1], pedal[-1] = load[-2], tp[-2], pedal[-2]   # throttle_trace rechnet geschlossen
+    braking = np.array([r[4] for r in rows])
+    pedal = np.where(braking, 0.0, pedal)
+    brake = np.where(braking, np.clip(-np.gradient(vr, dt) / (veh.brake_g * G), 0.0, 1.0) * 100.0, 0.0)
+    rpm = [max(accel_true(v_i, g, f)[1], PIT_IDLE_RPM) for v_i, g in zip(vr, gears)]
+    tangents = np.diff(xy, axis=0) / ds[:, None]
+    sign = turn_sign(xy, w)[seg]
+    steer = np.clip(np.degrees(np.arctan(WHEELBASE_M / np.maximum(radius[seg], 1.0))) * STEERING_RATIO * sign, -150, 150)
+    return {"dt": dt, "s": round_list(sr, 2), "v": round_list(vr, 3), "gear": gears.tolist(), "rpm": round_list(rpm, 0),
+            "load": round_list(load, 1), "tp": round_list(tp, 1), "pedal": round_list(pedal, 1),
+            "clutch": round_list(start_clutch(rows, dt, veh), 0), "brake": round_list(brake, 1),
+            "x": round_list(np.interp(sr, station, xy[:, 0]), 2), "y": round_list(np.interp(sr, station, xy[:, 1]), 2),
+            "heading": round_list(np.arctan2(tangents[seg, 1], tangents[seg, 0]), 4), "steer": round_list(steer, 1),
+            "joinT": float(sim["t"][join_index])}
+
+
 def standing_start_trace(sim, veh):
     """Reine Anzeige-Zugabe (Nutzerwunsch 09.09.2026): stehender Start bei der ersten Wiedergabe, Vollgas-Sprint bis zum
     Rundentempo an derselben Stelle. Greift nicht in Rundenzeit oder Linie ein."""
@@ -297,14 +489,7 @@ def standing_start_trace(sim, veh):
             rpm = [accel_true(r[1], r[2], f)[1] for r in rows]
             frac = [0.0 if r[3] else limiter_factor(n, r[2]) for r, n in zip(rows, rpm)]
             load, tp, _ = engine_controls(frac, rpm, [not r[3] for r in rows])
-            # Kupplung: Anfahren schleift bis launch_end_kmh, danach die Schaltungen des Sprints
-            t_rows = np.arange(len(rows)) * dt
-            t_end = next((t for t, r in zip(t_rows, rows) if r[1] * 3.6 >= launch_end_kmh()), 0.0)
-            ups = [(t, veh.shift_s[(r0[2], r1[2])], r0[2], r1[2]) for t, r0, r1 in zip(t_rows[1:], rows, rows[1:])
-                   if r1[2] != r0[2]]
-            on_lap = clutch_trace(ups, t_rows[-1] + dt)
-            on_lap = np.interp(t_rows, np.arange(len(on_lap)) * CLUTCH_TRACE_DT_S, on_lap)
-            clutch = np.maximum(clutch_launch(t_rows, t_end), on_lap)
+            clutch = start_clutch(rows, dt, veh)
             return {"dt": dt, "s": [r[0] for r in rows], "v": [r[1] for r in rows], "gear": [r[2] for r in rows],
                     "rpm": rpm, "load": round_list(load, 1), "tp": round_list(tp, 1), "clutch": round_list(clutch, 0),
                     "pedal": [0 if r[3] else 100 for r in rows], "joinT": float(sim["t"][i])}
@@ -334,8 +519,9 @@ def sim_json(sim, pts, veh):
 class Editor:
     """Haelt Strecke und Ausgangslinie je Fahrzeugmodell. Der Dienst bearbeitet eine Anfrage nach der anderen."""
 
-    def __init__(self):
-        self.track, self.n_lat_start, self.corners, self.reused = load_editor_data()
+    def __init__(self, name=DEFAULT_TRACK):
+        self.name = name
+        self.track, self.n_lat_start, self.corners, self.reused = load_editor_data(name)
         lit = literature_vehicle(MU_FIXED)
         # Name -> (Vehicle, zusaetzliche Bremsgrenze, Beschriftung)
         self.vehicles = {name: (veh, None, f"{name} (aus den Logs)") for name, veh in VEHICLES.items()}
@@ -386,7 +572,9 @@ class Editor:
         out, sim = self.result(n_lat, veh, cap, natural)
         pts = points_from_n_lat(self.track, baseline)
         out["baselineLapTime"] = simulate_lap_full(pts, veh, natural=natural, brake_cap_g=cap)["lap_time_s"]
-        out["standingStart"] = standing_start_trace(sim, veh)
+        out["standingStart"] = (pit_start_trace(sim, points_from_n_lat(self.track, n_lat), veh, self.reused["pit_path"],
+                                                self.reused["pit_limit_end_s"])
+                                if self.reused["pit_path"] is not None else standing_start_trace(sim, veh))
         return out
 
     def simulate(self, body):
@@ -404,12 +592,14 @@ class Editor:
         return self.result(brushed, veh, cap, bool(body.get("natural")))[0]
 
     def page(self):
-        track = self.track
+        track, cfg = self.track, TRACKS[self.name]
         data = {
+            "track": self.name, "storage_key": cfg["storage"],
+            "tracks": [{"name": k, "label": v["label"]} for k, v in TRACKS.items()],
             "origin_utm33": self.reused["origin_utm33"],
             "centerline": track.center.tolist(), "left_edge": track.left.tolist(), "right_edge": track.right.tolist(),
             "perp": track.perp.tolist(), "corridor_lo_m": track.lo.tolist(), "corridor_hi_m": track.hi.tolist(),
-            "corners": self.corners,
+            "corners": self.corners, "pit_segments": self.reused["pit_segments"],
             "background_image_jpeg_b64": self.reused["background_image_jpeg_b64"],
             "background_extent_local": self.reused["background_extent_local"],
             "physics": {
@@ -421,7 +611,18 @@ class Editor:
             },
             "brush_radius_m_default": BRUSH_RADIUS_M_DEFAULT,
         }
-        return HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False))
+        return (HTML_TEMPLATE.replace("__TRACK_LABEL__", cfg["label"]).replace("__TRACK_SOURCE__", cfg["source"])
+                .replace("__DATA_JSON__", json.dumps(data, ensure_ascii=False)))
+
+
+class Editors(dict):
+    """Je Strecke ein Editor, erst beim ersten Aufruf geladen."""
+
+    def __missing__(self, name):
+        if name not in TRACKS:
+            raise ValueError(f"Unbekannte Strecke: {name}")
+        self[name] = Editor(name)
+        return self[name]
 
 
 @functools.lru_cache(maxsize=1)
@@ -438,9 +639,12 @@ def send_to_dash(req):
     return {"ok": True}
 
 
-def make_handler(editor):
-    routes = {"/api/solve": editor.solve, "/api/simulate": editor.simulate, "/api/preview": editor.preview,
-              "/api/dash": send_to_dash}
+def make_handler(editors):
+    def on_track(method):
+        return lambda body: method(editors[body.get("track", DEFAULT_TRACK)], body)
+
+    routes = {"/api/solve": on_track(Editor.solve), "/api/simulate": on_track(Editor.simulate),
+              "/api/preview": on_track(Editor.preview), "/api/dash": send_to_dash}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -455,10 +659,16 @@ def make_handler(editor):
             self.wfile.write(payload)
 
         def do_GET(self):
-            if self.path != "/":
+            url = urllib.parse.urlsplit(self.path)
+            if url.path != "/":
                 self.reply(404, "text/plain; charset=utf-8", b"nicht gefunden")
                 return
-            self.reply(200, "text/html; charset=utf-8", editor.page().encode("utf-8"))
+            try:
+                page = editors[urllib.parse.parse_qs(url.query).get("track", [DEFAULT_TRACK])[0]].page()
+            except (ValueError, FileNotFoundError) as err:  # unbekannte Strecke oder Ergebnisdateien fehlen noch
+                self.reply(404, "text/plain; charset=utf-8", str(err).encode("utf-8"))
+                return
+            self.reply(200, "text/html; charset=utf-8", page.encode("utf-8"))
 
         def do_POST(self):
             route = routes.get(self.path)
@@ -481,14 +691,15 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
     print("Lade Strecke und Fahrzeugmodelle ...", flush=True)
-    editor = Editor()
-    server = HTTPServer(("127.0.0.1", args.port), make_handler(editor))
+    editors = Editors()
+    editors[DEFAULT_TRACK]  # Standardstrecke gleich laden, damit Fehler beim Start auffallen
+    server = HTTPServer(("127.0.0.1", args.port), make_handler(editors))
     print(f"Ideallinien-Editor: http://127.0.0.1:{args.port}/ (rechnet in Python, Abbruch mit Strg+C)", flush=True)
     server.serve_forever()
 
 
 HTML_TEMPLATE = r"""<meta charset="utf-8">
-<title>Ideallinien-Editor Spreewaldring</title>
+<title>Ideallinien-Editor __TRACK_LABEL__</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
@@ -839,8 +1050,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 </style>
 
 <header>
-  <h1>Ideallinien-Editor Spreewaldring</h1>
+  <h1>Ideallinien-Editor __TRACK_LABEL__</h1>
   <div class="sub">Mazda MX-5 ND · Linie per Drag bearbeiten · <span id="vehicleSub"></span></div>
+  <label class="hard-toggle" id="trackRow" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+    <span>Strecke</span>
+    <select id="trackSelect"></select>
+  </label>
 </header>
 
 <main>
@@ -857,6 +1072,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       </div>
       <div><span class="swatch" style="background:rgba(224,72,60,0.55);"></span>Bremszone</div>
       <div><span class="swatch" style="background:rgba(69,214,196,0.92); transform:rotate(45deg);"></span>bearbeiteter Punkt</div>
+      <div id="pitLegend" style="display:none;"><span class="swatch" style="background:rgba(110,170,255,0.7);"></span>Boxengasse <span class="swatch" style="background:rgba(232,163,61,0.7); margin-left:0.5rem;"></span>Arbeitsbereich</div>
       <div><span class="swatch" style="background:rgba(197,150,255,0.95);"></span>Schaltpunkt</div>
     </div>
     <div class="trace-wrap">
@@ -997,7 +1213,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   </div>
 </main>
 
-<footer>Spreewaldring Training Center · Streckenmodell aus Orthofoto und DGM (LGB Brandenburg) · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py</footer>
+<footer>__TRACK_SOURCE__ · MX-5-Breite 1.74m angenommen · Traktionsmodell aus performance_simulation.py</footer>
 
 <script type="application/json" id="viz-data">__DATA_JSON__</script>
 <script>
@@ -1009,7 +1225,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   const PERP = data.perp;
   const LO = data.corridor_lo_m;
   const HI = data.corridor_hi_m;
-  const STORAGE_KEY = 'spreewaldring_racing_line_editor_edits_v3_modell';  // Bearbeitungen haengen am Punktindex, v2 gehoert zur alten Geometrie
+  const STORAGE_KEY = data.storage_key;  // Bearbeitungen haengen am Punktindex der jeweiligen Strecke
   // Nur Anzeige (Lenkrad): Ackermann-Naeherung. Alle Rechnung liegt im Python-Dienst.
   const WHEELBASE_M = 2.31, STEERING_RATIO = 15;
   const NEARBY_HINT_M = 80.0;   // nur fuer den Hover-Tooltip: "diese Fixpunkte beeinflussen sich spuerbar"
@@ -1026,7 +1242,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
   }
 
   async function api(path, body){
-    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({...body, track: data.track})});
     if (!r.ok) throw new Error(await r.text());
     return r.json();
   }
@@ -1323,6 +1539,26 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
       ctx.fillRect(0,0,w,h);
     }
 
+    // Boxengasse nur zur Anzeige, unter der Strecke; die Rundensimulation faehrt sie nicht
+    data.pit_segments.forEach(seg=>{
+      ctx.save();
+      if (seg.left){
+        drawPolyline(seg.left.concat([...seg.right].reverse()), w, h, true);
+        const work = seg.name === 'pit_work_area';
+        ctx.fillStyle = work ? 'rgba(232,163,61,0.28)' : 'rgba(110,170,255,0.32)';
+        ctx.fill();
+        ctx.strokeStyle = work ? 'rgba(232,163,61,0.85)' : 'rgba(110,170,255,0.85)';
+        ctx.lineWidth = 1;
+      } else {
+        drawPolyline(seg.center, w, h, false);
+        ctx.setLineDash([4,4]);
+        ctx.strokeStyle = 'rgba(110,170,255,0.9)';
+        ctx.lineWidth = 1.5;
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+
     const ribbon = data.left_edge.concat([...data.right_edge].reverse());
     drawPolyline(ribbon, w, h, true);
     ctx.strokeStyle='rgba(238,242,243,0.55)';
@@ -1468,7 +1704,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     }
     standingStart = {s: startTrace.s[i], v: startTrace.v[i], gear: startTrace.gear[i], rpm: startTrace.rpm[i],
                      load: startTrace.load[i], tp: startTrace.tp[i], pedal: startTrace.pedal[i],
-                     clutch: startTrace.clutch[i], clock};
+                     clutch: startTrace.clutch[i], brake: startTrace.brake?.[i] ?? 0, steer: startTrace.steer?.[i], clock};
   }
 
   function positionFromArcLength(pts, sim, sNow){
@@ -1502,8 +1738,12 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   function drawCar(pts, w, h){
     if (!lastSim) return;
-    const {x, y, i, heading} = standingStart
-      ? positionFromArcLength(pts, lastSim, standingStart.s)
+    // Boxenstart: eigene Bahn aus dem Dienst statt einer Position auf der Ideallinie
+    const pitK = standingStart && startTrace && startTrace.x
+      ? Math.min(Math.floor(standingStart.clock / startTrace.dt), startTrace.x.length - 1) : null;
+    const {x, y, i, heading} = pitK !== null
+      ? {x: startTrace.x[pitK], y: startTrace.y[pitK], i: 0, heading: startTrace.heading[pitK]}
+      : standingStart ? positionFromArcLength(pts, lastSim, standingStart.s)
       : carPositionAt(pts, lastSim, sim_.t);
     const [sx, sy] = project([x,y], w, h);
     // Bildschirm-Blickwinkel (Nord=oben, Weltwinkel invertiert) fuer die Rotation beruecksichtigen
@@ -1530,7 +1770,7 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     // Pedal aus throttle_trace() (Tempoverlauf rueckwaerts ueber Fahrleistungsmodell und Teillastkennfeld).
     const isCoasting = !standingStart && !!lastSim.coasting[i];
     const braking = !standingStart && !isCoasting && lastSim.vFinal[i] < lastSim.vFwd[i]-1e-3;
-    const brakePct = braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0;
+    const brakePct = standingStart ? Math.round(standingStart.brake || 0) : (braking ? Math.round((lastSim.brakeFrac[i] ?? 1)*100) : 0);
     document.getElementById('brakeFill').style.height = brakePct + '%';
     const clutchPct = standingStart ? standingStart.clutch
       : (lastSim.clutchPct[Math.min(Math.floor(sim_.t / lastSim.clutchDt), lastSim.clutchPct.length - 1)] ?? 0);
@@ -1567,7 +1807,8 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
     const cross = (p1[0]-p0[0])*(p2[1]-p0[1]) - (p2[0]-p0[0])*(p1[1]-p0[1]);
     const turnSign = cross > 0 ? -1 : (cross < 0 ? 1 : 0);
     const roadWheelDeg = Math.atan(WHEELBASE_M/Math.max(lastSim.radius[i],1)) * 180/Math.PI * turnSign;
-    const wheelDeg = Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
+    const wheelDeg = standingStart && standingStart.steer != null
+      ? standingStart.steer : Math.max(-150, Math.min(150, roadWheelDeg*STEERING_RATIO));
     document.getElementById('wheelRotor').style.transform = `rotate(${wheelDeg}deg)`;
     dashState = {speed_kmh: (standingStart ? standingStart.v : lastSim.vFinal[i])*3.6,
                  rpm: standingStart ? standingStart.rpm : lastSim.rpm[i],
@@ -1746,6 +1987,10 @@ HTML_TEMPLATE = r"""<meta charset="utf-8">
 
   // Fahrzeugmodell umschalten: Der Dienst optimiert die Linie fuer das gewaehlte Modell neu.
   {
+    if (data.pit_segments.length) document.getElementById('pitLegend').style.display = '';
+    const trackSel = document.getElementById('trackSelect');
+    data.tracks.forEach(t => trackSel.add(new Option(t.label, t.name, false, t.name === data.track)));
+    trackSel.addEventListener('change', () => { location.search = '?track=' + encodeURIComponent(trackSel.value); });
     const sel = document.getElementById('vehicleSelect');
     const sub = document.getElementById('vehicleSub');
     const m = P.VEHICLES;

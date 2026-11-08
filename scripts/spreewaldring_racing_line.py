@@ -91,11 +91,11 @@ N_ITERATIONS = 3000
 RELAXATION_ALPHA = 0.2
 
 
-def load_corridor():
+def load_corridor(path=TRACK_MODEL_PATH):
     """Mittellinie und Fahrbahnraender aus dem Streckenmodell (seit 07.11.2026, vorher
     spreewaldring_track_surface_summary.json), im RESAMPLE_STEP_M-Raster dieser Skripte. Rand = Aussenkante
     der weissen Linie, die Linie gehoert zur Fahrbahn."""
-    with open(TRACK_MODEL_PATH, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         main = json.load(f)["segments"]["main_loop"]
     s = np.array(main["s_m"])
     s_new = np.arange(0.0, main["length_2d_m"], RESAMPLE_STEP_M)
