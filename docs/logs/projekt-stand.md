@@ -7516,3 +7516,32 @@ Einfahrt + Fastlane + Ausfahrt 1068,9 m; der OSM-Weg ab dem Abzweig hat 1098 m, 
 Start vor der mittleren Box (Station 138 des Arbeitsbereichs), weich auf 30 m auf die Fastlane-Mitte, dann Mittellinie der Ausfahrt und ab der Kehre die orange Linie. Geschätzte Alltagswerte, nicht aus den Logs: 1,2 m/s² Beschleunigung, 2,0 m/s² Querbeschleunigung, Hochschalten bei 2800 U/min (`PIT_*` im Editor). Hinter der gelben Linie einmal Zurückschalten (höchstens 4500 U/min), dann Vollgas bis zur Grip-Grenze, Bremsen vor der Kehre und vor dem Anschluss. Übergabe in die Runde, sobald das Rundentempo erreicht ist.
 
 Ergebnis: rund 33,5 s Dauer, an der gelben Linie 59,6 km/h (das Limit von 80 wird bei dieser Beschleunigung nicht erreicht), Pedal in der Box p50 22 %, höchstens 36 %. Danach bis 105 km/h, Kehre in der Mitte der Ausfahrt mit R ≈ 8 m (Tempo dort über die Grip-Grenze, rund 31 km/h), Übergabe bei 67 km/h ohne Tempo-Sprung. Der erste Skizzenpunkt der orangen Linie lag innen in der Kehre und wird nicht benutzt. Editor-Prüfung über `__editorDebug.tickStandingStart`, weil der verdeckte Browser-Bereich keine Animationsbilder rechnet.
+
+## Automatischer Lauf: 4 neue CAN-Logs uebernommen (2026-11-10)
+
+- `candump-2026-11-09_081622`, Masse=1181.0kg (Tank ~29.5 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-09_145703`, Masse=1179.4kg (Tank ~27.4 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-10_082104`, Masse=1177.7kg (Tank ~25.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-10_154836`, Masse=1175.9kg (Tank ~22.8 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 5 -> 6 (upshift): 0.96s (vorher 0.98s), candump-2026-11-10_154836 @ t=2174.9s.
+
+## Schwingung: Hankook-Winter vs. NS-R2 (2026-11-10)
+
+Vergleich aller `results/can_vibration_summary_candump-*.json` nach Reifensatz (01.10. ausgelassen, Wechseltag). Je Log der Median-mg-Wert der 1. Radordnung, dann Median über Logs [IQR].
+
+| | NS-R2 205/40 R17 (57 Logs, 11.–30.09.) | Hankook 195/50 R16 (63 Logs, 02.10.–10.11.) |
+|---|---|---|
+| längs 40–70 km/h | 2,4 mg [2,1–2,9] | 2,2 mg [1,8–2,5] |
+| längs 70–100 | 4,0 [2,9–7,4] | 2,3 [2,0–3,2] |
+| längs 100–130 | 9,1 [8,4–11,3] | 4,5 [4,1–5,2] |
+| längs 130–200 | 17,1 [15,6–18,2] | 8,0 [7,1–9,6] |
+| quer 40–70 | 8,1 [7,2–9,1] | 3,7 [3,2–4,1] |
+| quer 70–100 | 7,5 [6,6–8,3] | 3,3 [2,9–4,5] |
+| quer 100–130 | 8,9 [7,9–11,6] | 4,6 [4,0–5,9] |
+| quer 130–200 | 23,0 [17,2–38,5] | 11,1 [9,8–13,6] |
+| Spitze auf Radordnung (längs/quer) | 44 % / 45 % | 38 % / 37 % |
+
+Befund: Radordnungs-Schwingung mit den Hankook ab 70 km/h etwa halbiert, quer in allen Bändern; IQRs überlappen nicht. Sprung genau am Wechsel (100–130 km/h längs je 10-Tage-Block: 9,9 / 8,6 → 4,1 / 3,3 / 4,3 / 5,1 / 5,1 mg), danach stabil, kein Trend innerhalb der NS-R2-Zeit. Ursache nicht trennbar: Reifen (Flankenrisse, Niederquerschnitt) und Felge/Auswuchtung wechselten gleichzeitig, außerdem Jahreszeit/Strecken. Leichter Anstieg Nov. (5,1 vs. 4,1 mg) nur beobachten.
