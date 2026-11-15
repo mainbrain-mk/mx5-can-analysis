@@ -1492,7 +1492,7 @@ class SimController:
 
 
 class StatusScreen(Screen):
-    def __init__(self, client, on_start_test, **kwargs):
+    def __init__(self, client, on_start_test, plugins=(), on_open_plugin=None, **kwargs):
         super().__init__(**kwargs)
         self.client = client
         root = FloatLayout()
@@ -1549,6 +1549,16 @@ class StatusScreen(Screen):
         self._sim_area = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=0)
         self._sim_button_visible = False
         col.add_widget(self._sim_area)
+
+        # Ein Knopf je installiertem Plugin (siehe load_plugins), z.B. die ETS2-Anzeige.
+        if plugins:
+            row = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=72)
+            for name, title in plugins:
+                btn = Button(text=title, font_size="26sp", bold=True, background_normal="",
+                             background_color=CARD_BG)
+                btn.bind(on_release=lambda _b, n=name: on_open_plugin(n))
+                row.add_widget(btn)
+            col.add_widget(row)
 
         self.clock_label = Label(text="", font_size="18sp", color=TEXT_DIM,
                                   size_hint_y=None, height=30)
@@ -1817,6 +1827,41 @@ class TestModeScreen(Screen):
         self.live_grid.refresh()
 
 
+# --- Plugins -----------------------------------------------------------------------------
+# Fremde Anzeigen (z.B. ETS2 aus dem Projekt ets2-app) ohne deren Code in diesem Repo: jedes Plugin
+# liegt als Ordner unter PLUGIN_DIR (Stick, ausserhalb des Overlays) und hat eine mx5_plugin.py mit
+#   TITLE = "ETS2"                               - Knopftext auf dem Status-Screen
+#   create_screen(name, on_back) -> Screen       - Kivy-Screen mit refresh(dt), on_back() fuehrt zurueck
+# Der Screen wird nur aktualisiert, solange er sichtbar ist. Echte Fahrt (logging) geht immer vor.
+# Ein Plugin, das beim Laden oder im Betrieb scheitert, wird protokolliert und uebersprungen bzw.
+# geschlossen - das Dash laeuft weiter.
+
+PLUGIN_DIR = os.environ.get("MX5_PLUGIN_DIR", os.path.join(LOG_DIR, "plugins"))
+PLUGIN_SCREEN_PREFIX = "plugin:"
+
+
+def load_plugins(plugin_dir=PLUGIN_DIR):
+    """Liefert [(name, modul)] aller ladbaren Plugins, alphabetisch."""
+    import importlib.util
+    import sys
+    import traceback
+    found = []
+    for path in sorted(glob.glob(os.path.join(plugin_dir, "*", "mx5_plugin.py"))):
+        folder = os.path.dirname(path)
+        name = os.path.basename(folder)
+        try:
+            sys.path.insert(0, folder)  # Plugin darf eigene Module daneben importieren
+            spec = importlib.util.spec_from_file_location(f"mx5_plugin_{name}", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if not isinstance(module.TITLE, str) or not callable(module.create_screen):
+                raise TypeError("braucht TITLE (str) und create_screen(name, on_back)")
+            found.append((name, module))
+        except Exception:
+            print(f"Plugin {name} uebersprungen:\n{traceback.format_exc()}", flush=True)
+    return found
+
+
 # --- App -------------------------------------------------------------------------------
 
 BOOT_TIMING_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boot_timing.log")
@@ -1844,13 +1889,25 @@ class MX5DashApp(App):
         self.sm = ScreenManager(transition=NoTransition())
 
         self.drive_screen = DriveScreen(self.client, name="drive")
-        self.status_screen = StatusScreen(self.client, on_start_test=self.start_test_mode, name="status")
+        self.plugin_screens = {}  # Screen-Name -> Screen
+        plugin_buttons = []
+        for name, module in load_plugins():
+            screen_name = PLUGIN_SCREEN_PREFIX + name
+            try:
+                self.plugin_screens[screen_name] = module.create_screen(screen_name, self.close_plugin)
+                plugin_buttons.append((screen_name, module.TITLE))
+            except Exception:
+                import traceback
+                print(f"Plugin {name}: Screen nicht erzeugt:\n{traceback.format_exc()}", flush=True)
+        self.status_screen = StatusScreen(self.client, on_start_test=self.start_test_mode, name="status",
+                                          plugins=plugin_buttons, on_open_plugin=self.open_plugin)
         self.testmode_screen = TestModeScreen(self.client, on_finish=self.end_test_mode, name="testmode")
-        for s in (self.status_screen, self.drive_screen, self.testmode_screen):
+        for s in (self.status_screen, self.drive_screen, self.testmode_screen, *self.plugin_screens.values()):
             self.sm.add_widget(s)
         self.sm.current = "status"
 
         self._in_testmode = False
+        self._plugin = None  # Screen-Name des geoeffneten Plugins
         # Laeuft die Vcan-Simulation, meldet das Backend "logging" und das Dash zeigt den Drive-Screen -
         # der Stopp-Knopf auf dem Status-Screen war dann nie zu sehen (10.10.2026). Darum hier ein eigener
         # Knopf in der Fusszeile, nur solange die Simulation laeuft. Stoppt nur (kein Umschalter): ein
@@ -1861,6 +1918,7 @@ class MX5DashApp(App):
         Clock.schedule_interval(self._sync_sim_stop_button, 0.5)
         Clock.schedule_interval(self.update_state, POLL_INTERVAL_S)
         Clock.schedule_interval(self._drive_tick, 1.0 / DRIVE_REFRESH_HZ)
+        Clock.schedule_interval(self._plugin_tick, 1.0 / DRIVE_REFRESH_HZ)
         Clock.schedule_interval(
             lambda dt: print(dash_health_line(self.client, self.sm.current), flush=True),
             HEALTH_LOG_S)
@@ -1871,6 +1929,24 @@ class MX5DashApp(App):
         # 30-Hz-Refresh auch auf dem Status-/Testmodus-Screen mit (CPU auf dem Pi).
         if self.sm.current == "drive":
             self.drive_screen.refresh(dt)
+
+    def _plugin_tick(self, dt):
+        if self._plugin is None or self.sm.current != self._plugin:
+            return
+        try:
+            self.plugin_screens[self._plugin].refresh(dt)
+        except Exception:
+            import traceback
+            print(f"{self._plugin} geschlossen nach Fehler:\n{traceback.format_exc()}", flush=True)
+            self.close_plugin()
+
+    def open_plugin(self, screen_name):
+        self._plugin = screen_name
+        self.update_state()
+
+    def close_plugin(self):
+        self._plugin = None
+        self.update_state()
 
     def _sync_sim_stop_button(self, *_args):
         bar = self.drive_screen.status_bar
@@ -1902,6 +1978,9 @@ class MX5DashApp(App):
             target = "testmode"
         elif logging_now:
             target = "drive"
+            self._plugin = None  # echte Fahrt geht vor, danach zurueck auf Status statt ins Plugin
+        elif self._plugin:
+            target = self._plugin
         else:
             target = "status"
 

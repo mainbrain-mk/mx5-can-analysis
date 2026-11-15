@@ -54,6 +54,8 @@ class FakeApp:
         self.status_screen = FakeScreen()
         self.testmode_screen = FakeScreen()
         self._in_testmode = False
+        self._plugin = None
+        self.plugin_screens = {}
 
     def snapshot(self):
         return self._snap
@@ -925,6 +927,54 @@ def test_clock_source_ntp_then_rtc_then_unknown():
         assert dash_gui.clock_source(ntp, rtc) == ("NTP  SYNC", True)
 
 
+
+def test_load_plugins_skips_broken_and_keeps_good_ones():
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, code in (("good", "import helper\nTITLE = helper.T\ndef create_screen(name, on_back): return name\n"),
+                           ("broken", "raise RuntimeError('kaputt')\n"),
+                           ("incomplete", "TITLE = 'x'\n")):
+            os.makedirs(os.path.join(tmp, name))
+            with open(os.path.join(tmp, name, "mx5_plugin.py"), "w") as f:
+                f.write(code)
+        with open(os.path.join(tmp, "good", "helper.py"), "w") as f:
+            f.write("T = 'Gut'\n")  # Plugin importiert eigenes Modul daneben
+        os.makedirs(os.path.join(tmp, "no_entry"))
+        found = dash_gui.load_plugins(tmp)
+    assert [(n, m.TITLE) for n, m in found] == [("good", "Gut")], found
+
+
+def test_plugin_screen_shown_until_closed_and_logging_wins():
+    app = FakeApp({})
+    app._plugin = "plugin:ets2"
+    dash_gui.MX5DashApp.update_state(app)
+    assert app.sm.current == "plugin:ets2"
+    app._snap = {"logging": True}
+    dash_gui.MX5DashApp.update_state(app)
+    assert app.sm.current == "drive" and app._plugin is None
+    app._snap = {}
+    dash_gui.MX5DashApp.update_state(app)
+    assert app.sm.current == "status"  # nach der Fahrt nicht zurueck ins Plugin
+
+
+def test_plugin_tick_refreshes_only_visible_plugin_and_closes_it_on_error():
+    class Boom:
+        calls = 0
+
+        def refresh(self, dt):
+            Boom.calls += 1
+            raise ValueError("Plugin-Fehler")
+
+    app = FakeApp({})
+    app.plugin_screens = {"plugin:x": Boom()}
+    app.update_state = lambda *_: dash_gui.MX5DashApp.update_state(app)
+    app.close_plugin = lambda: dash_gui.MX5DashApp.close_plugin(app)
+    dash_gui.MX5DashApp._plugin_tick(app, 1 / 30)
+    assert Boom.calls == 0  # kein Plugin offen
+    dash_gui.MX5DashApp.open_plugin(app, "plugin:x")
+    assert app.sm.current == "plugin:x"
+    dash_gui.MX5DashApp._plugin_tick(app, 1 / 30)
+    assert Boom.calls == 1 and app._plugin is None and app.sm.current == "status"
+
 if __name__ == "__main__":
     if dash_gui is None:
         print("kein Kivy installiert - dash_gui-Tests uebersprungen")
@@ -972,4 +1022,7 @@ if __name__ == "__main__":
     test_gps_status_shows_each_state_of_the_logger()
     test_gps_status_counts_dead_logger_as_no_connection()
     test_status_bar_shows_gps_state()
+    test_load_plugins_skips_broken_and_keeps_good_ones()
+    test_plugin_screen_shown_until_closed_and_logging_wins()
+    test_plugin_tick_refreshes_only_visible_plugin_and_closes_it_on_error()
     print("ok")

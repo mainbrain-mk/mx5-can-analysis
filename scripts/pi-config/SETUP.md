@@ -143,6 +143,23 @@ anzeigen). Neustart von Hand, z.B. nach einem Deploy:
   abgelehnt, statt die Änderung zu überschreiben.
 - Rollback: `git push -f car <alter-commit>:deployed`.
 
+## Dash-Plugins (seit 2026-11-15)
+
+`dash_gui.py` lädt beim Start jedes Plugin unter `/home/pi/canlogs/plugins/<name>/mx5_plugin.py`
+(Vertrag und Verhalten im Kommentar über `load_plugins`). Je Plugin erscheint auf dem Status-Screen
+ein Knopf; echte Fahrt (logging) schaltet immer auf den Drive-Screen. Fehler landen in
+`applogs/dash_gui.log`, das Dash läuft weiter. Anderer Ordner: Umgebungsvariable `MX5_PLUGIN_DIR`.
+
+Ein Plugin ist ein eigenes Repo, deployt wie dieses (Checkout mit `updateInstead`), z. B. ETS2:
+```
+ssh pi@192.168.0.247 'mkdir -p canlogs/plugins/ets2 && cd canlogs/plugins/ets2 && git init -q -b deployed \
+  && git config receive.denyCurrentBranch updateInstead'
+# im Repo ets2-app:
+git remote add car pi@192.168.0.247:/home/pi/canlogs/plugins/ets2 && git push car HEAD:deployed
+```
+Danach `dash_gui.py` neu starten (siehe Renncockpit-Autostart). Das ETS2-Plugin braucht nur Kivy
+aus dem venv und empfängt UDP-Broadcast auf Port 51236 aus dem Heimnetz.
+
 ## Was hier bewusst NICHT abgebildet ist
 
 - DBC-Dateien und die eigentlichen Anwendungsskripte (`dash_gui.py`,
