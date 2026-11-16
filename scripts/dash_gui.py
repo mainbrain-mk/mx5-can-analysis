@@ -1552,12 +1552,17 @@ class StatusScreen(Screen):
 
         # Ein Knopf je installiertem Plugin (siehe load_plugins), z.B. die ETS2-Anzeige.
         if plugins:
+            # Gleiche Aufteilung wie _sim_area (0.62 Liste | 0.38 Knopf): Plugin-Knoepfe so breit wie
+            # und direkt unter "Simulation starten" statt ueber die ganze Breite.
             row = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=72)
+            row.add_widget(Widget(size_hint_x=0.62))
+            buttons = BoxLayout(orientation="horizontal", spacing=16, size_hint_x=0.38)
             for name, title in plugins:
                 btn = Button(text=title, font_size="26sp", bold=True, background_normal="",
                              background_color=CARD_BG)
                 btn.bind(on_release=lambda _b, n=name: on_open_plugin(n))
-                row.add_widget(btn)
+                buttons.add_widget(btn)
+            row.add_widget(buttons)
             col.add_widget(row)
 
         self.clock_label = Label(text="", font_size="18sp", color=TEXT_DIM,
