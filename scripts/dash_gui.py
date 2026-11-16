@@ -1541,33 +1541,51 @@ class StatusScreen(Screen):
         self.sim_scroll = ScrollView(size_hint_x=0.62, bar_width=14, scroll_type=["bars", "content"],
                                      bar_color=(*TEXT[:3], 0.7), bar_inactive_color=(*TEXT[:3], 0.35))
         self.sim_scroll.add_widget(self.sim_list)
-        self.sim_button = Button(text="", font_size="30sp", bold=True, halign="center", size_hint_x=0.38,
+        self.sim_button = Button(text="", font_size="30sp", bold=True, halign="center",
                                  background_normal="", background_color=SIM_BUTTON_BG)
         self.sim_button.bind(size=lambda b, s: setattr(b, "text_size", (s[0] - 30, None)))
         self.sim_button.bind(on_release=lambda *_: self._on_sim_button())
         self._set_sim_button_idle()
+        # Rechte Spalte: Sim-Knopf, darunter die Plugin-Knoepfe - so reicht die Liste links bis unten.
+        self._sim_right = BoxLayout(orientation="vertical", spacing=14, size_hint_x=0.38)
+        self._sim_right.add_widget(self.sim_button)
         self._sim_area = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=0)
         self._sim_button_visible = False
         col.add_widget(self._sim_area)
 
-        # Ein Knopf je installiertem Plugin (siehe load_plugins), z.B. die ETS2-Anzeige.
+        # Ein Knopf je installiertem Plugin (siehe load_plugins), z.B. die ETS2-Anzeige. Bei sichtbarem
+        # Sim-Bereich unter "Simulation starten" in der rechten Spalte, sonst in einer eigenen Zeile mit
+        # derselben Aufteilung (0.62 frei | 0.38 Knoepfe) - siehe _place_plugin_buttons.
+        self._plugin_buttons = None
         if plugins:
-            # Gleiche Aufteilung wie _sim_area (0.62 Liste | 0.38 Knopf): Plugin-Knoepfe so breit wie
-            # und direkt unter "Simulation starten" statt ueber die ganze Breite.
-            row = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=72)
-            row.add_widget(Widget(size_hint_x=0.62))
-            buttons = BoxLayout(orientation="horizontal", spacing=16, size_hint_x=0.38)
+            self._plugin_buttons = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=72)
             for name, title in plugins:
                 btn = Button(text=title, font_size="26sp", bold=True, background_normal="",
                              background_color=CARD_BG)
                 btn.bind(on_release=lambda _b, n=name: on_open_plugin(n))
-                buttons.add_widget(btn)
-            row.add_widget(buttons)
-            col.add_widget(row)
+                self._plugin_buttons.add_widget(btn)
+            self._plugin_row = BoxLayout(orientation="horizontal", spacing=16, size_hint_y=None, height=72)
+            self._plugin_row.add_widget(Widget(size_hint_x=0.62))
+            self._plugin_slot = BoxLayout(size_hint_x=0.38)
+            self._plugin_row.add_widget(self._plugin_slot)
+            self._plugin_slot.add_widget(self._plugin_buttons)
+            col.add_widget(self._plugin_row)
 
         self.clock_label = Label(text="", font_size="18sp", color=TEXT_DIM,
                                   size_hint_y=None, height=30)
         col.add_widget(self.clock_label)
+
+    def _place_plugin_buttons(self, in_sim_column):
+        if self._plugin_buttons is None:
+            return
+        self._plugin_buttons.parent.remove_widget(self._plugin_buttons)
+        col = self._sim_area.parent
+        if in_sim_column:
+            self._sim_right.add_widget(self._plugin_buttons)
+            col.remove_widget(self._plugin_row)
+        else:
+            self._plugin_slot.add_widget(self._plugin_buttons)
+            col.add_widget(self._plugin_row, index=1)  # vor der Uhr (children sind umgekehrt)
 
     def set_logging_extras_visible(self, visible):
         self._extras.clear_widgets()
@@ -1697,7 +1715,8 @@ class StatusScreen(Screen):
             if want_sim:
                 self._refresh_sim_logs()  # neue Logs seit dem letzten Mal (Fahrt dazwischen)
                 self._sim_area.add_widget(self.sim_scroll)
-                self._sim_area.add_widget(self.sim_button)
+                self._sim_area.add_widget(self._sim_right)
+            self._place_plugin_buttons(want_sim)
         elif want_sim and not self.sim.running and time.monotonic() - self._sim_logs_at >= SIM_LOGS_REFRESH_S:
             self._refresh_sim_logs()
         self.clock_label.text = datetime.datetime.now().strftime("%H:%M:%S")
