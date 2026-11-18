@@ -7545,3 +7545,45 @@ Vergleich aller `results/can_vibration_summary_candump-*.json` nach Reifensatz (
 | Spitze auf Radordnung (längs/quer) | 44 % / 45 % | 38 % / 37 % |
 
 Befund: Radordnungs-Schwingung mit den Hankook ab 70 km/h etwa halbiert, quer in allen Bändern; IQRs überlappen nicht. Sprung genau am Wechsel (100–130 km/h längs je 10-Tage-Block: 9,9 / 8,6 → 4,1 / 3,3 / 4,3 / 5,1 / 5,1 mg), danach stabil, kein Trend innerhalb der NS-R2-Zeit. Ursache nicht trennbar: Reifen (Flankenrisse, Niederquerschnitt) und Felge/Auswuchtung wechselten gleichzeitig, außerdem Jahreszeit/Strecken. Leichter Anstieg Nov. (5,1 vs. 4,1 mg) nur beobachten.
+
+## Automatischer Lauf: 8 neue CAN-Logs uebernommen (2026-11-14)
+
+- `candump-2026-11-11_081018`, Masse=1174.0kg (Tank ~20.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-11_090224`, Masse=1172.6kg (Tank ~18.3 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-11_152522`, Masse=1171.6kg (Tank ~17.0 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-12_080923`, Masse=1170.0kg (Tank ~14.8 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-12_154819`, Masse=1168.4kg (Tank ~12.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-14_104203`, Masse=1242.5kg (Tank ~11.4 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-14_105221`, Masse=1267.5kg (Tank ~45.0 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-14_112550`, Masse=1267.4kg (Tank ~44.9 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- dgm_gap: candump-2026-11-11_081018 t=734-745s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- shift_record: Neue Bestzeit 5 -> 6 (upshift): 0.86s (vorher 0.96s), candump-2026-11-12_154819 @ t=1791.5s.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-16)
+
+- `candump-2026-11-16_081121`, Masse=1191.5kg (Tank ~43.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-16_161509`, Masse=1208.5kg (Tank ~41.4 l (Tankbuch, Mittel Start/Ende), Beifahrer 25% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) 0.94 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=3).
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-17)
+
+- `candump-2026-11-17_082456`, Masse=1188.2kg (Tank ~39.2 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-17_164257`, Masse=1186.5kg (Tank ~37.0 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 4 -> 5 (upshift): 0.90s (vorher 0.94s), candump-2026-11-17_164257 @ t=3096.1s.
+
+## Automatischer Lauf: 1 neue CAN-Logs uebernommen (2026-11-18)
+
+- `candump-2026-11-18_155537`, Masse=1184.6kg (Tank ~34.4 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) 1.14 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=1).
