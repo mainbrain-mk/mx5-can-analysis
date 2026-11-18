@@ -11,6 +11,12 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
+**Nachtrag 2026-11-18:** Log-Stick-Prüfung beim Boot in der SD-Basis (`canlogs-bootcheck.service`,
+`/usr/local/bin/canlogs-{bootcheck,autostart}.sh`, Autostart ruft nur noch `canlogs-autostart.sh`, `can-logger` mit
+`RequiresMountsFor`). Fehlt der Stick, gibt es eine Meldung auf dem Display und Diagnose unter
+`/var/log/canlogs-bootcheck/`. Nach dem Neustart: keine failed units, `/media/root-ro` ro, Dash-Erstframe 40,1 s. Repo-Kopien
+in `scripts/pi-config/` identisch mit der Basis. Details SETUP.md, Logbuch 18.11.
+
 **Nachtrag 2026-11-06:** `deployed` = Kopf von Branch `gps-bluetooth-2026-11-06` (`16e8cf4`, noch nicht in `main`). Handy per
 Bluetooth gekoppelt, Schlüssel in der Basisschicht. Nach dem Neustart: keine failed units, `/media/root-ro` ro.
 

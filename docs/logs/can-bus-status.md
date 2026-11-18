@@ -6499,3 +6499,66 @@ dort kaum noch). Die Spitzen im 2. Gang liegen trotzdem bei 7400-7450/min, weil 
 **In der Simulation** (`spreewaldring_lap_simulation.py`, `LIMITER_*`, `limiter_factor()`): Faktor auf die
 Antriebskraft, ab Beginn linear auf 0 über 30/min (Gang 1/2) bzw. 230/min (Gang 3-6); Gang 5/6 wie Gang 4 angenommen.
 Die Momentuntergrenze beim Halten (5-30 %) fehlt. Ergebnis siehe `projekt-stand.md` (08.11.).
+
+## Pi bootete morgens nur bis schwarzem Bildschirm, nichts aufgezeichnet (2026-11-18)
+
+**Meldung des Nutzers:** Die Fahrt am Morgen des 18.11. hat nichts aufgezeichnet. Das Display war schwarz, nur der
+Mauszeiger war zu sehen. Ein Doppelklick aufs Display führte zum Anmeldebildschirm des Systems. Am CANable leuchteten
+rot und grün. Die Fahrt am Nachmittag (`candump-2026-11-18_155537`) lief normal.
+
+**Befund per SSH (18.11., 18:16, Pi seit 17:48 an, ohne CANable, nur gelesen):**
+- Das Journal ist seit 26.09. flüchtig. Der Morgen-Boot ist deshalb im Journal nicht mehr zu sehen.
+- Auf dem Stick gibt es vom Morgen gar nichts: kein `clockstate-`, `ifstats-`, `candump-` oder `gps-*.nmea`, keine
+  Zeile in `boot_timing.log`, im Tankbuch nichts zwischen 17.11. 17:37 und 18.11. 15:55. In `applogs/can_backend.log`
+  steht keine Zeile zwischen 17.11. 23:44 und 18.11. 15:55.
+- `respawn.sh` rotiert `dash_gui.log` beim ersten Start nach dem Boot (Datei > 5 MB). Das neue `dash_gui.log` beginnt mit
+  dem Kivy-Start von 15:55. Am Morgen ist `respawn.sh` aus dem labwc-Autostart also gar nicht gelaufen.
+- `can-logger.service` (`session_logger.py`) ist vom Desktop unabhängig. Er hat am Morgen ebenfalls nichts auf den
+  Stick geschrieben.
+- Der Stick ist jetzt sauber (`Filesystem state: clean`, letzte Prüfung 10.10.). Es gibt keine USB- oder ext4-Fehler im
+  dmesg des jetzigen Boots, und `systemctl --failed` ist leer.
+- Mount-Zähler des Sticks: 84. Seit dem Einbau gab es 82 Boots mit Dash-Start. Die Differenz von 2 lässt sich nicht
+  zuordnen (Einrichtung am 10.10. plus vielleicht der Morgen-Boot), daher ist das kein Beweis.
+- Am Vorabend lief der Pi bis 17.11. ~23:44 ohne CAN (`No such device`, Dash im Plugin ets2), danach endet er ohne
+  Herunterfahren. Ein Stromverlust ohne Herunterfahren ist bei jeder Fahrt normal (keine USV).
+
+**Wahrscheinlichste Ursache (nicht bewiesen):** Der Stick war am Morgen nicht unter `/home/pi/canlogs` eingehängt.
+Das erklärt alles auf einmal: `respawn.sh` und `session_logger.py` liegen auf dem Stick (Symlinks ins `repo/`). Der
+Autostart findet sie nicht, labwc zeigt also schwarzen Hintergrund mit Mauszeiger, und der Logger startet nicht.
+`fstab` hat `nofail`, deshalb bootet der Pi trotzdem durch. Kommt der Stick später als das Geräte-Timeout (90 s), wird
+er auch nicht mehr nachträglich eingehängt. Warum der Stick fehlte (nicht erkannt, kurzer Spannungseinbruch beim
+Anlassen, langsamer Start bei Kälte), lässt sich ohne Journal nicht klären. Ein Hänger vor dem Autostart ist weniger
+wahrscheinlich, weil der Mauszeiger zeigt, dass labwc lief.
+
+**Lücke:** `can-logger.service` hat kein `RequiresMountsFor=/home/pi/canlogs` (`gps-logger.service` schon). Ohne Stick
+ginge eine Aufzeichnung ins tmpfs-Overlay und wäre nach dem Ausschalten weg. Zur Diagnose fehlt jede Spur von einem
+Boot ohne Stick.
+
+**Vorschläge (nicht umgesetzt, Nutzerentscheid offen):**
+1. Kleiner Boot-Check: Ist `/home/pi/canlogs` nach z.B. 60 s nicht eingehängt, zeigt der Pi eine gut sichtbare Meldung
+   auf dem Display (statt schwarz) und versucht `mount /home/pi/canlogs` noch einmal.
+2. `RequiresMountsFor=/home/pi/canlogs` auch für `can-logger.service`.
+3. Für die nächste Diagnose `journalctl -b`, `lsusb` und `dmesg` eines Boots ohne Stick an einen Ort schreiben, der
+   ohne Stick erreichbar ist (z.B. ein kleiner Ordner auf der SD-Karte über die Overlay-Basis).
+
+Bis dahin hilft im Auto: Bleibt das Display schwarz mit Mauszeiger, den Pi einmal stromlos machen und neu starten.
+
+### Umsetzung: Log-Stick-Prüfung beim Boot (2026-11-18, abends)
+
+Auf Wunsch des Nutzers die Vorschläge 1–3 von oben gebaut. Details und Installation stehen in
+`scripts/pi-config/SETUP.md` („Log-Stick-Prüfung beim Boot“).
+- `canlogs-bootcheck.sh` und `.service` hängen einen fehlenden Stick bis 120 s lang nach und starten danach die
+  Logger. Bleibt er weg, landet die Diagnose gepackt in `/media/root-ro/var/log/canlogs-bootcheck/` (SD-Basis).
+- `canlogs-autostart.sh` ersetzt die beiden `respawn.sh`-Zeilen im labwc-Autostart. Es wartet auf den Stick und zeigt
+  nach 60 s eine große Meldung „Log-Stick nicht gefunden“ statt eines schwarzen Bildschirms.
+- `can-logger.service` hat jetzt `RequiresMountsFor=/home/pi/canlogs`.
+
+**Getestet am Pi (zu Hause, ohne CANable):**
+- Pfad ohne Stick über Umgebungsvariablen: Diagnose 45 kB. Remount der Basis rw/ro direkt (ohne chroot) klappt, die
+  Basis ist danach wieder `ro`. Testordner wieder gelöscht.
+- Meldung auf dem Display per `grim` geprüft. Mit Stick beendet sich der Check nach 10 ms.
+- Nach der Installation neu gestartet: Stick eingehängt, Basis `ro`, Bootcheck `status=0`, can-logger mit
+  `home-pi-canlogs.mount` in Requires/After, keine failed units. Dash-Erstframe 40,1 s, wie vorher.
+
+**Nicht getestet:** ein echter Boot ohne Stick, und das Nachhängen eines spät erkannten Sticks im Auto. Den nächsten
+Ausfall zeigt jetzt das Display an, die Ursache steht dann in der Diagnosedatei auf der SD.

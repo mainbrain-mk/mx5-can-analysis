@@ -47,7 +47,8 @@ immer schon sofort persistent.
 ```
 UUID=93602dc0-0a15-41d4-9b7c-3dbdfbb4a644  /home/pi/canlogs  ext4  defaults,noatime,nofail  0  2
 ```
-`nofail` ist wichtig, sonst hängt der Bootvorgang, falls der Stick mal fehlt. Die Zeile des alten Sticks
+`nofail` ist wichtig, sonst hängt der Bootvorgang, falls der Stick mal fehlt. Fehlt er, greift seit 18.11.2026 die
+Log-Stick-Prüfung (siehe "Log-Stick-Prüfung beim Boot"). Die Zeile des alten Sticks
 (`UUID=eb921b71-…`) steht auskommentiert darüber, die fstab davor als `/etc/fstab.vor-sandisk-2026-10-10`.
 
 **Stick tauschen** (so am 10.10. gemacht): neuen Stick zusätzlich einstecken (wird nicht automatisch
@@ -122,6 +123,37 @@ Zustandszeile (Backend: Framerate, Alter der Leitwerte, OBD-Anfragen; Dash: was 
 anzeigen). Neustart von Hand, z.B. nach einem Deploy:
 `pkill -f "python3 /home/pi/canlogs/dash_gui.py"` (die Schleife startet ihn nach 2 s neu;
 `pkill -f dash_gui.py` würde auch die Schleife beenden).
+
+Seit 2026-11-18 ruft der Autostart nur noch `canlogs-autostart.sh` auf (siehe nächster Abschnitt), das die
+beiden `respawn.sh`-Zeilen erst startet, wenn der Stick hängt.
+
+## Log-Stick-Prüfung beim Boot (seit 2026-11-18)
+
+Anlass: Am 18.11. morgens fehlte der Stick beim Boot. Das Display war schwarz mit Mauszeiger, nichts wurde
+aufgezeichnet (Logbuch `can-bus-status.md`, 18.11.). Drei Teile, alle in der SD-Basis, NICHT auf dem Stick:
+
+- `canlogs-bootcheck.sh` -> `/usr/local/bin/`, gestartet von `canlogs-bootcheck.service` (`Type=exec`, hält den
+  Boot nicht auf). Hängt der Stick nicht, versucht es 120 s lang alle 10 s `mount /home/pi/canlogs`. Klappt das,
+  startet es `can-logger`/`gps-logger` nach. Sonst schreibt es die Diagnose (Journal, dmesg, `lsusb -t`, `lsblk`,
+  ~45 kB gz) nach `/media/root-ro/var/log/canlogs-bootcheck/` (kurzes remount rw/ro der Basis).
+- `canlogs-autostart.sh` -> `/usr/local/bin/`, aus `~/.config/labwc/autostart`. Wartet auf den Stick, zeigt nach
+  60 s eine große zenity-Meldung „Log-Stick nicht gefunden“ und startet dann wie bisher Backend und Dash.
+- `can-logger.service` hat `RequiresMountsFor=/home/pi/canlogs`. Ohne Stick wird nicht ins RAM-Overlay geloggt.
+
+Testen ohne Stick-Ziehen (Umgebungsvariablen in den Skripten):
+`sudo CANLOGS_MOUNT=/tmp/nomnt CANLOGS_WAIT=4 CANLOGS_DIAG=/tmp/diagtest sh canlogs-bootcheck.sh`,
+`WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 CANLOGS_MOUNT=/tmp/nomnt CANLOGS_SHOW=0 sh canlogs-autostart.sh`
+(die Meldung liegt hinter einem laufenden Vollbild-Dash). Installation in EINEM `overlayroot-chroot`-Aufruf:
+
+```bash
+tar -c canlogs-bootcheck.sh canlogs-autostart.sh canlogs-bootcheck.service can-logger.service autostart | \
+  ssh pi@192.168.0.247 'sudo overlayroot-chroot sh -c "mkdir -p /root/bc && tar -x -C /root/bc \
+   && install -m 755 /root/bc/canlogs-*.sh /usr/local/bin/ \
+   && install -m 644 /root/bc/canlogs-bootcheck.service /root/bc/can-logger.service /etc/systemd/system/ \
+   && install -m 755 -o pi -g pi /root/bc/autostart /home/pi/.config/labwc/autostart \
+   && systemctl enable canlogs-bootcheck.service && rm -rf /root/bc"'
+```
+Danach neu starten (die Basis bleibt nach `overlayroot-chroot` oft `rw`, erst der Neustart macht sie wieder `ro`).
 
 ## Deploy per Git (seit 2026-09-28)
 

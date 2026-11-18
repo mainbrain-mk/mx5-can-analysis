@@ -1,0 +1,12 @@
+# Haengt den Log-Stick nach, falls er beim Boot fehlt, sonst Diagnose auf die SD (canlogs-bootcheck.sh).
+[Unit]
+Description=Log-Stick /home/pi/canlogs pruefen und ggf. nachtraeglich einhaengen
+After=local-fs.target
+
+[Service]
+# exec statt oneshot: darf den Boot (multi-user.target) nicht bis zu 120 s aufhalten
+Type=exec
+ExecStart=/usr/local/bin/canlogs-bootcheck.sh
+
+[Install]
+WantedBy=multi-user.target
