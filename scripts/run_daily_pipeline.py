@@ -857,6 +857,16 @@ def notify(message):
         pass
 
 
+def _is_drive_log(log_id):
+    """False fuer Logs ohne Fahrdynamik-Frames: leere Sitzung (Pi nach Sekunden stromlos) oder
+    Zuendung auf Zubehoer mit Motor aus (nur ~30 Karosserie-IDs, 21.11.: 121227/150439). Die
+    CAN-Einzelanalysen brechen dort ab, die Masse waere reine Tankbuch-Annahme."""
+    path = can_log_parser.decoded_path(os.path.join(CAN_DIR, f"{log_id}.log"))
+    if not os.path.exists(path):
+        return True  # unklar - Analysen laufen lassen, Fehler sieht man dann im Report
+    return duckdb.sql(f"SELECT count(*) FROM read_parquet('{path}') WHERE signal = 'Lateral_Acc_Raw'").fetchone()[0] > 0
+
+
 def main():
     errors = []
 
@@ -905,6 +915,9 @@ def main():
     step(6, "Datalake bauen")
     if new_logs or new_can_logs:
         run_script([PYTHON, "scripts/build_datalake.py"], errors)
+    # bleiben im Datalake, nur die Auswertungen ab hier ueberspringen sie
+    no_drive_logs = [l for l in new_can_logs if not _is_drive_log(l)]
+    new_can_logs = [l for l in new_can_logs if l not in no_drive_logs]
     step(7, "Fahrzeugmasse je CAN-Log berechnen")
     masses = update_mass_overrides(new_can_logs, errors)
 
@@ -1047,6 +1060,10 @@ def main():
         script_errors=errors,
     )
     findings += [pipeline_checks._finding("info", "can_clock_fixed", m) for m in clock_fixes]
+    findings += [pipeline_checks._finding("info", "can_log_no_drive",
+                                          f"{l}: keine Fahrdynamik-Frames (leer oder Zuendung Zubehoer), "
+                                          "nur in den Datalake uebernommen, Auswertungen uebersprungen.")
+                 for l in no_drive_logs]
     findings += [pipeline_checks._finding("info", "gpx_late_paired", f"{log} nachtraeglich mit {gpx} gepaart.")
                  for log, gpx in late_pairs.items()]
 

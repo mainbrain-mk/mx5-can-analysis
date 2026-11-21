@@ -7587,3 +7587,45 @@ Auffaelligkeiten:
 Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) 1.14 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=1).
+
+## Automatischer Lauf: 7 neue CAN-Logs uebernommen (2026-11-22)
+
+- `candump-2026-11-21_112203`, Masse=1258.7kg (Tank ~33.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-21_120535`, Masse=1253.9kg (Tank ~26.8 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-21_121227`
+- `candump-2026-11-21_121732`, Masse=1249.8kg (Tank ~21.3 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-21_144702`, Masse=1253.7kg (Tank ~26.5 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-21_150439`, Masse=1177.7kg (Tank ~25.1 l (Tankbuch, Mittel Start/Ende), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-11-21_190853`, Masse=1251.8kg (Tank ~23.9 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-11-21_121227: exit code 1: Kein LateralAcc_CAN fuer log_id='candump-2026-11-21_121227'
+
+- script_error: .venv/bin/python scripts/can_brake_event_analysis.py candump-2026-11-21_121227: exit code 1: Bremsdruck/Speed/Laengsbeschleunigung fehlt fuer log_id='candump-2026-11-21_121227'
+
+- script_error: .venv/bin/python scripts/can_vibration_analysis.py candump-2026-11-21_121227: exit code 1: LateralAcc_CAN fehlt fuer log_id='candump-2026-11-21_121227'
+
+- script_error: .venv/bin/python scripts/can_corner_event_analysis.py candump-2026-11-21_150439: exit code 1: Kein LateralAcc_CAN fuer log_id='candump-2026-11-21_150439'
+
+- script_error: .venv/bin/python scripts/can_brake_event_analysis.py candump-2026-11-21_150439: exit code 1: Bremsdruck/Speed/Laengsbeschleunigung fehlt fuer log_id='candump-2026-11-21_150439'
+
+- script_error: .venv/bin/python scripts/can_vibration_analysis.py candump-2026-11-21_150439: exit code 1: LateralAcc_CAN fehlt fuer log_id='candump-2026-11-21_150439'
+
+
+## Pipeline: Leer- und Zubehör-Logs überspringen (2026-11-22)
+
+Die 6 `script_error` vom Lauf heute früh kamen nur von zwei Nicht-Fahrten:
+- `candump-2026-11-21_121227`: Zündung auf Zubehör, Motor aus, ~4 min im Stand. Nur 32 IDs
+  (~400 Frames/s statt ~2900), keine Antwort auf 0x7E0/0x720 (PCM aus), kein 0x340, Handy-GPS
+  ≤ 0,5 kn. Es fehlen alle Motor-/ABS-/Lenkungs-IDs.
+- `candump-2026-11-21_150439`: 0 Byte, ifstats/clockstate auch leer, 18 s nach Ende von
+  `144702`. Der Pi war nach kurzem Zündungs-Ein sofort wieder stromlos (vgl. USV-Plan).
+
+`run_daily_pipeline.py` prüft jetzt nach dem Datalake-Bau je neuem CAN-Log, ob die dekodierte
+Datei `Lateral_Acc_Raw` enthält (`_is_drive_log()`). Ohne das Signal bleibt das Log im
+Datalake, aber Masse (Schritt 7) und alle Auswertungen ab Schritt 8 überspringen es. Im Report
+steht statt `script_error` ein Info-Befund `can_log_no_drive`. Ein im Stand laufender Motor zählt
+weiter als Fahrt-Log (das Signal ist dann da, die Analysen liefern 0 Ereignisse). Den
+Masse-Eintrag für 150439 (1177,7 kg, reine Tankbuch-/SOLO-Annahme) habe ich aus
+`data/log_mass_overrides.json` entfernt.
