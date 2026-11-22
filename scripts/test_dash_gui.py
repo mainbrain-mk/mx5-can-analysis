@@ -565,6 +565,32 @@ def test_sim_loop_replays_whole_log_until_stopped():
             pass
 
 
+def test_sim_stop_reaches_sim_from_earlier_dash():
+    """Dash neu gestartet, Sim lief weiter (22.11.2026): ein frisches SimController-Objekt muss sie als
+    laufend sehen (BEENDEN-Knopf) und ihre ganze Prozessgruppe beenden koennen."""
+    import subprocess
+    import time
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        trigger = os.path.join(tmp, "trigger")
+        open(trigger, "w").close()
+        loop = 'while [ -e "$1" ]; do sleep 0.2; done; sleep 30'
+        orphan = subprocess.Popen(["sh", "-c", loop, "sh", trigger, "x.log.gz"], start_new_session=True)
+        try:
+            with mock.patch.object(dash_gui, "SIM_TRIGGER_PATH", trigger), \
+                    mock.patch.object(dash_gui.subprocess, "run"):
+                sim = dash_gui.SimController()
+                assert sim.running
+                sim.stop()
+                assert not sim.running
+            orphan.wait(timeout=3)
+        finally:
+            if orphan.poll() is None:
+                orphan.kill()
+                raise AssertionError("fremde Sim-Schleife lebt nach stop() noch")
+
+
 def test_sim_log_choice_newest_first_without_stubs():
     """Log-Auswahl fuer die Simulation (10.10.2026): neuestes zuerst und vorausgewaehlt, leere
     50-Byte-Stummel nicht waehlbar, der gewaehlte Pfad landet beim Start."""
@@ -1001,6 +1027,7 @@ if __name__ == "__main__":
     test_testmode_has_priority_over_logging()
     test_sim_start_twice_at_once_starts_one_canplayer()
     test_sim_loop_replays_whole_log_until_stopped()
+    test_sim_stop_reaches_sim_from_earlier_dash()
     test_sim_log_choice_newest_first_without_stubs()
     test_sim_log_list_includes_unpacked_logs()
     test_sim_loop_plays_raw_log_and_falls_back_to_packed()

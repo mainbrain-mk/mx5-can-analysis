@@ -1433,7 +1433,24 @@ class SimController:
 
     @property
     def running(self):
-        return self.proc is not None and self.proc.poll() is None
+        # Auch eine Sim, die ein frueheres Dash gestartet hat (Dash neu gestartet, canplayer lief weiter):
+        # der Trigger existiert nur waehrend einer Sim. Sonst fehlte der BEENDEN-Knopf (22.11.2026).
+        return (self.proc is not None and self.proc.poll() is None) or os.path.exists(SIM_TRIGGER_PATH)
+
+    @staticmethod
+    def _orphan_pgids():
+        """Prozessgruppen fremder Sim-Schleifen: deren sh traegt SIM_TRIGGER_PATH als Argument."""
+        needle = SIM_TRIGGER_PATH.encode()
+        pgids = set()
+        for pid in filter(str.isdigit, os.listdir("/proc")):
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    if needle in f.read().split(b"\0"):
+                        pgids.add(os.getpgid(int(pid)))
+            except OSError:  # zwischendurch beendet
+                pass
+        pgids.discard(os.getpgid(0))  # nie die eigene Gruppe
+        return pgids
 
     def start(self, log_path=None):
         with self._lock:
@@ -1468,10 +1485,16 @@ class SimController:
             self._stop()
 
     def _stop(self):
+        orphans = self._orphan_pgids() if self.proc is None else set()
         try:
             os.remove(SIM_TRIGGER_PATH)
         except FileNotFoundError:
             pass
+        for pgid in orphans:  # sh-Schleife, zcat und canplayer der fremden Sim zusammen
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
         if self.proc is not None:
             try:
                 os.killpg(self.proc.pid, signal.SIGTERM)
