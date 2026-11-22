@@ -9,7 +9,7 @@ Prüfsumme, Konstante oder Reserve eingeordnet. Ergebnisse gehen fortlaufend in
 **Randbedingungen (Nutzer, 22.11.):**
 - Der Pi arbeitet im Auto **ohne Kontakt**: kein SSH, kein Eingriff, keine Handgriffe des Fahrers.
 - **Nichts Bestehendes geht verloren**: Dash, Logging, TPMS, Öl, Lambda/ETC/MAF/Klopfen,
-  Handy-Dongle.
+  Handy-Dongle. *(Nachtrag 22.11.: Laut Nutzer hängt seit einiger Zeit kein OBD-Adapter mehr am Bus, der Pi fragt alles selbst ab. Der Fremd-Tester-Schutz bleibt als Absicherung, z. B. gegen einen Werkstatt-Tester; eine fremde Anfrage in einem Log ist damit ein Befund, kein Normalfall.)*
 - Die Aufgaben sind in Häppchen geteilt, die sich **in den Fahrten eines Tages im Hintergrund**
   abarbeiten und bei jeder Fahrt dort weitermachen, wo die letzte aufgehört hat.
 - Die Auswertung läuft in der täglichen Aufgabe **„process-new-mx5-logs“**. Dort ist auch der
