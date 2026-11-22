@@ -28,7 +28,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-CHANNEL = "pcmtest"
+# TEST_IFACE=socketcan TEST_CHANNEL=vcan0: echter Kernel-Bus (Pi), sonst python-can virtual
+IFACE = os.environ.get("TEST_IFACE", "virtual")
+CHANNEL = os.environ.get("TEST_CHANNEL", "pcmtest")
 RUN_S = float(os.environ.get("RUN_S", 40.0))
 SUPPORTED = {0x1310: b"\x1f\x40", 0x03EC: b"\xff\x80", 0x1301: bytes(range(12))}
 MODE01 = {0x00: b"\x98\x3b\x80\x11", 0x20: b"\x00\x00\x00\x00", 0x44: b"\x80\x00",
@@ -37,7 +39,7 @@ MODE01 = {0x00: b"\x98\x3b\x80\x11", 0x20: b"\x00\x00\x00\x00", 0x44: b"\x80\x00
 
 def fake_pcm(stop, silent, latency=0.0035):
     import can
-    bus = can.interface.Bus(channel=CHANNEL, interface="virtual")
+    bus = can.interface.Bus(channel=CHANNEL, interface=IFACE)
     mf_rest = None
     next_engine = time.time()
     while not stop.is_set():
@@ -83,7 +85,7 @@ def fake_pcm(stop, silent, latency=0.0035):
 
 def phone(stop):
     import can
-    bus = can.interface.Bus(channel=CHANNEL, interface="virtual")
+    bus = can.interface.Bus(channel=CHANNEL, interface=IFACE)
     while not stop.is_set():
         bus.send(can.Message(arbitration_id=0x7E0, data=[2, 1, 0x0C, 0, 0, 0, 0, 0], is_extended_id=False))
         time.sleep(1 / 16)
@@ -98,7 +100,7 @@ def scenario(name):
     real_bus = can.interface.Bus
 
     def vbus(channel=None, interface=None, can_filters=None, **kw):
-        return real_bus(channel=CHANNEL, interface="virtual", can_filters=can_filters)
+        return real_bus(channel=CHANNEL, interface=IFACE, can_filters=can_filters)
     can.interface.Bus = vbus
 
     tmp = tempfile.mkdtemp()
@@ -108,7 +110,7 @@ def scenario(name):
     sdir = os.path.join(tmp, "state")
 
     stop = threading.Event()
-    obs = real_bus(channel=CHANNEL, interface="virtual")
+    obs = real_bus(channel=CHANNEL, interface=IFACE)
     threading.Thread(target=fake_pcm, args=(stop, name == "silent"), daemon=True).start()
     if name == "phone":
         threading.Thread(target=phone, args=(stop,), daemon=True).start()
