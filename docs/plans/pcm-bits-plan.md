@@ -93,6 +93,9 @@ Jedes Bit landet in genau einer Klasse, mit Beleg im Logbuch:
 
 ## Strang B: autonom auf dem Pi (PCM-Diagnosewerte als Anker)
 
+Namensvorschläge für Sweep-Treffer: [`pcm-community-dids.csv`](pcm-community-dids.csv) (OBDb + Torque-Liste, nur
+Kandidaten, Übernahme erst nach den Beweisregeln).
+
 Die PCM-Broadcasts sind fast immer Kopien interner Größen, die das PCM auch per Diagnose
 ausgibt. Der Pi fragt diese Größen ab, die Antworten landen automatisch im candump, und die
 Pipeline legt sie gegen jedes offene Feld.

@@ -6848,3 +6848,24 @@ Freigabe des Nutzers nach der Pilotauswertung. Konfiguration `stage: 1`, sonst n
 Planer am echten Pilotstand durchgespielt: Job J1, erste Anfrage DID 0x0300 (Prioritätsblöcke 03, 04, 09, 28, DA,
 F4, 0C, dann der Rest), Block 0x13 wird übersprungen. Deploy `a58710b`, Pi-Checkout sauber. Erwartet ~80 min
 Motorlauf; die Tagespipeline prüft je Fahrt Gesundheit und Fortschritt.
+
+## PCM-Kampagne: Community-DID-Listen eingesammelt (2026-11-22, spät)
+
+Auf Nutzerwunsch öffentliche Mazda-Mode-22-Listen geholt, als Namensvorschläge für Sweep-Treffer. Ergebnis:
+[`plans/pcm-community-dids.csv`](../plans/pcm-community-dids.csv), 353 Signale, davon 235 DIDs auf 0x7E0 (PCM).
+Quellen: **OBDb** (github.com/OBDb, Repos `Mazda-MX-5`, `Mazda-CX-5`, `Mazda-3`, Lizenz CC BY-SA 4.0;
+MX-5 nur 49 PCM-DIDs, CX-5/Mazda3 viel mehr, gleiche Skyactiv-PCM-Familie) und gist `agronick/…/pids.csv`
+(Torque-Liste Mazda3, eher Diesel; nur ergänzt, was OBDb nicht hat). Gesichtet, aber ohne neue DIDs:
+`gitgc/mx5-miata-nd2-obd-can` (ND2, reine Broadcast-Zuordnung + TPMS) und `drewid74/2024-nd3-mazda-obdii`.
+
+**Abgleich mit unserem Stand:**
+- 0x1310 Öltemperatur und 0x03EC (bei uns KnockRetard) stimmen **bis auf die Formel** mit OBDb überein
+  (`raw/100−40`, `signed16/512`). OBDb nennt 0x03EC „Ignition correction, cylinder 1“, also Zündkorrektur
+  Zylinder 1; passt zu unserem Befund, Vorzeichenfrage bleibt.
+- 0x4028 (am 12.09. konstant 88) = laut OBDb Batterie-Ladezustand in %, plausibel.
+- 0xF40C: F4xx ist der Spiegel der Mode-01-PIDs (F40C = Drehzahl). 0xF4A6 = Kilometerstand/10 stützt H-P0-02.
+- 0xDA86 steht in keiner Liste.
+
+**Vorbehalt:** Fremdlisten sind nur Kandidaten, kein Beleg. Ein Name aus der Liste wird erst nach den Beweisregeln
+(Plan, Regel 1–5) übernommen, also gegen unsere Anker und am Holdout. Viele Einträge stammen von Diesel/Turbo/
+Automatik und gibt es beim G184-Sauger mit Schaltgetriebe nicht; der Sweep zeigt, welche antworten.
