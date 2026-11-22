@@ -1,0 +1,473 @@
+{
+ "_kommentar": "Hypothesenregister PCM-Bits (docs/plans/pcm-bits-plan.md, Beweisregeln). stand: kandidat | hypothese | bestaetigt | verworfen. Die Pipeline (scripts/pcm_campaign_eval.py) prueft jeden Eintrag mit 'pruefung' an jedem neuen Log und schreibt das Ergebnis nach results/pcm_campaign/hypothesis_checks.jsonl; den Stand aendert nur die Auswertung in der Aufgabe process-new-mx5-logs bzw. Claude nach Pruefung.",
+ "hypothesen": [
+  {
+   "id": "H-A2-01",
+   "datum": "2026-11-22",
+   "aussage": "0x0FE B6 Bit3..0 Zaehler, B7 Pruefsumme = 6 + Summe(B0..B6)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x0FE B7 = B6 + 0x43 (B0..B5 konstant mitgezaehlt?)"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 20,2 Mio. Frames; B0..B5 in allen Logs konstant, welche Bytes eingehen ist nicht unterscheidbar"
+  },
+  {
+   "id": "H-A2-02",
+   "datum": "2026-11-22",
+   "aussage": "0x200 B7 = 0xFF - (B0+B1+B6): Pruefsumme nur ueber Byte0-1 und Zaehlerbyte",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x200 B7 = 0xFF - (B0 + B1 + B6)"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 10,1 Mio. Frames"
+  },
+  {
+   "id": "H-A2-03",
+   "datum": "2026-11-22",
+   "aussage": "0x202 B7 Pruefsumme ueber Signalwerte (Drehzahl 13 Bit, v 16 Bit, Pedal 10 Bit)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x202 B7 = 0x93 - (bytes(B0B1>>3) + B2 + B3 + bytes(B4B5>>6))"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 20,2 Mio. Frames"
+  },
+  {
+   "id": "H-A2-04",
+   "datum": "2026-11-22",
+   "aussage": "0x21F B7 = 0x7E - Summe(B0..B6)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x21F B7 = 0x7E - sum(B0..B6)"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 10,1 Mio. Frames"
+  },
+  {
+   "id": "H-A2-05",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA Seite 1..7 in B6 Bit7..5, konstanter Seitenwert in B6 Bit4..0",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x4FA B6 = Seite<<5 | Tabelle[Seite]>>2"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 2,0 Mio. Frames"
+  },
+  {
+   "id": "H-A2-06",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA B7 Bit7..6 Rest des Seitenwerts, Bit5..3/1..0 = 0",
+   "klasse": 4,
+   "pruefung": {
+    "typ": "pruefsumme",
+    "name": "0x4FA B7 = (Tabelle[Seite]&3)<<6, Bit5..3+1..0 = 0"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): 0 Verstoesse in 2,0 Mio. Frames (erste Fassung mit Bit2 = 1 scheiterte: Bit2 ist ein Zustand, H-A2-07)"
+  },
+  {
+   "id": "H-A2-07",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA B7 Bit2 = 1, wenn Motor laeuft oder im i-stop steht; ~4 s nach Abstellen bei Zuendung EIN 0",
+   "klasse": 2,
+   "pruefung": {
+    "typ": "flag",
+    "name": "0x4FA B7 Bit2 = Motor laeuft oder i-stop-Stopp"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus 8 Logs (5 Startphasen + 3 Logs mit Tankstopp/Abstellen); Holdout 131 Logs: 0 Verstoesse in 1,95 Mio. Frames (Uebergangsfenster +-6 s). Verworfene Vorfassung: 'seit Zuendung angesprungen' (3 Logs widersprachen)"
+  },
+  {
+   "id": "H-A2-08",
+   "datum": "2026-11-22",
+   "aussage": "0x0FD Rollzaehler 4 Bit; Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x0FD B2 Bit7..4"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt"
+  },
+  {
+   "id": "H-A2-09",
+   "datum": "2026-11-22",
+   "aussage": "0x0FE Rollzaehler 4 Bit; Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x0FE B6 Bit3..0"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt"
+  },
+  {
+   "id": "H-A2-10",
+   "datum": "2026-11-22",
+   "aussage": "0x167 Rollzaehler 3 Bit (gleicher Takt wie 0x200); Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x167 B3 Bit7..5"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt ausser 1 Fall bei CAN-Stoerung (candump-2026-09-19_233436, 65,45 s)"
+  },
+  {
+   "id": "H-A2-11",
+   "datum": "2026-11-22",
+   "aussage": "0x200 Rollzaehler 3 Bit; Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x200 B6 Bit3..1"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt"
+  },
+  {
+   "id": "H-A2-12",
+   "datum": "2026-11-22",
+   "aussage": "0x21F Rollzaehler 4 Bit; Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x21F B6 Bit3..0"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt"
+  },
+  {
+   "id": "H-A2-13",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA Seitenzaehler 1..7 (modulo 7); Schritt 0/1/2 (Rechentakt rutscht gegen Sendeplan, 0 und 2 paarweise)",
+   "klasse": 3,
+   "pruefung": {
+    "typ": "zaehler",
+    "name": "0x4FA B6 Bit7..5 (Seite 1..7)"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Hergeleitet aus candump-2026-11-21_190853; Holdout: alle anderen 138 Logs 11.09.-21.11. (verschiedene Tage, Kaltstarts enthalten): ohne Luecke nie ein anderer Schritt"
+  },
+  {
+   "id": "H-A1-01",
+   "datum": "2026-11-22",
+   "aussage": "0x0FE wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "0FE",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-02",
+   "datum": "2026-11-22",
+   "aussage": "0x130 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "130",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-03",
+   "datum": "2026-11-22",
+   "aussage": "0x165 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "165",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-04",
+   "datum": "2026-11-22",
+   "aussage": "0x166 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "166",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-05",
+   "datum": "2026-11-22",
+   "aussage": "0x167 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "167",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-06",
+   "datum": "2026-11-22",
+   "aussage": "0x200 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "200",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-07",
+   "datum": "2026-11-22",
+   "aussage": "0x202 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "202",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-08",
+   "datum": "2026-11-22",
+   "aussage": "0x20A wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "20A",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-09",
+   "datum": "2026-11-22",
+   "aussage": "0x21F wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "21F",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-10",
+   "datum": "2026-11-22",
+   "aussage": "0x420 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "420",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-11",
+   "datum": "2026-11-22",
+   "aussage": "0x42B wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "42B",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-12",
+   "datum": "2026-11-22",
+   "aussage": "0x4D1 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D1",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-13",
+   "datum": "2026-11-22",
+   "aussage": "0x4D4 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D4",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-14",
+   "datum": "2026-11-22",
+   "aussage": "0x4D5 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D5",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-15",
+   "datum": "2026-11-22",
+   "aussage": "0x4D6 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D6",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-16",
+   "datum": "2026-11-22",
+   "aussage": "0x4D7 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D7",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-17",
+   "datum": "2026-11-22",
+   "aussage": "0x4D9 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4D9",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-18",
+   "datum": "2026-11-22",
+   "aussage": "0x4DA wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4DA",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-19",
+   "datum": "2026-11-22",
+   "aussage": "0x4DC wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4DC",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-20",
+   "datum": "2026-11-22",
+   "aussage": "0x4F0 wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4F0",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-21",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4FA",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-A1-22",
+   "datum": "2026-11-22",
+   "aussage": "0x4FE wird vom PCM gesendet (gleicher Quarz wie 0x0FD)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "absender",
+    "can_id": "4FE",
+    "ref_id": "0FD"
+   },
+   "stand": "bestaetigt",
+   "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  }
+ ],
+ "verworfen": [
+  {
+   "id": "V-A1-01",
+   "datum": "2026-11-22",
+   "aussage": "0x4D9/0x4DA kommen nicht vom PCM (-52 ppm)",
+   "grund": "Methodenfehler: Frame-Nummer ueber das ganze Log mit gerundeter Nennperiode gezaehlt; mit fensterweiser Zaehlung und Frequenzverhaeltnis liegen beide bei <= 1 ppm (H-A1-17/18)"
+  },
+  {
+   "id": "V-A2-01",
+   "datum": "2026-11-22",
+   "aussage": "Zaehler laufen strikt mit Schritt 1",
+   "grund": "7-20 % Schritte 0/2 (paarweise) in allen Logs; ersetzt durch Regel Schritt 0/1/2"
+  },
+  {
+   "id": "V-A2-02",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA B7 Bit2 = 'Motor seit Zuendung angesprungen'",
+   "grund": "3 Logs: Bit faellt ~4 s nach Abstellen bei Zuendung EIN; ersetzt durch H-A2-07"
+  },
+  {
+   "id": "V-A2-03",
+   "datum": "2026-11-22",
+   "aussage": "0x4FA Byte6-7 sind Pruefsumme/Rauschen (can_open_fields-Klassifizierung)",
+   "grund": "Multiplex mit 7 konstanten Seitenwerten (H-A2-05/06)"
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+{
+  "stage": -1,
+  "_kommentar": "PCM-Kampagne (docs/plans/pcm-bits-plan.md). stage: -1 aus, 0 Pilot (Mode-01-Inventar + DID-Block 0x13), 1 voller DID-Sweep, 2 Anker-Rotation, 3 nur Hotlist. Jede Stufe nur nach Pruefung der vorigen in der Tagespipeline und nach Freigabe durch den Nutzer.",
+  "max_share": 0.10,
+  "max_rate_hz": 15.0,
+  "resp_timeout_s": 0.03
+}

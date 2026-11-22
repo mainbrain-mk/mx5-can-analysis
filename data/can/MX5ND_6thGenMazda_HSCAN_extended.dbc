@@ -296,6 +296,7 @@ BO_ 1061 HS_LVL: 8 HS_LVL
 BO_ 64 HS_PCM: 8 HS_PCM
 
 BO_ 253 HS_PCM: 8 HS_PCM
+   SG_ PCM_0FD_Counter : 23|4@0+ (1,0) [0|15] "" Vector__XXX
    SG_ EngineRunning_3 : 6|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ EngineRunning : 0|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ FuelCut : 41|1@0+ (1,0) [0|1] "" Vector__XXX
@@ -305,8 +306,8 @@ BO_ 253 HS_PCM: 8 HS_PCM
    SG_ CruiseActive_Inv : 61|1@0+ (1,0) [0|1] "" Vector__XXX
 
 BO_ 254 HS_PCM: 8 HS_PCM
-   SG_ MsgCounter_maybe : 55|8@0+ (1,0) [0|255] "" Vector__XXX
-   SG_ SlowlyVarying_unclear : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+   SG_ PCM_0FE_Counter : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+   SG_ PCM_0FE_Checksum : 63|8@0+ (1,0) [0|255] "" Vector__XXX
 
 BO_ 357 HS_PCM: 8 HS_PCM
    SG_ Clutch_Related : 22|7@0+ (1,0) [0|1] "" Vector__XXX
@@ -331,6 +332,7 @@ BO_ 304 HS_PCM: 8 HS_PCM
    SG_ Clutch_Pedal_Position_raw : 63|8@0+ (1,0) [0|199] "" Vector__XXX
 
 BO_ 359 HS_PCM: 8 HS_PCM
+   SG_ PCM_167_Counter : 31|3@0+ (1,0) [0|7] "" Vector__XXX
    SG_ iStop_StopRequest_PCM : 22|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ APP_Accelerator_Pedal_Position : 7|10@0+ (0.1,0) [0|1] "%" Vector__XXX
    SG_ ActualEnginePercentTorque : 39|8@0+ (3.1028,-183.019) [-183.019|608.195] "%" Vector__XXX
@@ -339,11 +341,14 @@ BO_ 359 HS_PCM: 8 HS_PCM
    SG_ BrakeSwitch_PCM_2 : 16|1@0+ (1,0) [0|1] "" Vector__XXX
 
 BO_ 512 HS_PCM: 8 HS_PCM
+   SG_ PCM_200_Counter : 51|3@0+ (1,0) [0|7] "" Vector__XXX
+   SG_ PCM_200_Checksum : 63|8@0+ (1,0) [0|255] "" Vector__XXX
    SG_ PCM_TorqueLoss_raw_maybe : 23|16@0+ (1,-32768) [-32768|32767] "" Vector__XXX
    SG_ EngineLoad_related_maybe : 7|16@0+ (1,0) [0|65535] "" Vector__XXX
    SG_ EngineTorque_related_maybe : 39|16@0+ (1,0) [0|65535] "" Vector__XXX
 
 BO_ 514 HS_PCM: 8 HS_PCM
+   SG_ PCM_202_Checksum : 63|8@0+ (1,0) [0|255] "" Vector__XXX
    SG_ EngineRPM : 7|16@0+ (0.25,0) [0|1] "rpm" Vector__XXX
    SG_ VehicleSpeed : 23|16@0+ (0.01,0) [0|1] "km/h" Vector__XXX
    SG_ APP_Accelerator_Pedal_Position : 39|16@0+ (0.0015625,0) [0|1] "%" Vector__XXX
@@ -354,6 +359,8 @@ BO_ 522 HS_PCM_w_i_ELOOP: 8 HS_PCM
    SG_ FuelNotCut_maybe : 39|1@0+ (1,0) [0|1] "" Vector__XXX
 
 BO_ 543 HS_PCM: 8 HS_PCM
+   SG_ PCM_21F_Counter : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+   SG_ PCM_21F_Checksum : 63|8@0+ (1,0) [0|255] "" Vector__XXX
 
 BO_ 1056 HS_PCM: 8 HS_PCM
    SG_ FuelConsumption_Counter : 23|8@0+ (1,0) [0|255] "" Vector__XXX
@@ -383,6 +390,9 @@ BO_ 1244 HS_PCM: 8 HS_PCM
 BO_ 1264 HS_PCM: 8 HS_PCM
 
 BO_ 1274 HS_PCM: 8 HS_PCM
+   SG_ PCM_4FA_Page : 55|3@0+ (1,0) [1|7] "" Vector__XXX
+   SG_ PCM_4FA_PageValue : 52|7@0+ (1,0) [0|127] "" Vector__XXX
+   SG_ EngineRunOrIstop_4FA : 58|1@0+ (1,0) [0|1] "" Vector__XXX
    SG_ IAT_Sensor_No1 : 39|8@0+ (1,-40) [-40|160] "degC" Vector__XXX
 
 BO_ 1278 HS_PCM: 8 HS_PCM
@@ -820,3 +830,15 @@ CM_ SG_ 120 BrakePressure "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_rec
 CM_ SG_ 359 ActualEnginePercentTorque "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_recheck.py): 3.0242*raw-177.849 -> 3.1028*raw-183.019 (+2,6 %). Die 15.09.-Kalibrierung (can_find_native_counterpart.py) hatte PID 0x62 linear auf ein 5-s-Raster interpoliert. Jetzt Kandidat an den PID-Zeitstempeln abgelesen, 25 Logs, gepoolt n=109490, R2 0,977, Lag 0-0,02 s. Streuung der Steigung je Fahrt 2,88-3,25 bleibt groesser als die Korrektur - Genauigkeit weiterhin ~4 Prozentpunkte.";
 CM_ SG_ 1114 BattSensor_Voltage_maybe "NACHKALIBRIERT (2026-09-29, scripts/can_obd_scale_recheck.py): 1/512 V -> 0,002 V/LSB mit -0,1 V Offset. Gegen PID 0x42 (alle 10 s) an den PID-Zeitstempeln: 22 Logs, gepoolt 0,00200264*raw-0,1006 V, R2 0,997 (vorher r=0,966 mit interpolierter Referenz). Die runde Skala weicht bei 12,5 V um 0,016 V vom Fit ab. Weiter _maybe (Messpunkt/Bedeutung nicht per Multimeter bestaetigt).";
 CM_ SG_ 304 Clutch_Pedal_Position_raw "NACHGERECHNET (2026-09-29, scripts/can_obd_scale_recheck.py): Pedalweg in % = raw/2 exakt (gegen CPP_PER_MZ DID 0x0478, % = raw*100/65535, 4 Logs, R2 1,000, Lag 0). Die fruehere Kalibrierung 0,4665*raw+0,56 (12.09.) war ein Interpolations-/Uhrenpaarungs-Artefakt. Bisspunkt raw 114-123 = 57-61,5 %. Signal bleibt als Rohwert (1,0) definiert.";
+CM_ SG_ 254 PCM_0FE_Counter "Rollzaehler 0-15 im Rechentakt des PCM (Schritt 1; Schritt 0 und 2 paarweise, wenn der Rechentakt gegen den Sendeplan rutscht). Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 20,2 Mio. Frames. Ersetzt MsgCounter_maybe (55|8, oberes Nibble immer 0).";
+CM_ SG_ 254 PCM_0FE_Checksum "Pruefsumme: B7 = (6 + Summe B0..B6) mod 256. B0..B5 sind in allen Logs konstant (3F FE 00 00 00 00), daher gleichwertig B7 = B6 + 0x43; welche Bytes eingehen, ist so nicht unterscheidbar. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 20,2 Mio. Frames. Ersetzt SlowlyVarying_unclear.";
+CM_ SG_ 253 PCM_0FD_Counter "Rollzaehler 0-15 im Rechentakt (Schritt 0/1/2, siehe PCM_0FE_Counter). Keine Pruefsumme in 0x0FD. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 10,1 Mio. Frames.";
+CM_ SG_ 359 PCM_167_Counter "Rollzaehler 0-7 im Rechentakt (Schritt 0/1/2). Gleicher Takt wie PCM_200_Counter (Schritt-0/2-Zahlen identisch je Log). Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 1 Verstoss in 10,1 Mio. Frames: candump-2026-09-19_233436 bei 65,45 s, dort 4 identische Frames binnen 1 ms und danach Sprung um 3 - Bild einer CAN-Stoerung (Wiederholung nach Fehlerrahmen), kein Widerspruch.";
+CM_ SG_ 512 PCM_200_Counter "Rollzaehler 0-7 (Bits 3..1 von Byte6) im Rechentakt (Schritt 0/1/2). Byte6 Bit0 und Bit7..4 sind nicht Teil des Zaehlers. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 10,1 Mio. Frames.";
+CM_ SG_ 512 PCM_200_Checksum "Pruefsumme: B7 = 0xFF - (B0 + B1 + B6) mod 256 - sie deckt NUR Byte0-1 und Byte6 (Zaehler) ab, Byte2-5 nicht. Gefunden per Gewichtssuche (-1/0/1/2 je Byte), 100 % der eindeutigen Frames. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 10,1 Mio. Frames.";
+CM_ SG_ 514 PCM_202_Checksum "Pruefsumme ueber SIGNALWERTE statt Bytes: B7 = 0x93 - [hi(U13)+lo(U13) + B2 + B3 + hi(A10)+lo(A10)] mod 256 mit U13 = B0B1>>3 (Drehzahl 13 Bit) und A10 = B4B5>>6 (Fahrpedal 10 Bit). Gefunden ueber die Ableitung: B7 aendert sich um -1 je 8 Schritte in B1, -1 je Schritt in B3, -4 je Schritt in B4, -1 je 64 in B5. Belegt damit auch: EngineRPM ist intern 13 Bit (2 1/min je LSB; B1 Bit2..0 stets 3) und APP 10 Bit (0,1 %; B5 Bit5..0 stets 0). Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 20,2 Mio. Frames.";
+CM_ SG_ 543 PCM_21F_Counter "Rollzaehler 0-15 (unteres Nibble Byte6, oberes Nibble F) im Rechentakt (Schritt 0/1/2). Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 10,1 Mio. Frames.";
+CM_ SG_ 543 PCM_21F_Checksum "Pruefsumme: B7 = 0x7E - Summe(B0..B6) mod 256. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 10,1 Mio. Frames.";
+CM_ SG_ 1274 PCM_4FA_Page "Multiplex-Seite 1..7 (ohne 0), zyklisch im Rechentakt (modulo 7: Schritt 0/1/2). Vorher als Pruefsumme/Rauschen eingestuft, weil sie jeden Frame wechselt. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 2,0 Mio. Frames.";
+CM_ SG_ 1274 PCM_4FA_PageValue "Je Seite ein konstanter 7-Bit-Wert (Byte6 Bit4..0 + Byte7 Bit7..6): Seite 1..7 = 63, 39, 60, 48, 62, 58, 117, in allen Logs identisch (Kennung/Kalibrierdaten?). Byte7 Bit5..3 und Bit1..0 stets 0. Belegt 2026-11-22 (PCM-Bits-Plan A2, scripts/pcm_counter_checksum.py): hergeleitet aus candump-2026-11-21_190853, geprueft bitgenau ueber alle 139 Logs 11.09.-21.11. 0 Verstoesse in 2,0 Mio. Frames.";
+CM_ SG_ 1274 EngineRunOrIstop_4FA "1 = Motor laeuft (0x202 > 400/min) oder steht im i-stop (0x130 iStop_EngineStopped); faellt ~4 s nach einem Abstellen bei Zuendung EIN (z. B. Tankstopp) auf 0, beim Neustart ~0,2 s nach Motorlauf wieder 1. Erste Fassung 'seit Zuendung angesprungen' scheiterte an 3 Logs mit Motor-AUS bei Zuendung EIN. Hergeleitet aus 8 Logs, geprueft an allen 139 (Uebergangsfenster +-6 s ausgenommen): 0 Verstoesse in 1,95 Mio. Frames.";

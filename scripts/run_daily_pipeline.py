@@ -70,7 +70,7 @@ FUEL_DENSITY_KG_L = 0.745
 # belegten Zeitanteil der Fahrt aufaddiert, nicht binaer - siehe compute_mass().
 # 75 kg sind gewogen, nicht geschaetzt (Nutzerangabe 2026-09-26).
 PASSENGER_MASS_KG = 75.0
-PIPELINE_STEPS = 12
+PIPELINE_STEPS = 13
 
 
 def progress(message):
@@ -597,6 +597,24 @@ def _scp_from_pi(fname, errors):
     return True
 
 
+PCM_CAMPAIGN_LOCAL_DIR = os.path.join(CAN_DIR, "pcm_campaign")
+
+
+def sync_pcm_campaign_from_pi():
+    """Holt Zustand und Ereignisse der PCM-Kampagne (canlogs/pcm_campaign/, docs/plans/
+    pcm-bits-plan.md) nach data/can/pcm_campaign/. Optional: solange die Kampagne nie lief,
+    gibt es den Ordner nicht - dann still nichts tun, kein Fehler im Report. Die Auswertung
+    rechnet ohnehin aus dem candump; der Zustand dient nur der Fortschrittsanzeige."""
+    os.makedirs(PCM_CAMPAIGN_LOCAL_DIR, exist_ok=True)
+    for fname in ("state.json", "events.log"):
+        try:
+            subprocess.run(["scp", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes",
+                            f"{PI_HOST}:{PI_CANLOGS_DIR}/pcm_campaign/{fname}", PCM_CAMPAIGN_LOCAL_DIR + "/"],
+                           capture_output=True, text=True, timeout=60)
+        except Exception:
+            pass
+
+
 def sync_gps_logs_from_pi(errors):
     """Holt neue oder gewachsene gps-*.nmea vom Pi, vor den CAN-Logs, damit die sie schon finden.
     Eine Datei waechst, solange gps_logger.py laeuft (auch ueber Trennungen hinweg), also Groesse
@@ -663,6 +681,7 @@ def sync_can_logs_from_pi(errors):
 
     # nach dem find: enthaelt damit jedes unten gefundene (fertige) Log, auch fuer compute_mass()
     _scp_from_pi(FUEL_LEDGER_NAME, errors)
+    sync_pcm_campaign_from_pi()
 
     # nur fertige Dateien: .log.gz.tmp (Kompression von session_logger.py lief bzw.
     # wurde per Stromausfall abgebrochen, 27.09.) wuerde sonst als Log behandelt
@@ -978,7 +997,19 @@ def main():
                 run_script([PYTHON, "scripts/steering_lateral_model.py", *analysis_logs], errors)
                 steering_ran = True
 
-    step(12, "Befunde pruefen, Report schreiben")
+    step(12, "PCM-Kampagne: Gesundheit, Hypothesen, Fortschritt" if new_can_logs else "PCM-Kampagne: keine neuen CAN-Logs")
+    pcm_campaign = None
+    pcm_findings = []
+    if new_can_logs:
+        # docs/plans/pcm-bits-plan.md: deterministischer Teil; die Pruefung der Befunde und
+        # Rueckfragen an den Nutzer uebernimmt die Aufgabe process-new-mx5-logs selbst
+        if run_script([PYTHON, "scripts/pcm_campaign_eval.py", *new_can_logs], errors) is not None:
+            pcm = load_json("pcm_campaign/eval_latest.json") or {}
+            pcm_campaign = {"progress": pcm.get("progress"), "health": pcm.get("health") or {},
+                            "n_hypothesen": len(pcm.get("hypothesen_geprueft") or [])}
+            pcm_findings = [pipeline_checks._finding(sev, cat, msg) for sev, cat, msg in pcm.get("findings") or []]
+
+    step(13, "Befunde pruefen, Report schreiben")
     # --- Kernzahlen fuer den Report zusammenstellen ---
     vibration = {}
     for log_id in new_logs:
@@ -1066,6 +1097,7 @@ def main():
                  for l in no_drive_logs]
     findings += [pipeline_checks._finding("info", "gpx_late_paired", f"{log} nachtraeglich mit {gpx} gepaart.")
                  for log, gpx in late_pairs.items()]
+    findings += pcm_findings
 
     run_report = {
         "date": date.today().isoformat(),
@@ -1084,6 +1116,7 @@ def main():
         "coastdown": coastdown,
         "steering": steering,
         "dgm_gap_new_logs": dgm_gap_new_logs,
+        "pcm_campaign": pcm_campaign,
         "findings": findings,
     }
 
