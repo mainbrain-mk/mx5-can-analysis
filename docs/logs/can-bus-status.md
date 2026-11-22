@@ -6547,3 +6547,30 @@ Auf Wunsch des Nutzers vor dem Pollen von `0x4028` zuerst im CAN-Stream gesucht.
 
 Offen: Bestätigung über einen Verlauf (DID `0x4028` mitpollen oder Ladegerät über Nacht), DBC-Änderung und
 Datalake/Dash nach Nutzerentscheid.
+
+## Externe Quellen geprüft + ECU-Discovery gebaut (2026-11-22)
+
+**Geprüft, nichts übernommen:** akj7.github.io „Reverse-Engineering a Car's CAN Bus with Claude“ (CANExplorer + MCP).
+Alles darin (Bitkipprate, MSB-/Feldbreiten-Fall, Korrelation mit Skala/Offset/Lag, Marker-Reaktion) deckt der Skill
+schon ab. Einzige Lücke bleibt die fehlende automatische Lag-Suche in `can_bitsearch.py` (bekannt).
+
+**Geprüft, eine Idee übernommen:** `github.com/philipkocanda/canair` (WiCAN-CLI, Ioniq-Profil). Analysebefehle
+entsprechen unseren Skripten (`correlate --control` ≈ `can_find_native_counterpart.py`, `--discriminate` ≈
+`can_event_bit_diff.py`, `--find-mirrors` ≈ `can_field_families.py`, `--counters` ≈ `can_find_clock_candidate.py`).
+Neu für uns: `discover`, also alle Diagnoseadressen abfragen statt nur der vier bekannten.
+
+**Passt das zum ND? Recherche:**
+- Mazda-Schema Antwort = Anfrage+8 ist an unserem Auto belegt (720→728, 7E0→7E8, 730→738, 760→768).
+- Adressliste Skyactiv (carcoding.app, miatafy.com für ND, forum.miata.net t=727561 für NC): PCM 7E0, TCM 7E1,
+  ABS/DSC 760, IC 720, FBCM 726, RBCM 7B7, SSU 731, Gateway 723, EPS 730, Frontkamera 706, Radar 764/793,
+  RCM Airbag 737, EPB 756. 0x720 ist das Kombiinstrument (bei uns bisher „TPMS“ genannt).
+- **Einschränkung:** FBCM/RBCM/SSU hängen laut miatafy am MS-CAN (125 kbit, Pins 3/11). Wir sind nur am HS-CAN.
+  Das IC antwortet trotzdem am HS-CAN (12.09. belegt). Ob es Diagnose zu MS-CAN-Geräten durchreicht, ist offen;
+  genau das zeigt die Discovery.
+- Unsere Logs: im Bereich 0x7xx kommen nur 720/728 und 7E0/7E8 vor, also keine Kollision mit Nutzverkehr.
+
+**Umsetzung:** `uds_did_sweep.py --discover [--out ecus.csv]`. Sendet TesterPresent (`3E 00`, ändert nichts am
+Steuergerät) an 236 Anfrage-IDs 0x700–0x7F7, ohne 0x7DF und ohne bekannte Antwort-IDs; schreibt jede positive
+Antwort oder NRC auf 0x700–0x7FF mit Namen aus `MAZDA_ECU_NAMES` mit. Dauer ca. 40 s. Selbsttest erweitert,
+Schleife gegen einen simulierten Bus getestet. **Noch nicht am Auto gelaufen** (im Stand, Motor an).
+Neue Steuergeräte dann mit dem vorhandenen DID-Sweep abklopfen (Identität `F18x/F19x` zuerst).
