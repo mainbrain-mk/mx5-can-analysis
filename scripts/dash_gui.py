@@ -1176,7 +1176,13 @@ class DriveScreen(Screen):
         bottom = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=0.23)
         self.gas_card = MetricCard("GASPEDAL", unit="%", bar_color=GREEN)
         self.brake_card = MetricCard("BREMSE", unit="%", bar_color=BLUE)
-        self.lambda_card = MetricCard("LAMBDA", value_fmt="{:.2f}")
+        # Kat-Temperatur (OBD 0x3C, alle 10 s) als zweite Zeile unter Lambda wie Liter beim Kraftstoff
+        self.lambda_card = MetricCard("LAMBDA", value_fmt="{:.2f}", side=True)
+        # Beschriftung der Kat-Zeile am unteren Rand, im Stil des Titels (Nutzerwunsch 22.11.)
+        cat_title = Label(text="KATALYSATOR", font_size="18sp", color=TEXT_DIM, bold=True,
+                          size_hint_y=None, height=26, halign="left", valign="middle")
+        cat_title.bind(size=lambda w, s: setattr(w, "text_size", s))
+        self.lambda_card.add_widget(cat_title)
         self.iat_card = MetricCard("ANSAUGLUFT", unit="°C")
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
         self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
@@ -1259,6 +1265,8 @@ class DriveScreen(Screen):
         self.brake_card.set_value(c.get(120, "_BrakePedalPercent_derived"))
         self.lambda_card.set_value(
             c.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S))
+        cat_c = c.get(OIL_RESPONSE_KEY, "_CatalystTemp_B1S1_C_derived", max_age=OIL_STALE_S)
+        self.lambda_card.sub_label.text = "" if cat_c is None else f"{cat_c:.0f}°C"
         self.iat_card.set_value(c.get(IAT_CAN_ID, "IAT_Sensor_No1"))
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
         fuel_liters = snap.get("fuel_liters")
