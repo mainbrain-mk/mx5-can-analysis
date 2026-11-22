@@ -344,6 +344,7 @@ CAN_SIGNAL_MAP = {
     # noch nicht am Fahrzeug bestaetigt, siehe docs/status/can-open-fields.md.
     "BatteryVoltage_OBD": ("BatteryVoltage_CAN", "V"),
     "DCDC_Voltage": ("SystemVoltage_CAN", "V"),
+    "BatterySOC": ("BatterySOC_CAN", "%"),  # 0x42B Byte2, 22.11.2026
     "iELOOP_CapVoltage_maybe": ("iELOOP_CapVoltage_CAN", "V"),
     "DCDC_State_maybe": ("DCDC_State_CAN", ""),
     "BattSensor_Temp_maybe": ("BatteryTemp_CAN", "°C"),
@@ -383,7 +384,8 @@ FUEL_RATE_WINDOW_S = 2.0           # Zaehler zaehlt nur ~1 Schritt/s im Leerlauf
 # Init-/Ungueltig-Werte, die sonst als echte Messwerte im Datalake landen (2026-09-26 gesehen:
 # Batterietemperatur 255-40=215, Aussentemperatur Rohwert 0 (Init, seit 0,25/LSB = 0,0), Spannungen 0 in den ersten Frames).
 CAN_SENTINELS = {"BattSensor_Temp_maybe": 215.0, "AmbientTemp": 0.0, "DCDC_Voltage": 0.0,
-                 "iELOOP_CapVoltage_maybe": 0.0, "AvgFuelConsumption": 655.34}
+                 "iELOOP_CapVoltage_maybe": 0.0, "AvgFuelConsumption": 655.34,
+                 "BatterySOC": 127.0}  # 254*0,5 = ungueltig
 GPX_NS = {"g": "http://www.topografix.com/GPX/1/0"}
 TICKS_OFFSET = 621355968000000000  # .NET-Ticks -> Unix-Referenz
 

@@ -190,6 +190,7 @@ def _clutch_gear_color(clutch_raw):
     f = min(1.0, (clutch_raw - CLUTCH_ACTIVE_RAW) / (CLUTCH_FULL_RAW - CLUTCH_ACTIVE_RAW))
     return tuple(a + (b - a) * f for a, b in zip(BABY_BLUE, NAVY))
 
+SOC_CAN_ID = 1067  # 0x42B BatterySOC
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
 CONSUMPTION_BAR_L100 = (4.0, 25.0)  # Verbrauchsbalken der KRAFTSTOFF-Kachel: leer .. voll (Nutzerwunsch 31.10.)
@@ -1161,7 +1162,8 @@ class DriveScreen(Screen):
         stat_col = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.2)
         self.coolant_card = MetricCard("WASSER", unit="°C")
         self.oil_card = MetricCard("ÖLTEMP.", unit="°C")
-        self.battery_card = MetricCard("BATTERIE", unit="V", value_fmt="{:.1f}")
+        # Ladezustand (0x42B, %) rechtsbuendig neben der Spannung (Nutzerwunsch 22.11.)
+        self.battery_card = MetricCard("BATTERIE", unit="V", value_fmt="{:.1f}", side=True)
         stat_col.add_widget(self.coolant_card)
         stat_col.add_widget(self.oil_card)
         stat_col.add_widget(self.battery_card)
@@ -1176,7 +1178,13 @@ class DriveScreen(Screen):
         bottom = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=0.23)
         self.gas_card = MetricCard("GASPEDAL", unit="%", bar_color=GREEN)
         self.brake_card = MetricCard("BREMSE", unit="%", bar_color=BLUE)
-        self.lambda_card = MetricCard("LAMBDA", value_fmt="{:.2f}")
+        # Kat-Temperatur (OBD 0x3C, alle 10 s) als zweite Zeile unter Lambda wie Liter beim Kraftstoff
+        self.lambda_card = MetricCard("LAMBDA", value_fmt="{:.2f}", side=True)
+        # Beschriftung der Kat-Zeile am unteren Rand, im Stil des Titels (Nutzerwunsch 22.11.)
+        cat_title = Label(text="KATALYSATOR", font_size="18sp", color=TEXT_DIM, bold=True,
+                          size_hint_y=None, height=26, halign="left", valign="middle")
+        cat_title.bind(size=lambda w, s: setattr(w, "text_size", s))
+        self.lambda_card.add_widget(cat_title)
         self.iat_card = MetricCard("ANSAUGLUFT", unit="°C")
         self.load_card = MetricCard("MOTORLAST", unit="%", bar_color=ORANGE)
         self.fuel_card = MetricCard("KRAFTSTOFF", unit="%", bar_color=YELLOW, side=True)
@@ -1231,6 +1239,9 @@ class DriveScreen(Screen):
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))
         self.battery_card.set_value(
             c.get(138, "DCDC_Voltage"))  # Broadcast 0x08A statt PID 0x42 (26.09.)
+        soc = c.get(SOC_CAN_ID, "BatterySOC")
+        # 254 roh (127 %) = ungueltig, siehe DBC-Kommentar
+        self.battery_card.set_side("" if soc is None or soc > 100 else f"{soc:.0f}%")
 
         for key, spec in (("VL", "Tire1"), ("VR", "Tire2"), ("HL", "Tire3"), ("HR", "Tire4")):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)
@@ -1259,6 +1270,8 @@ class DriveScreen(Screen):
         self.brake_card.set_value(c.get(120, "_BrakePedalPercent_derived"))
         self.lambda_card.set_value(
             c.get(OIL_RESPONSE_KEY, "_LambdaCommanded_derived", max_age=LAMBDA_STALE_S))
+        cat_c = c.get(OIL_RESPONSE_KEY, "_CatalystTemp_B1S1_C_derived", max_age=OIL_STALE_S)
+        self.lambda_card.sub_label.text = "" if cat_c is None else f"{cat_c:.0f}°C"
         self.iat_card.set_value(c.get(IAT_CAN_ID, "IAT_Sensor_No1"))
         self.load_card.set_value(c.get(LOAD_CAN_ID, "ActualEnginePercentTorque"))
         fuel_liters = snap.get("fuel_liters")
@@ -1420,7 +1433,24 @@ class SimController:
 
     @property
     def running(self):
-        return self.proc is not None and self.proc.poll() is None
+        # Auch eine Sim, die ein frueheres Dash gestartet hat (Dash neu gestartet, canplayer lief weiter):
+        # der Trigger existiert nur waehrend einer Sim. Sonst fehlte der BEENDEN-Knopf (22.11.2026).
+        return (self.proc is not None and self.proc.poll() is None) or os.path.exists(SIM_TRIGGER_PATH)
+
+    @staticmethod
+    def _orphan_pgids():
+        """Prozessgruppen fremder Sim-Schleifen: deren sh traegt SIM_TRIGGER_PATH als Argument."""
+        needle = SIM_TRIGGER_PATH.encode()
+        pgids = set()
+        for pid in filter(str.isdigit, os.listdir("/proc")):
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    if needle in f.read().split(b"\0"):
+                        pgids.add(os.getpgid(int(pid)))
+            except OSError:  # zwischendurch beendet
+                pass
+        pgids.discard(os.getpgid(0))  # nie die eigene Gruppe
+        return pgids
 
     def start(self, log_path=None):
         with self._lock:
@@ -1455,10 +1485,16 @@ class SimController:
             self._stop()
 
     def _stop(self):
+        orphans = self._orphan_pgids() if self.proc is None else set()
         try:
             os.remove(SIM_TRIGGER_PATH)
         except FileNotFoundError:
             pass
+        for pgid in orphans:  # sh-Schleife, zcat und canplayer der fremden Sim zusammen
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
         if self.proc is not None:
             try:
                 os.killpg(self.proc.pid, signal.SIGTERM)

@@ -87,6 +87,15 @@ def test_probe_runs_once_and_only_with_flag():
             # zweiter Aufruf (naechste Fahrt): nicht erneut
             session.maybe_start_probe()
             assert started == ["uds_did_sweep.py"], f"erneut gestartet: {started}"
+
+            # Flagge mit "--discover": Discovery statt Probe
+            args = []
+            session._popen = lambda cmd, **k: (args.append(cmd), fake_popen(cmd))[1]
+            with open(sl.PROBE_FLAG_PATH, "w") as fh:
+                fh.write("--discover\n")
+            session.maybe_start_probe()
+            assert "--discover" in args[0] and "--probe" not in args[0], args
+            assert any(a.endswith(".csv") and "discover-" in a for a in args[0]), args
         finally:
             sl.PROBE_FLAG_PATH = orig_flag
     print("Probe-Test OK")

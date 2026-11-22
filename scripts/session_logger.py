@@ -330,11 +330,15 @@ class SessionLogger:
             if not os.path.exists(PROBE_FLAG_PATH):
                 return
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            out_path = os.path.join(self.log_dir, f"probe-{stamp}.csv")
+            # Inhalt der Flagge waehlt den Modus (2026-11-22): leer = --probe wie bisher,
+            # "--discover" = ECU-Discovery. Nur diese beiden, kein freier Befehl.
+            with open(PROBE_FLAG_PATH) as fh:
+                mode = "--discover" if "--discover" in fh.read() else "--probe"
+            out_path = os.path.join(self.log_dir, f"{mode[2:]}-{stamp}.csv")
             os.rename(PROBE_FLAG_PATH, f"{PROBE_FLAG_PATH}.gestartet-{stamp}")
             self.probe_proc = self._popen(
                 [sys.executable, PROBE_SCRIPT_PATH, "--channel", self.can_channel,
-                 "--probe", "--wait-rpm", str(PROBE_WAIT_RPM_S), "--out", out_path],
+                 mode, "--wait-rpm", str(PROBE_WAIT_RPM_S), "--out", out_path],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             print(f"[session_logger] Einmal-Erhebung gestartet -> {out_path}", flush=True)
