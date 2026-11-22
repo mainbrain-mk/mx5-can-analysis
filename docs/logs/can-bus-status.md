@@ -6562,3 +6562,121 @@ Auf Wunsch des Nutzers die Vorschläge 1–3 von oben gebaut. Details und Instal
 
 **Nicht getestet:** ein echter Boot ohne Stick, und das Nachhängen eines spät erkannten Sticks im Auto. Den nächsten
 Ausfall zeigt jetzt das Display an, die Ursache steht dann in der Diagnosedatei auf der SD.
+
+## PCM-Bits vollständig zuordnen: Start (2026-11-22)
+
+Nutzerauftrag: alle Bits der PCM-Botschaften zuordnen und verstehen, selbständig, der Pi arbeitet im Auto ohne
+Kontakt, Auswertung und Rückfragen in der Aufgabe „process-new-mx5-logs“, Genauigkeit vor Tempo. Konzept, Beweisregeln
+und Freigabestufen: [`plans/pcm-bits-plan.md`](../plans/pcm-bits-plan.md), Register:
+[`plans/pcm-bits-hypotheses.json`](../plans/pcm-bits-hypotheses.json).
+
+### Ausgangslage
+
+`can_open_fields.py` mit der DBC vom 22.11. über 132 Logs: in den 24 Botschaften mit DBC-Absender `HS_PCM` ~326
+variierende Bits ohne Signal (in ≥ 10 % der Logs), dazu ~15 Signale `_maybe`/`_related`. 0x040 kommt in keinem Log vor.
+
+### A1: Welche Botschaften sendet das PCM wirklich? (Taktdrift)
+
+**Methode** (`scripts/can_sender_clock.py`): Jedes Steuergerät taktet aus seinem Quarz. Je ID und 60-s-Fenster wird die
+Periode gegen die Pi-Uhr per Regression geschätzt (Frame-Nummer je Fenster gezählt). Zwei IDs vergleicht das
+Periodenverhältnis gegen den nächsten einfachen Bruch, die Pi-Uhr kürzt sich heraus. Gleicher Quarz → ~0 ppm in jedem
+Log, fremder Quarz → zweistellig und je Log wandernd.
+
+**Verworfen unterwegs (Methodenfehler, nicht Befund):** Die erste Fassung zählte die Frame-Nummer über das ganze Log
+mit einer auf 0,1 ms gerundeten Nennperiode. Bei 100.000+ Frames verrutscht die Nummer schon bei ppm-Fehlern. Folge:
+0x4D9/0x4DA erschienen mit −52 ppm als „nicht PCM“, nach der Korrektur der Rundung kippten sie in den Cluster. Erst die
+fensterweise Zählung mit Frequenzverhältnis ist stabil (Selbsttest mit Jitter wie 0x20A, verlorenen Frames, fremdem Quarz).
+Außerdem nähert `limit_denominator(20)` bei großen Verhältnissen fast jeden Wert an; Kriterium daher nicht der Median,
+sondern festes Nennverhältnis über alle Logs **und** Anteil der Logs mit |Abw.| ≤ 5 ppm.
+
+**Belegt:** Herleitung an 12 Logs (12.09.–21.11.), Bestätigung an 103 weiteren Logs (Holdout):
+- Alle **23** PCM-IDs auf dem Bus (24 laut DBC ohne 0x040) laufen auf dem Quarz von 0x0FD, mit exakt rationalen
+  Verhältnissen (0,5/0,75/1/2,5/5/50). Anteil der Logs mit |Abw.| ≤ 5 ppm: 37–100 % (10-Hz-Botschaften rauschen mehr);
+  beste fremde ID ≤ 7 %. Auch 0x4D4, 0x4D9, 0x4DA, 0x4FE (vorher als IC/CMU vermutet) sind PCM.
+- 0x4FE: in 102/103 Logs Verhältnis 5,0; 2026-09-26_120235 hat 2,5 % zusätzliche ereignisgesteuerte Frames.
+- Keine weitere ID ohne DBC-Absender PCM läuft auf dem PCM-Quarz.
+- Kontrollen: ABS-Cluster (0x078, 0x079, 0x211, 0x215, 0x217, 0x21E, 0x596) und EPS-Cluster (0x086, 0x11C, 0x240)
+  decken sich mit den DBC-Absendern.
+- Einzelnes 0x4F0 (1 Hz) ist je Fahrt zu kurz für eine eigene Prüfung, im Holdout aber im Cluster.
+
+### A2: Zähler und Prüfsummen (bitgenau über alle Frames aller 139 Logs)
+
+`scripts/pcm_counter_checksum.py`. Hergeleitet je aus `candump-2026-11-21_190853`, geprüft an allen anderen Logs.
+
+**Prüfsummen, 0 Verstöße:**
+| ID | Regel | Frames |
+|---|---|---|
+| 0x0FE | B7 = (6 + Σ B0..B6) mod 256; B0..B5 sind in allen Logs konstant (3F FE 00 00 00 00), daher gleichwertig B7 = B6 + 0x43 | 20,2 Mio. |
+| 0x200 | B7 = 0xFF − (B0 + B1 + B6) mod 256, deckt **nur** Byte0-1 und das Zählerbyte ab | 10,1 Mio. |
+| 0x202 | B7 = 0x93 − [hi(U13)+lo(U13) + B2 + B3 + hi(A10)+lo(A10)] mod 256, U13 = B0B1>>3, A10 = B4B5>>6 | 20,2 Mio. |
+| 0x21F | B7 = 0x7E − Σ B0..B6 mod 256 | 10,1 Mio. |
+
+Fundweg 0x200/0x202: Über GF(2) sind beide nur im niedrigsten Bit affin (Signatur einer Additions-, keiner
+CRC-Prüfsumme; Kontrolle 0x21F zeigt dasselbe). 0x200 per Gewichtssuche je Byte. 0x202 über die Ableitung: B7 ändert
+sich um −1 je 8 Schritte in B1, −1 je Schritt in B3, −4 je Schritt in B4, −1 je 64 in B5 → die Summe läuft über
+**Signalwerte**. Nebenbefund: Drehzahl ist intern 13 Bit (2 1/min je LSB, B1 Bit2..0 stets 3), Fahrpedal 10 Bit
+(0,1 %, B5 Bit5..0 stets 0). Die DBC-Signale (16 Bit) dekodieren trotzdem richtig.
+
+**Zähler:** 0x0FD B2 Bit7..4, 0x0FE B6 Bit3..0, 0x167 B3 Bit7..5, 0x200 B6 Bit3..1, 0x21F B6 Bit3..0. Verworfen:
+„Schritt immer 1“ (7–20 % Abweichung). Belegt: Schritt 0, 1 oder 2, wobei 0 und 2 paarweise und gleich häufig
+auftreten (z. B. 0x0FD 412.924/405.634). Die Zähler zählen den Rechentakt, nicht die Sendungen: rutscht der Takt gegen
+den Sendeplan, geht ein Wert doppelt raus und der nächste fällt aus. 0x167 und 0x200 haben je Log identische
+Schritt-0/2-Zahlen, also dieselbe Rechenaufgabe. Ohne Lücke nie ein anderer Schritt, außer **einem** Fall in
+`candump-2026-09-19_233436` bei 65,45 s: viermal dasselbe 0x167-Frame binnen 1 ms, danach Sprung um 3 – Bild einer
+CAN-Störung (Wiederholung nach Fehlerrahmen), kein Widerspruch.
+
+**0x4FA Byte6-7 (vorher „Prüfsumme/Rauschen“):** ein 7-seitiger Multiplex. B6 Bit7..5 = Seite 1..7 (ohne 0), zyklisch
+im Rechentakt (modulo 7; modulo 8 gerechnet sah ein ausgelassenes Seite-1 wie Schritt 3 aus). Je Seite ein konstanter
+7-Bit-Wert in B6 Bit4..0 + B7 Bit7..6: 63, 39, 60, 48, 62, 58, 117, in allen Logs gleich (Kennung oder
+Kalibrierdaten?). B7 Bit5..3 und Bit1..0 stets 0. 0 Verstöße in 2,0 Mio. Frames.
+
+**0x4FA B7 Bit2:** Zustand, keine Konstante (1,5 % der Frames wichen ab, immer am Logbeginn). Erste Fassung „Motor seit
+Zündung angesprungen“ scheiterte an 3 Logs (`2026-09-26_142216`, `2026-10-27_075726`, `2026-10-31_114834`): dort fällt das
+Bit ~4 s nach Abstellen bei Zündung EIN (Tankstopp) auf 0. Belegt: **1 = Motor läuft (0x202 > 400/min) oder i-stop-Stopp
+(0x130 Bit 19)**. Bei i-stop bleibt es 1 (z. B. 4645 Frames am 14.09.). Hergeleitet aus 8 Logs, Holdout 131 Logs, 0
+Verstöße in 1,95 Mio. Frames (Übergänge ±6 s ausgenommen).
+
+**In die DBC übernommen** (nur Bestätigtes, mit `CM_`-Beleg): `PCM_0FD_Counter`, `PCM_0FE_Counter`/`_Checksum` (ersetzen
+`MsgCounter_maybe`/`SlowlyVarying_unclear`), `PCM_167_Counter`, `PCM_200_Counter`/`_Checksum`, `PCM_202_Checksum`,
+`PCM_21F_Counter`/`_Checksum`, `PCM_4FA_Page`/`_PageValue`, `EngineRunOrIstop_4FA`. Tests `can_log_parser`,
+`can_backend`, `build_datalake` grün.
+
+### Strang B: Kampagnen-Werkzeug (gebaut, nicht deployt)
+
+- `scripts/pcm_campaign.py` läuft **im** `tpms_poller.py`: höchstens eine Anfrage je schneller Runde, gesendet über den
+  Socket des Pollers. Ein eigener Sende-Socket hätte den Poller unsere Anfragen als fremden Tester sehen und sich auf
+  5 Runden/s drosseln lassen. Empfang über einen eigenen Socket (0x7E8 + 0x202). Jobs J0 Mode-01-Inventar, J1 DID-Sweep
+  (Prioritätsblöcke zuerst), J2 Rotation, J3 Hotlist; Stufe in `scripts/pcm_campaign_config.json` (steht auf **−1 = aus**).
+  Zustand atomar auf dem Stick (`canlogs/pcm_campaign/state.json`, `.bak`), Notaus per Datei `STOP`, nach 20 Fehlern aus.
+- Poller: SIGTERM löst jetzt ein geordnetes Ende aus (vorher ohne Aufräumen beendet), damit die Kampagne beim Abstellen
+  sichert.
+- PCM-Antwortzeit gemessen (19.09., 3550 Anfragen 22 03EC): Median 3,5 ms, max. 16 ms. NRCs kamen in keinem Log vor; ob
+  das PCM bei unbekannten DIDs schweigt oder mit 0x31 antwortet, misst der Pilot.
+- **Integrationstest** (`scripts/test_pcm_campaign_integration.py`, echter Poller gegen Ersatz-PCM auf dem virtuellen
+  python-can-Bus, je 40 s): Mit 15 % Zeitanteil sank die schnelle Gruppe bei schweigendem PCM auf **84 %** des Bezugs –
+  durchgefallen. Daher Zeitanteil 10 % und Wartezeit 30 ms: NRC-Fall 92 %, Schweige-Fall 87 %, Handy aktiv → 0
+  Kampagnen-Anfragen; Pilot-Block mit 0x1310 und Mehrrahmen-DID gefunden; nur 0x22/0x01 + Flow Control gesendet.
+  Durchsatz im Test: NRC-Fall ~7/s, Schweige-Fall ~3/s → voller Sweep ~2,5–6 h Motorlaufzeit (reale Werte misst der Pilot).
+- Ein echter Lauf gegen `vcan0` auf dem Pi steht noch aus (lokal kein vcan, kein sudo).
+
+### Pipeline und Aufgabe
+
+- `scripts/pcm_campaign_eval.py` als Schritt 12 in `run_daily_pipeline.py`: Gesundheit je Log (schnelle Gruppe im
+  90. Perzentil der 10-s-Fenster gegen den Median der 10 Logs davor, Antwortquote der Poller-Anfragen, Kampagnen-Anfragen),
+  Prüfung aller Register-Hypothesen an jedem neuen Log, Kampagnen-Antworten aus dem candump. Report-Abschnitt
+  „PCM-Kampagne“. Vergleichsbasis 14.–21.11.: schnelle Gruppe 41–46/s, Poller-Antworten 99,98–100 %, kein Handy.
+- Die Aufgabe „process-new-mx5-logs“ hat einen Schritt 5 für Prüfung, Logbuch und Rückfragen bekommen.
+- Mehrkern (Nutzerwunsch): Absender-Analyse und Prüfung über alle Logs laufen parallel (139 Logs in 51 s statt ~10 min).
+
+### Bilanz
+
+`can_open_fields.py` mit der neuen DBC (132 Logs, Felder in ≥ 10 % der Logs): offene PCM-Bits **326 → 278**. Geklärt:
+0x200 11 von 12, 0x202 8 von 8, 0x21F 12 von 39, 0x4FA 10 von 26, 0x0FD 4, 0x167 3. Größte Reste: 0x4DA 48, 0x4FE 48,
+0x4D4 34, 0x42B 32, 0x21F 27, 0x20A 20 – überwiegend Mess- und Zustandswerte, das Ziel der PCM-Kampagne.
+
+### Offen
+
+- Pilot-Deploy (Stufe 0) mit Freigabe des Nutzers; vorher `vcan0`-Lauf auf dem Pi.
+- Kandidatensuche (offene Felder gegen gepollte DIDs) vor Stufe 2 bauen; vorher ergeben einzelne Sweep-Antworten keine
+  Zeitreihen.
+- Strang A3 (natürliche Ereignisse) für die übrigen Flags/Zustände.

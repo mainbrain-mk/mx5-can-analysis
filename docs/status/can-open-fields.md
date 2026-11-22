@@ -82,6 +82,27 @@ Liter (Bordcomputer × 1,04): Liter ≈ 3,0 + 1,10 · roh (66 Stützpunkte, Rest
 Sättigung bei roh 36,2 (erste ~2,3 l nach dem Tanken), Anzeige 0 (roh ~4,6) bei ~8 l. Der Sockel von
 ~3 l fehlte in der bisherigen Formel FLI % = 2,486 · roh.
 
+## A3. PCM-Bits: Absender, Zähler, Prüfsummen (22.11.)
+
+Projekt „PCM-Bits vollständig zuordnen“: [`plans/pcm-bits-plan.md`](../plans/pcm-bits-plan.md), Register
+[`plans/pcm-bits-hypotheses.json`](../plans/pcm-bits-hypotheses.json), Herleitung im Logbuch „PCM-Bits vollständig
+zuordnen: Start (2026-11-22)“. Alle Regeln bitgenau über alle Frames aller 139 Logs geprüft (Holdout).
+
+| Was | Ort | Regel | Status |
+|---|---|---|---|
+| Absender PCM | 0x0FD, 0x0FE, 0x130, 0x165, 0x166, 0x167, 0x200, 0x202, 0x20A, 0x21F, 0x420, 0x42B, 0x4D1, 0x4D4–0x4D7, 0x4D9, 0x4DA, 0x4DC, 0x4F0, 0x4FA, 0x4FE | gleicher Quarz (Taktdrift ≤ 5 ppm, feste Frequenzverhältnisse); 0x040 nie auf dem Bus | **bestätigt** (vorher 0x4D4/0x4D9/0x4FE als IC/CMU vermutet) |
+| `PCM_0FE_Counter`/`_Checksum` | 0x0FE 51\|4, 63\|8 | Zähler 0–15; B7 = 6 + Σ B0..B6 (B0..B5 stets konstant) | **bestätigt** |
+| `PCM_200_Counter`/`_Checksum` | 0x200 51\|3, 63\|8 | Zähler 0–7; B7 = 0xFF − (B0+B1+B6) | **bestätigt** |
+| `PCM_202_Checksum` | 0x202 63\|8 | B7 = 0x93 − [Bytes(Drehzahl 13 Bit) + B2 + B3 + Bytes(Pedal 10 Bit)] | **bestätigt** |
+| `PCM_21F_Counter`/`_Checksum` | 0x21F 51\|4, 63\|8 | Zähler 0–15; B7 = 0x7E − Σ B0..B6 | **bestätigt** |
+| `PCM_0FD_Counter`, `PCM_167_Counter` | 0x0FD 23\|4, 0x167 31\|3 | Zähler im Rechentakt | **bestätigt** |
+| `PCM_4FA_Page`/`_PageValue` | 0x4FA 55\|3, 52\|7 | Seite 1..7, je Seite konstant 63/39/60/48/62/58/117; B7 Bit5..3, 1..0 = 0 | **bestätigt** (war „Prüfsumme/Rauschen“) |
+| `EngineRunOrIstop_4FA` | 0x4FA Bit 58 | 1 = Motor läuft oder i-stop-Stopp, ~4 s nach Abstellen bei Zündung EIN 0 | **bestätigt** |
+
+Alle Zähler laufen mit Schritt 0/1/2 (Rechentakt rutscht gegen den Sendeplan, 0 und 2 paarweise); 0x167 und 0x200
+teilen denselben Takt. Nebenbefund 0x202: Drehzahl intern 13 Bit, Pedal 10 Bit. **Bilanz 22.11.:** offene PCM-Bits (Felder in ≥ 10 % der
+Logs) 326 → 278; größte Reste 0x4DA 48, 0x4FE 48, 0x4D4 34, 0x42B 32, 0x21F 27, 0x20A 20.
+
 ## B. Offene Werte mit beobachtetem Verhalten
 
 Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Prüfsummen
@@ -99,10 +120,10 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | 0x42B B4-6 ≈ 0x4FA B0-2 | Duplikat, Zustandsbytes, wechseln bei Anfahren/Halt | Lastzuordnung/Leerlaufregelung | C1 (Verbraucher schalten) |
 | 0x4FA Byte1 | 34–40, r=−0,71 gegen Ansaugluft | Temperatur-Kompensation | C9 |
 | 0x4FA Byte2-3 | Bereinigter Byte-Sweep 30.09.: Moment 11 Logs r_med 0,65, Drosselklappe 6, ETC 4, Luftmasse 3 (0,74). `can_field_inspect` zeigt als stärkste Rangkorrelation Strecke/Zeit/Öltemperatur (0,73), Lastanteil also vorhanden, Trendanteil auch | Last-/Warmlaufadaption? | – |
-| 0x200 Byte6-7 | Bereinigter Byte-Sweep 30.09.: Moment 6 Logs r_med 0,64, MAP 4 Logs 0,71, Soll-Lambda 3 Logs | Last-Domäne, Nachbar von Byte4-5 | – |
+| 0x200 Byte6 Bit0 und Bit7..4 | Rest von Byte6 neben dem Zähler (Byte6 Bit3..1) und der Prüfsumme (Byte7), beide seit 22.11. geklärt (Teil A3); die frühere Korrelation von „Byte6-7“ mit Last kam aus der Prüfsumme über Byte0-1 | offen | – |
 | 0x21F Byte4-5 | Bereinigter Byte-Sweep 30.09.: MAP 6 Logs r_med 0,70 (in opendbc heißt 0x21F CRZ_EVENTS) | Saugrohr-/Lastgröße? | – |
 | 0x165 Byte7, 0x42B Byte0 | ändern selten, schwach mit Gang/Schub | unbekannt | – |
-| 0x202 Bit 63, 0x45A Bit 15 | Zustandsbits, an Motorbetrieb gekoppelt | unbekannt | – |
+| 0x45A Bit 15 | Zustandsbit, an Motorbetrieb gekoppelt (0x202 Bit 63 gehört seit 22.11. zur Prüfsumme `PCM_202_Checksum`) | unbekannt | – |
 | 0x09D Bits 17/20/22 | **geklärt (26.09.)**: Lenkrad-Tempomattasten `CRU_CON_SW1`, Byte2 ist die invertierte Kopie von Byte0 (Teil A) | - | C8 erledigt |
 | 0x0FD Bit 4 | 41 Episoden in 22 Logs, ~2 s, oft Leerlauf-nah | unbekannt | – |
 
