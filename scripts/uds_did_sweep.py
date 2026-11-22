@@ -32,6 +32,7 @@ Default-Interpreter nicht installiert.
 
 Aufruf (auf dem Pi):
     python3 uds_did_sweep.py --self-test
+    python3 uds_did_sweep.py --discover --out ecus.csv          # welche Steuergeraete gibt es?
     python3 uds_did_sweep.py --ecu DSC  --range 2B00-2BFF
     python3 uds_did_sweep.py --ecu DSC  --range 2000-20FF
     python3 uds_did_sweep.py --ecu PCM  --range 1300-13FF     # Oeltemperatur-Block (ND3)
@@ -49,7 +50,19 @@ ECUS = {
     "PCM": (0x7E0, 0x7E8),
     "EPS": (0x730, 0x738),
     "DSC": (0x760, 0x768),
-    "TPMS": (0x720, 0x728),
+    "TPMS": (0x720, 0x728),    # eigentlich das Kombiinstrument (IC), traegt die TPMS-DIDs
+}
+
+# Mazda-Diagnoseadressen aus der Literatur (Skyactiv-Familie, Antwort = Anfrage+8).
+# Quellen: carcoding.app/en/ecu/brand/mazda, miatafy.com/forscan/complete-mod-list (ND),
+# forum.miata.net t=727561 (NC). Nur Beschriftung fuer --discover; am ND-HS-CAN (can0)
+# bestaetigt sind bisher nur 7E0/730/760/720. FBCM/RBCM/SSU liegen laut miatafy am
+# MS-CAN (125 kbit, Pins 3/11) und antworten hier vermutlich nicht.
+MAZDA_ECU_NAMES = {
+    0x7E0: "PCM", 0x7E1: "TCM (nur Automatik)", 0x760: "ABS/DSC", 0x720: "IC Kombiinstrument",
+    0x726: "FBCM (MS-CAN?)", 0x7B7: "RBCM (MS-CAN?)", 0x731: "SSU Keyless/i-stop (MS-CAN?)",
+    0x723: "Gateway", 0x730: "EPS", 0x706: "IPMA Frontkamera", 0x764: "Radar/MRCC",
+    0x793: "Radar Abstand", 0x737: "RCM Airbag", 0x756: "EPB", 0x750: "TPMS (CX-50)",
 }
 
 # ISO 14229 Negative Response Codes, die beim Durchprobieren vorkommen
@@ -266,6 +279,59 @@ def sweep(sock, req_id, resp_id, dids, gap, timeout, verbose=True):
     return rows
 
 
+def build_tester_present():
+    """TesterPresent 0x3E 0x00: harmlosester UDS-Dienst, jedes UDS-Steuergeraet
+    beantwortet ihn in der Default-Session mit 0x7E 0x00."""
+    return bytes([0x02, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+
+def parse_tester_present(data):
+    """-> "ok" | "nrc_<code>" | None (keine TesterPresent-Antwort)."""
+    if len(data) < 3 or data[0] >> 4 != 0:
+        return None
+    if data[1] == 0x7E:
+        return "ok"
+    if data[1] == 0x7F and data[2] == 0x3E and len(data) >= 4:
+        return f"nrc_{NRC.get(data[3], hex(data[3]))}"
+    return None
+
+
+def discover_candidates(lo=0x700, hi=0x7F7):
+    """Anfrage-IDs fuer die Discovery. Ausgelassen: 0x7DF (funktionale OBD-Rundfrage) und
+    die Antwort-IDs der bekannten Steuergeraete (Anfrage+8, plus 7E8-7EF), damit wir nie
+    auf einer ID senden, auf der ein Steuergeraet selbst antwortet."""
+    known_resp = {r for _, r in ECUS.values()} | set(range(0x7E8, 0x7F0))
+    return [i for i in range(lo, hi + 1) if i != 0x7DF and i not in known_resp]
+
+
+def discover(sock, ids, gap, timeout, verbose=True):
+    """Je Anfrage-ID einmal TesterPresent senden und jede Antwort auf 0x700-0x7FF
+    mitschreiben. Nur lesend im Sinne der Fahrzeugfunktion: 0x3E aendert nichts."""
+    rows = []
+    for req in ids:
+        send(sock, req, build_tester_present())
+        deadline = time.time() + timeout
+        seen = set()
+        while time.time() < deadline:
+            got = recv(sock, deadline - time.time())
+            if got is None:
+                break
+            can_id, data = got
+            if not 0x700 <= can_id <= 0x7FF or can_id == req or can_id in seen:
+                continue
+            status = parse_tester_present(data)
+            if status is None:
+                continue
+            seen.add(can_id)
+            name = MAZDA_ECU_NAMES.get(req, "unbekannt")
+            rows.append(dict(req=f"{req:03X}", resp=f"{can_id:03X}", status=status, name=name))
+            if verbose:
+                print(f"  0x{req:03X} -> 0x{can_id:03X}  {status:24s} {name}", flush=True)
+        if gap:
+            time.sleep(gap)
+    return rows
+
+
 PROBE_STEPS = [
     ("PCM", "mode1", None),        # welche Standard-PIDs gibt es + einmal auslesen
     ("DSC", "did", "2B00-2BFF"),   # Fahrwerksblock (ND3: 11 Treffer, u.a. Bremspedal)
@@ -283,7 +349,7 @@ def engine_rpm(sock, timeout=0.3):
     return (raw[0] * 256 + raw[1]) / 4
 
 
-def wait_for_engine(channel, max_wait_s, min_rpm=400, poll_s=5.0):
+def wait_for_engine(channel, max_wait_s, min_rpm=400, poll_s=0.5):
     """Warten, bis der Motor laeuft. -> True, wenn er laeuft; False bei Zeitablauf."""
     sock = open_bus(channel)
     deadline = time.time() + max_wait_s
@@ -291,7 +357,8 @@ def wait_for_engine(channel, max_wait_s, min_rpm=400, poll_s=5.0):
         while time.time() < deadline:
             rpm = engine_rpm(sock)
             if rpm is not None and rpm > min_rpm:
-                print(f"Motor laeuft ({rpm:.0f} 1/min), starte Erhebung", flush=True)
+                print(f"Motor laeuft ({rpm:.0f} 1/min), starte Erhebung in 1 s", flush=True)
+                time.sleep(1.0)   # Nutzerwunsch 2026-11-22: 1 s nach Motorstart
                 return True
             time.sleep(poll_s)
     except Exception as exc:
@@ -361,6 +428,15 @@ def self_test():
     _kind, _raw = parse_mode1_response(0x0C, bytes([0x04, 0x41, 0x0C, 0x00, 0x00, 0, 0, 0]))
     assert (_raw[0] * 256 + _raw[1]) / 4 == 0.0             # Motor aus -> Erhebung muss warten
 
+    # Discovery
+    assert build_tester_present() == bytes([0x02, 0x3E, 0x00, 0, 0, 0, 0, 0])
+    assert parse_tester_present(bytes([0x02, 0x7E, 0x00, 0, 0, 0, 0, 0])) == "ok"
+    assert parse_tester_present(bytes([0x03, 0x7F, 0x3E, 0x12, 0, 0, 0, 0])) == "nrc_subFunctionNotSupported"
+    assert parse_tester_present(bytes([0x04, 0x62, 0x2A, 0x05, 0x8F, 0, 0, 0])) is None
+    cand = discover_candidates()
+    assert 0x7DF not in cand and 0x728 not in cand and 0x7E8 not in cand and 0x7EF not in cand
+    assert 0x726 in cand and 0x7E0 in cand and 0x737 in cand
+
     # Fremdverkehr
     assert parse_response(0x2A05, bytes([0x00, 0x00, 0x00, 0, 0, 0, 0, 0])) is None
 
@@ -400,6 +476,10 @@ def main():
                     help="vordefinierte Einmal-Erhebung: Mode-1-Bestandsaufnahme am PCM "
                          "plus die beiden DSC-Bloecke, die laut ND3-Quelle Fahrwerks- und "
                          "Lenkungsdaten tragen. Alles rein lesend.")
+    ap.add_argument("--discover", action="store_true",
+                    help="welche Steuergeraete antworten? TesterPresent (0x3E 00) an jede "
+                         "Anfrage-ID 0x700-0x7F7 (ohne 7DF und bekannte Antwort-IDs), "
+                         "~250 Anfragen, ca. 40 s. Im Stand, Motor an.")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -414,6 +494,22 @@ def main():
     if args.wait_rpm > 0 and not wait_for_engine(args.channel, args.wait_rpm):
         print("Motor lief nicht rechtzeitig - Erhebung wird trotzdem gestartet "
               "(statische PIDs sind auch so gueltig)", flush=True)
+
+    if args.discover:
+        ids = discover_candidates()
+        print(f"Discovery: {len(ids)} Anfrage-IDs, TesterPresent", flush=True)
+        sock = open_bus(args.channel)
+        try:
+            rows = discover(sock, ids, args.gap, max(args.timeout, 0.1))
+        finally:
+            sock.close()
+        print(f"\n{len(rows)} Antworten", flush=True)
+        if args.out and rows:
+            with open(args.out, "w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+                w.writeheader(); w.writerows(rows)
+            print(f"-> {args.out}")
+        return
 
     if args.probe:
         run_probe(args.channel, args.timeout, args.gap, args.out)

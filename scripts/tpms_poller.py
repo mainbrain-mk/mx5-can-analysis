@@ -39,6 +39,8 @@ liefert, faellt decode_response() das einfach als "unerwarteter Frame" auf
 (SID/DID stimmen dann nicht ueberein) - kein stiller Fehldecode.
 """
 import argparse
+import os
+import signal
 import time
 
 REQUEST_ID = 0x720
@@ -255,6 +257,43 @@ def poll_obd1_fast(bus, timeout=0.5):
                        request_fn=build_request_mode1, decode_fn=decode_response_mode1)
 
 
+# --- PCM-Kampagne (2026-11-22, docs/plans/pcm-bits-plan.md) -------------------------------
+# Laeuft IN diesem Prozess: nach jeder schnellen Runde hoechstens eine Anfrage, gesendet ueber
+# DEN Bus dieses Pollers (eigene Frames kommen bei SocketCAN nicht zurueck, sonst hielte
+# poll_group sie fuer einen fremden Tester und drosselte sich). Empfang ueber einen eigenen
+# Socket (0x7E8 + 0x202). Fehler dort beruehren die bestehenden Gruppen nie.
+CAMPAIGN_RX_FILTERS = [
+    {"can_id": 0x7E8, "can_mask": 0x7FF},
+    {"can_id": 0x202, "can_mask": 0x7FF},
+]
+
+
+def start_campaign(bus, args):
+    """Kampagne anlegen, wenn die Konfiguration eine Stufe >= 0 freigibt, sonst None."""
+    try:
+        import can
+        import pcm_campaign
+        if pcm_campaign.load_config(args.campaign_config)["stage"] < 0:
+            return None
+        rx = can.interface.Bus(channel=args.channel, interface="socketcan",
+                               can_filters=CAMPAIGN_RX_FILTERS)
+        return pcm_campaign.Campaign(bus, rx, args.campaign_dir, args.campaign_config)
+    except Exception as exc:
+        print(f"  Kampagne nicht gestartet: {exc!r}", flush=True)
+        return None
+
+
+def _exit_on_sigterm(*_):
+    raise SystemExit(0)
+
+
+def tick_campaign(campaign):
+    if campaign is None:
+        return
+    foreign = time.time() - _last_foreign_request < FOREIGN_TESTER_HOLD_S
+    campaign.tick(foreign)      # faengt eigene Fehler selbst ab (pcm_campaign.Campaign.tick)
+
+
 def main():
     import can
 
@@ -271,9 +310,25 @@ def main():
     parser.add_argument("--fast-period-shared", type=float, default=FAST_PERIOD_SHARED_S,
                          help="Mindestabstand der schnellen Runden, solange ein fremder Tester "
                               f"(Handy-Dongle) auf 0x7DF/0x7E0 aktiv ist (Default {FAST_PERIOD_SHARED_S}s)")
+    here = os.path.dirname(os.path.abspath(__file__))           # auf dem Pi: canlogs/ (Symlink)
+    parser.add_argument("--no-campaign", action="store_true",
+                         help="PCM-Kampagne (pcm_campaign.py) nicht starten")
+    parser.add_argument("--campaign-config", default=os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "pcm_campaign_config.json"),
+                         help="Konfiguration der PCM-Kampagne (Repo, per Deploy)")
+    parser.add_argument("--campaign-dir", default=os.path.join(here, "pcm_campaign"),
+                         help="Zustand/Ereignisse der PCM-Kampagne (auf dem Log-Stick)")
     args = parser.parse_args()
 
+    # SIGTERM (session_logger beim Abstellen) -> SystemExit, damit finally laeuft und die
+    # Kampagne ihren Stand sichert. Vorher beendete SIGTERM den Prozess ohne Aufraeumen.
+    try:
+        signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    except ValueError:      # nicht im Haupt-Thread (Integrationstest)
+        pass
+
     bus = can.interface.Bus(channel=args.channel, interface="socketcan", can_filters=DIAG_CAN_FILTERS)
+    campaign = None if args.no_campaign else start_campaign(bus, args)
     next_tpms = 0.0
     next_oil = 0.0
     last_fast = 0.0
@@ -326,13 +381,24 @@ def main():
                         print(values, flush=True)
                 except Exception as exc:
                     print(f"  KnockRetard-Abfrage fehlgeschlagen: {exc!r}", flush=True)
+                tick_campaign(campaign)
             else:
                 # Ohne die schnelle Gruppe blockiert hier nichts mehr auf den Bus - ohne
                 # Pause wuerde die Schleife bis zum naechsten TPMS-Intervall leerlaufen.
                 time.sleep(0.25)
+                tick_campaign(campaign)
             if args.interval <= 0 and (args.no_oil or args.oil_interval <= 0):
                 break
     finally:
+        if campaign is not None:
+            try:
+                campaign.close()
+            except Exception as exc:
+                print(f"  Kampagne: Abschluss fehlgeschlagen: {exc!r}", flush=True)
+            try:
+                campaign.rx.shutdown()
+            except Exception:
+                pass
         bus.shutdown()
 
 

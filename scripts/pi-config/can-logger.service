@@ -2,6 +2,8 @@
 Description=MX-5 CAN bus logger (KeyState-getriggert)
 After=sys-subsystem-net-devices-can0.device
 BindsTo=sys-subsystem-net-devices-can0.device
+# Ohne Stick ginge die Aufzeichnung ins RAM-Overlay und waere nach dem Ausschalten weg (18.11.2026).
+RequiresMountsFor=/home/pi/canlogs
 
 [Service]
 Type=simple

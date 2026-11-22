@@ -6500,6 +6500,189 @@ dort kaum noch). Die Spitzen im 2. Gang liegen trotzdem bei 7400-7450/min, weil 
 Antriebskraft, ab Beginn linear auf 0 über 30/min (Gang 1/2) bzw. 230/min (Gang 3-6); Gang 5/6 wie Gang 4 angenommen.
 Die Momentuntergrenze beim Halten (5-30 %) fehlt. Ergebnis siehe `projekt-stand.md` (08.11.).
 
+## Pi bootete morgens nur bis schwarzem Bildschirm, nichts aufgezeichnet (2026-11-18)
+
+**Meldung des Nutzers:** Die Fahrt am Morgen des 18.11. hat nichts aufgezeichnet. Das Display war schwarz, nur der
+Mauszeiger war zu sehen. Ein Doppelklick aufs Display führte zum Anmeldebildschirm des Systems. Am CANable leuchteten
+rot und grün. Die Fahrt am Nachmittag (`candump-2026-11-18_155537`) lief normal.
+
+**Befund per SSH (18.11., 18:16, Pi seit 17:48 an, ohne CANable, nur gelesen):**
+- Das Journal ist seit 26.09. flüchtig. Der Morgen-Boot ist deshalb im Journal nicht mehr zu sehen.
+- Auf dem Stick gibt es vom Morgen gar nichts: kein `clockstate-`, `ifstats-`, `candump-` oder `gps-*.nmea`, keine
+  Zeile in `boot_timing.log`, im Tankbuch nichts zwischen 17.11. 17:37 und 18.11. 15:55. In `applogs/can_backend.log`
+  steht keine Zeile zwischen 17.11. 23:44 und 18.11. 15:55.
+- `respawn.sh` rotiert `dash_gui.log` beim ersten Start nach dem Boot (Datei > 5 MB). Das neue `dash_gui.log` beginnt mit
+  dem Kivy-Start von 15:55. Am Morgen ist `respawn.sh` aus dem labwc-Autostart also gar nicht gelaufen.
+- `can-logger.service` (`session_logger.py`) ist vom Desktop unabhängig. Er hat am Morgen ebenfalls nichts auf den
+  Stick geschrieben.
+- Der Stick ist jetzt sauber (`Filesystem state: clean`, letzte Prüfung 10.10.). Es gibt keine USB- oder ext4-Fehler im
+  dmesg des jetzigen Boots, und `systemctl --failed` ist leer.
+- Mount-Zähler des Sticks: 84. Seit dem Einbau gab es 82 Boots mit Dash-Start. Die Differenz von 2 lässt sich nicht
+  zuordnen (Einrichtung am 10.10. plus vielleicht der Morgen-Boot), daher ist das kein Beweis.
+- Am Vorabend lief der Pi bis 17.11. ~23:44 ohne CAN (`No such device`, Dash im Plugin ets2), danach endet er ohne
+  Herunterfahren. Ein Stromverlust ohne Herunterfahren ist bei jeder Fahrt normal (keine USV).
+
+**Wahrscheinlichste Ursache (nicht bewiesen):** Der Stick war am Morgen nicht unter `/home/pi/canlogs` eingehängt.
+Das erklärt alles auf einmal: `respawn.sh` und `session_logger.py` liegen auf dem Stick (Symlinks ins `repo/`). Der
+Autostart findet sie nicht, labwc zeigt also schwarzen Hintergrund mit Mauszeiger, und der Logger startet nicht.
+`fstab` hat `nofail`, deshalb bootet der Pi trotzdem durch. Kommt der Stick später als das Geräte-Timeout (90 s), wird
+er auch nicht mehr nachträglich eingehängt. Warum der Stick fehlte (nicht erkannt, kurzer Spannungseinbruch beim
+Anlassen, langsamer Start bei Kälte), lässt sich ohne Journal nicht klären. Ein Hänger vor dem Autostart ist weniger
+wahrscheinlich, weil der Mauszeiger zeigt, dass labwc lief.
+
+**Lücke:** `can-logger.service` hat kein `RequiresMountsFor=/home/pi/canlogs` (`gps-logger.service` schon). Ohne Stick
+ginge eine Aufzeichnung ins tmpfs-Overlay und wäre nach dem Ausschalten weg. Zur Diagnose fehlt jede Spur von einem
+Boot ohne Stick.
+
+**Vorschläge (nicht umgesetzt, Nutzerentscheid offen):**
+1. Kleiner Boot-Check: Ist `/home/pi/canlogs` nach z.B. 60 s nicht eingehängt, zeigt der Pi eine gut sichtbare Meldung
+   auf dem Display (statt schwarz) und versucht `mount /home/pi/canlogs` noch einmal.
+2. `RequiresMountsFor=/home/pi/canlogs` auch für `can-logger.service`.
+3. Für die nächste Diagnose `journalctl -b`, `lsusb` und `dmesg` eines Boots ohne Stick an einen Ort schreiben, der
+   ohne Stick erreichbar ist (z.B. ein kleiner Ordner auf der SD-Karte über die Overlay-Basis).
+
+Bis dahin hilft im Auto: Bleibt das Display schwarz mit Mauszeiger, den Pi einmal stromlos machen und neu starten.
+
+### Umsetzung: Log-Stick-Prüfung beim Boot (2026-11-18, abends)
+
+Auf Wunsch des Nutzers die Vorschläge 1–3 von oben gebaut. Details und Installation stehen in
+`scripts/pi-config/SETUP.md` („Log-Stick-Prüfung beim Boot“).
+- `canlogs-bootcheck.sh` und `.service` hängen einen fehlenden Stick bis 120 s lang nach und starten danach die
+  Logger. Bleibt er weg, landet die Diagnose gepackt in `/media/root-ro/var/log/canlogs-bootcheck/` (SD-Basis).
+- `canlogs-autostart.sh` ersetzt die beiden `respawn.sh`-Zeilen im labwc-Autostart. Es wartet auf den Stick und zeigt
+  nach 60 s eine große Meldung „Log-Stick nicht gefunden“ statt eines schwarzen Bildschirms.
+- `can-logger.service` hat jetzt `RequiresMountsFor=/home/pi/canlogs`.
+
+**Getestet am Pi (zu Hause, ohne CANable):**
+- Pfad ohne Stick über Umgebungsvariablen: Diagnose 45 kB. Remount der Basis rw/ro direkt (ohne chroot) klappt, die
+  Basis ist danach wieder `ro`. Testordner wieder gelöscht.
+- Meldung auf dem Display per `grim` geprüft. Mit Stick beendet sich der Check nach 10 ms.
+- Nach der Installation neu gestartet: Stick eingehängt, Basis `ro`, Bootcheck `status=0`, can-logger mit
+  `home-pi-canlogs.mount` in Requires/After, keine failed units. Dash-Erstframe 40,1 s, wie vorher.
+
+**Nicht getestet:** ein echter Boot ohne Stick, und das Nachhängen eines spät erkannten Sticks im Auto. Den nächsten
+Ausfall zeigt jetzt das Display an, die Ursache steht dann in der Diagnosedatei auf der SD.
+
+## PCM-Bits vollständig zuordnen: Start (2026-11-22)
+
+Nutzerauftrag: alle Bits der PCM-Botschaften zuordnen und verstehen, selbständig, der Pi arbeitet im Auto ohne
+Kontakt, Auswertung und Rückfragen in der Aufgabe „process-new-mx5-logs“, Genauigkeit vor Tempo. Konzept, Beweisregeln
+und Freigabestufen: [`plans/pcm-bits-plan.md`](../plans/pcm-bits-plan.md), Register:
+[`plans/pcm-bits-hypotheses.json`](../plans/pcm-bits-hypotheses.json).
+
+### Ausgangslage
+
+`can_open_fields.py` mit der DBC vom 22.11. über 132 Logs: in den 24 Botschaften mit DBC-Absender `HS_PCM` ~326
+variierende Bits ohne Signal (in ≥ 10 % der Logs), dazu ~15 Signale `_maybe`/`_related`. 0x040 kommt in keinem Log vor.
+
+### A1: Welche Botschaften sendet das PCM wirklich? (Taktdrift)
+
+**Methode** (`scripts/can_sender_clock.py`): Jedes Steuergerät taktet aus seinem Quarz. Je ID und 60-s-Fenster wird die
+Periode gegen die Pi-Uhr per Regression geschätzt (Frame-Nummer je Fenster gezählt). Zwei IDs vergleicht das
+Periodenverhältnis gegen den nächsten einfachen Bruch, die Pi-Uhr kürzt sich heraus. Gleicher Quarz → ~0 ppm in jedem
+Log, fremder Quarz → zweistellig und je Log wandernd.
+
+**Verworfen unterwegs (Methodenfehler, nicht Befund):** Die erste Fassung zählte die Frame-Nummer über das ganze Log
+mit einer auf 0,1 ms gerundeten Nennperiode. Bei 100.000+ Frames verrutscht die Nummer schon bei ppm-Fehlern. Folge:
+0x4D9/0x4DA erschienen mit −52 ppm als „nicht PCM“, nach der Korrektur der Rundung kippten sie in den Cluster. Erst die
+fensterweise Zählung mit Frequenzverhältnis ist stabil (Selbsttest mit Jitter wie 0x20A, verlorenen Frames, fremdem Quarz).
+Außerdem nähert `limit_denominator(20)` bei großen Verhältnissen fast jeden Wert an; Kriterium daher nicht der Median,
+sondern festes Nennverhältnis über alle Logs **und** Anteil der Logs mit |Abw.| ≤ 5 ppm.
+
+**Belegt:** Herleitung an 12 Logs (12.09.–21.11.), Bestätigung an 103 weiteren Logs (Holdout):
+- Alle **23** PCM-IDs auf dem Bus (24 laut DBC ohne 0x040) laufen auf dem Quarz von 0x0FD, mit exakt rationalen
+  Verhältnissen (0,5/0,75/1/2,5/5/50). Anteil der Logs mit |Abw.| ≤ 5 ppm: 37–100 % (10-Hz-Botschaften rauschen mehr);
+  beste fremde ID ≤ 7 %. Auch 0x4D4, 0x4D9, 0x4DA, 0x4FE (vorher als IC/CMU vermutet) sind PCM.
+- 0x4FE: in 102/103 Logs Verhältnis 5,0; 2026-09-26_120235 hat 2,5 % zusätzliche ereignisgesteuerte Frames.
+- Keine weitere ID ohne DBC-Absender PCM läuft auf dem PCM-Quarz.
+- Kontrollen: ABS-Cluster (0x078, 0x079, 0x211, 0x215, 0x217, 0x21E, 0x596) und EPS-Cluster (0x086, 0x11C, 0x240)
+  decken sich mit den DBC-Absendern.
+- Einzelnes 0x4F0 (1 Hz) ist je Fahrt zu kurz für eine eigene Prüfung, im Holdout aber im Cluster.
+
+### A2: Zähler und Prüfsummen (bitgenau über alle Frames aller 139 Logs)
+
+`scripts/pcm_counter_checksum.py`. Hergeleitet je aus `candump-2026-11-21_190853`, geprüft an allen anderen Logs.
+
+**Prüfsummen, 0 Verstöße:**
+| ID | Regel | Frames |
+|---|---|---|
+| 0x0FE | B7 = (6 + Σ B0..B6) mod 256; B0..B5 sind in allen Logs konstant (3F FE 00 00 00 00), daher gleichwertig B7 = B6 + 0x43 | 20,2 Mio. |
+| 0x200 | B7 = 0xFF − (B0 + B1 + B6) mod 256, deckt **nur** Byte0-1 und das Zählerbyte ab | 10,1 Mio. |
+| 0x202 | B7 = 0x93 − [hi(U13)+lo(U13) + B2 + B3 + hi(A10)+lo(A10)] mod 256, U13 = B0B1>>3, A10 = B4B5>>6 | 20,2 Mio. |
+| 0x21F | B7 = 0x7E − Σ B0..B6 mod 256 | 10,1 Mio. |
+
+Fundweg 0x200/0x202: Über GF(2) sind beide nur im niedrigsten Bit affin (Signatur einer Additions-, keiner
+CRC-Prüfsumme; Kontrolle 0x21F zeigt dasselbe). 0x200 per Gewichtssuche je Byte. 0x202 über die Ableitung: B7 ändert
+sich um −1 je 8 Schritte in B1, −1 je Schritt in B3, −4 je Schritt in B4, −1 je 64 in B5 → die Summe läuft über
+**Signalwerte**. Nebenbefund: Drehzahl ist intern 13 Bit (2 1/min je LSB, B1 Bit2..0 stets 3), Fahrpedal 10 Bit
+(0,1 %, B5 Bit5..0 stets 0). Die DBC-Signale (16 Bit) dekodieren trotzdem richtig.
+
+**Zähler:** 0x0FD B2 Bit7..4, 0x0FE B6 Bit3..0, 0x167 B3 Bit7..5, 0x200 B6 Bit3..1, 0x21F B6 Bit3..0. Verworfen:
+„Schritt immer 1“ (7–20 % Abweichung). Belegt: Schritt 0, 1 oder 2, wobei 0 und 2 paarweise und gleich häufig
+auftreten (z. B. 0x0FD 412.924/405.634). Die Zähler zählen den Rechentakt, nicht die Sendungen: rutscht der Takt gegen
+den Sendeplan, geht ein Wert doppelt raus und der nächste fällt aus. 0x167 und 0x200 haben je Log identische
+Schritt-0/2-Zahlen, also dieselbe Rechenaufgabe. Ohne Lücke nie ein anderer Schritt, außer **einem** Fall in
+`candump-2026-09-19_233436` bei 65,45 s: viermal dasselbe 0x167-Frame binnen 1 ms, danach Sprung um 3 – Bild einer
+CAN-Störung (Wiederholung nach Fehlerrahmen), kein Widerspruch.
+
+**0x4FA Byte6-7 (vorher „Prüfsumme/Rauschen“):** ein 7-seitiger Multiplex. B6 Bit7..5 = Seite 1..7 (ohne 0), zyklisch
+im Rechentakt (modulo 7; modulo 8 gerechnet sah ein ausgelassenes Seite-1 wie Schritt 3 aus). Je Seite ein konstanter
+7-Bit-Wert in B6 Bit4..0 + B7 Bit7..6: 63, 39, 60, 48, 62, 58, 117, in allen Logs gleich (Kennung oder
+Kalibrierdaten?). B7 Bit5..3 und Bit1..0 stets 0. 0 Verstöße in 2,0 Mio. Frames.
+
+**0x4FA B7 Bit2:** Zustand, keine Konstante (1,5 % der Frames wichen ab, immer am Logbeginn). Erste Fassung „Motor seit
+Zündung angesprungen“ scheiterte an 3 Logs (`2026-09-26_142216`, `2026-10-27_075726`, `2026-10-31_114834`): dort fällt das
+Bit ~4 s nach Abstellen bei Zündung EIN (Tankstopp) auf 0. Belegt: **1 = Motor läuft (0x202 > 400/min) oder i-stop-Stopp
+(0x130 Bit 19)**. Bei i-stop bleibt es 1 (z. B. 4645 Frames am 14.09.). Hergeleitet aus 8 Logs, Holdout 131 Logs, 0
+Verstöße in 1,95 Mio. Frames (Übergänge ±6 s ausgenommen).
+
+**In die DBC übernommen** (nur Bestätigtes, mit `CM_`-Beleg): `PCM_0FD_Counter`, `PCM_0FE_Counter`/`_Checksum` (ersetzen
+`MsgCounter_maybe`/`SlowlyVarying_unclear`), `PCM_167_Counter`, `PCM_200_Counter`/`_Checksum`, `PCM_202_Checksum`,
+`PCM_21F_Counter`/`_Checksum`, `PCM_4FA_Page`/`_PageValue`, `EngineRunOrIstop_4FA`. Tests `can_log_parser`,
+`can_backend`, `build_datalake` grün.
+
+### Strang B: Kampagnen-Werkzeug (gebaut, nicht deployt)
+
+- `scripts/pcm_campaign.py` läuft **im** `tpms_poller.py`: höchstens eine Anfrage je schneller Runde, gesendet über den
+  Socket des Pollers. Ein eigener Sende-Socket hätte den Poller unsere Anfragen als fremden Tester sehen und sich auf
+  5 Runden/s drosseln lassen. Empfang über einen eigenen Socket (0x7E8 + 0x202). Jobs J0 Mode-01-Inventar, J1 DID-Sweep
+  (Prioritätsblöcke zuerst), J2 Rotation, J3 Hotlist; Stufe in `scripts/pcm_campaign_config.json` (steht auf **−1 = aus**).
+  Zustand atomar auf dem Stick (`canlogs/pcm_campaign/state.json`, `.bak`), Notaus per Datei `STOP`, nach 20 Fehlern aus.
+- Poller: SIGTERM löst jetzt ein geordnetes Ende aus (vorher ohne Aufräumen beendet), damit die Kampagne beim Abstellen
+  sichert.
+- PCM-Antwortzeit gemessen (19.09., 3550 Anfragen 22 03EC): Median 3,5 ms, max. 16 ms. NRCs kamen in keinem Log vor; ob
+  das PCM bei unbekannten DIDs schweigt oder mit 0x31 antwortet, misst der Pilot.
+- **Integrationstest** (`scripts/test_pcm_campaign_integration.py`, echter Poller gegen Ersatz-PCM auf dem virtuellen
+  python-can-Bus, je 40 s): Mit 15 % Zeitanteil sank die schnelle Gruppe bei schweigendem PCM auf **84 %** des Bezugs –
+  durchgefallen. Daher Zeitanteil 10 % und Wartezeit 30 ms: NRC-Fall 92 %, Schweige-Fall 87 %, Handy aktiv → 0
+  Kampagnen-Anfragen; Pilot-Block mit 0x1310 und Mehrrahmen-DID gefunden; nur 0x22/0x01 + Flow Control gesendet.
+  Durchsatz im Test: NRC-Fall ~7/s, Schweige-Fall ~3/s → voller Sweep ~2,5–6 h Motorlaufzeit (reale Werte misst der Pilot).
+- Ein echter Lauf gegen `vcan0` auf dem Pi steht noch aus (lokal kein vcan, kein sudo).
+
+### Pipeline und Aufgabe
+
+- `scripts/pcm_campaign_eval.py` als Schritt 12 in `run_daily_pipeline.py`: Gesundheit je Log (schnelle Gruppe im
+  90. Perzentil der 10-s-Fenster gegen den Median der 10 Logs davor, Antwortquote der Poller-Anfragen, Kampagnen-Anfragen),
+  Prüfung aller Register-Hypothesen an jedem neuen Log, Kampagnen-Antworten aus dem candump. Report-Abschnitt
+  „PCM-Kampagne“. Vergleichsbasis 14.–21.11.: schnelle Gruppe 41–46/s, Poller-Antworten 99,98–100 %, kein Handy.
+- Die Aufgabe „process-new-mx5-logs“ hat einen Schritt 5 für Prüfung, Logbuch und Rückfragen bekommen.
+- Mehrkern (Nutzerwunsch): Absender-Analyse und Prüfung über alle Logs laufen parallel (139 Logs in 51 s statt ~10 min).
+
+### Bilanz
+
+`can_open_fields.py` mit der neuen DBC (132 Logs, Felder in ≥ 10 % der Logs): offene PCM-Bits **326 → 278**. Geklärt:
+0x200 11 von 12, 0x202 8 von 8, 0x21F 12 von 39, 0x4FA 10 von 26, 0x0FD 4, 0x167 3. Größte Reste: 0x4DA 48, 0x4FE 48,
+0x4D4 34, 0x42B 32, 0x21F 27, 0x20A 20 – überwiegend Mess- und Zustandswerte, das Ziel der PCM-Kampagne.
+
+### Offen
+
+- Pilot-Deploy (Stufe 0) mit Freigabe des Nutzers; vorher `vcan0`-Lauf auf dem Pi.
+- Kandidatensuche (offene Felder gegen gepollte DIDs) vor Stufe 2 bauen; vorher ergeben einzelne Sweep-Antworten keine
+  Zeitreihen.
+- Strang A3 (natürliche Ereignisse) für die übrigen Flags/Zustände.
+
+## Batterie-Ladezustand in Prozent (2026-11-22)
+
 ### Batterie-Ladezustand: DID 0x4028 am PCM (2026-11-22)
 
 Frage des Nutzers: Haben wir den Ladezustand der Batterie in %? Bisher nur unbestätigte Kandidaten auf `0x45A`
@@ -6547,3 +6730,142 @@ Auf Wunsch des Nutzers vor dem Pollen von `0x4028` zuerst im CAN-Stream gesucht.
 
 Offen: Bestätigung über einen Verlauf (DID `0x4028` mitpollen oder Ladegerät über Nacht), DBC-Änderung und
 Datalake/Dash nach Nutzerentscheid.
+
+## Externe Quellen geprüft + ECU-Discovery gebaut (2026-11-22)
+
+**Geprüft, nichts übernommen:** akj7.github.io „Reverse-Engineering a Car's CAN Bus with Claude“ (CANExplorer + MCP).
+Alles darin (Bitkipprate, MSB-/Feldbreiten-Fall, Korrelation mit Skala/Offset/Lag, Marker-Reaktion) deckt der Skill
+schon ab. Einzige Lücke bleibt die fehlende automatische Lag-Suche in `can_bitsearch.py` (bekannt).
+
+**Geprüft, eine Idee übernommen:** `github.com/philipkocanda/canair` (WiCAN-CLI, Ioniq-Profil). Analysebefehle
+entsprechen unseren Skripten (`correlate --control` ≈ `can_find_native_counterpart.py`, `--discriminate` ≈
+`can_event_bit_diff.py`, `--find-mirrors` ≈ `can_field_families.py`, `--counters` ≈ `can_find_clock_candidate.py`).
+Neu für uns: `discover`, also alle Diagnoseadressen abfragen statt nur der vier bekannten.
+
+**Passt das zum ND? Recherche:**
+- Mazda-Schema Antwort = Anfrage+8 ist an unserem Auto belegt (720→728, 7E0→7E8, 730→738, 760→768).
+- Adressliste Skyactiv (carcoding.app, miatafy.com für ND, forum.miata.net t=727561 für NC): PCM 7E0, TCM 7E1,
+  ABS/DSC 760, IC 720, FBCM 726, RBCM 7B7, SSU 731, Gateway 723, EPS 730, Frontkamera 706, Radar 764/793,
+  RCM Airbag 737, EPB 756. 0x720 ist das Kombiinstrument (bei uns bisher „TPMS“ genannt).
+- **Einschränkung:** FBCM/RBCM/SSU hängen laut miatafy am MS-CAN (125 kbit, Pins 3/11). Wir sind nur am HS-CAN.
+  Das IC antwortet trotzdem am HS-CAN (12.09. belegt). Ob es Diagnose zu MS-CAN-Geräten durchreicht, ist offen;
+  genau das zeigt die Discovery.
+- Unsere Logs: im Bereich 0x7xx kommen nur 720/728 und 7E0/7E8 vor, also keine Kollision mit Nutzverkehr.
+
+**Umsetzung:** `uds_did_sweep.py --discover [--out ecus.csv]`. Sendet TesterPresent (`3E 00`, ändert nichts am
+Steuergerät) an 236 Anfrage-IDs 0x700–0x7F7, ohne 0x7DF und ohne bekannte Antwort-IDs; schreibt jede positive
+Antwort oder NRC auf 0x700–0x7FF mit Namen aus `MAZDA_ECU_NAMES` mit. Dauer ca. 40 s. Selbsttest erweitert,
+Schleife gegen einen simulierten Bus getestet. **Noch nicht am Auto gelaufen** (im Stand, Motor an).
+Neue Steuergeräte dann mit dem vorhandenen DID-Sweep abklopfen (Identität `F18x/F19x` zuerst).
+
+## PCM-Kampagne: Pilot (Stufe 0) deployt (2026-11-22, abends)
+
+Freigabe des Nutzers nach dem Ergebnis vom Nachmittag. Ablauf:
+
+- Auf dem Pi lief inzwischen `17fa36b` (ECU-Discovery aus einer anderen Sitzung, um 14:00 einmal gelaufen,
+  `RUN_PROBE` danach weg). Beide Stände per Merge zusammengeführt (`58bacbb`); einziger Konflikt war dieses
+  Logbuch (beide Abschnitte behalten, die Batterie-Abschnitte unter eigener `##`-Überschrift).
+- Tests auf dem Merge lokal grün (Poller, Backend, Session-Logger, Datalake, Pipeline, Kampagnen-Selbsttest).
+  Integrationstest lokal 40 s einmal knapp unter der Schwelle (Schweige-Fall 84 % < 85 %), mit 60 s 93 %: Rauschen
+  der kurzen Messung, kein Befund.
+- **Integrationstest auf dem Pi** mit echtem SocketCAN (`vcan9`, eigenes Interface, damit Dash/Sim nichts sehen;
+  neu `TEST_IFACE`/`TEST_CHANNEL`), 60 s je Szenario: Schnellgruppe aus 3156, mit Kampagne 2992 (95 %), PCM schweigt
+  2810 (89 %), Handy aktiv 0 Kampagnen-Anfragen; Pilot findet 0x1310/0x1301. Danach `vcan9` und Testkopie entfernt.
+- Deploy `0cce4fe` (Konfiguration `stage: 0`), Pi-Checkout sauber, Zustand landet in `canlogs/pcm_campaign/`.
+
+Nächste Prüfung in der Tagespipeline nach der ersten Fahrt: Gesundheit (Raten gegen die Vergleichsbasis 14.–21.11.),
+ob das PCM bei unbekannten DIDs mit NRC antwortet oder schweigt (bestimmt die Dauer von Stufe 1), Mode-01-Inventar.
+
+Offen, beim nächsten Inventurlauf: die andere Sitzung hat `0x42B` Byte 2 (Batterie-Ladezustand) in die DBC gebracht;
+die Bilanz 278 offene PCM-Bits ist darauf noch nicht nachgerechnet.
+
+## Tankstopp 22.11.: 35,63 l voll, Voll-bis-Voll 14.11.→22.11. (2026-11-22)
+
+**Angabe (Nutzer):** heute 35,63 l getankt (voll, wie immer). Zwischen `candump-2026-11-22_175159` (Ende 18:34,
+ODO 173552) und `_183708` (Start 18:37); das Backend hat den Stopp live erkannt (`refuel`, vorher 10,93 l).
+
+**Zwischenstopp 14.11. entdeckt:** Über 04.11.→22.11. zählt 0x420 64,5 l bei 969 km, mehr als ein Tank. Im
+Tankbuch springt der Stand am 14.11. zwischen `_104203` (Ende 10:48, 11,3 l) und `_105221` (Start 10:52, 45,0 l),
+Geber roh 5,6 → 36,2, ODO 173107/173108. **Einen `refuel`-Eintrag gibt es dafür nicht**, nur den Start mit 45 l
+(Ursache im Backend offen). Getankte Menge 14.11. unbekannt; damit ist Intervall H (04.→14.11.) offen.
+
+**Intervall I 14.11. 10:52 → 22.11. 18:34**, 16 Logs (`14_105221` … `22_175159`), Summierung wie bei G:
+
+| | Wert |
+|---|---|
+| Zählerschritte geloggt | 148 428 = 29,77 l bei 4985/l (395 km geloggt) |
+| ODO-Sprünge ohne Logger | 34 km (17.11. 17:37 → 18.11.), 14 km (18.→21.11.), 1 km (21.11.) = 49 km ≈ 3,7 l bei 7,5 l/100 km |
+| Summe | ≈ 33,5 l → **Rest −2,2 l** bei 4985/l, −1,7 l bei 4913/l; ≈ 4680 Schritte/l |
+
+- Wie G (−2,4 l) wieder deutlich im Minus, und zwar unabhängig von der Überfüllung am 04.11.: Laut der Regel vom
+  04.11. spricht das für eine kleinere Skala. Allerdings schließt auch 4913/l I nicht, und die 49 km ohne Logger
+  (11 % der Strecke) sind nur geschätzt. Keine Änderung an `FUEL_STEPS_PER_L` ohne Nutzerentscheid.
+- Die Resyncs am 21.11. (Tag nach dem Reifenwechsel) betreffen nur den Geberabgleich, nicht die Zählersumme.
+- **Nachtrag (Nutzer, 22.11.):** Die Menge vom 14.11. ist nicht bekannt. Intervall H (04.→14.11.) bleibt ohne
+  Voll-bis-Voll-Abgleich und zählt nur als Volltank-Anker für den Beginn von I.
+
+## PCM-Kampagne: Pilotfahrt ausgewertet (2026-11-22, abends)
+
+Fahrt `candump-2026-11-22_195529` (ca. 12 min, Motor 693 s), erste Fahrt mit Stufe 0. Zustand vom Pi
+(`canlogs/pcm_campaign/`), Auswertung mit `pcm_campaign_eval` (Gesundheit, Hypothesen) von Hand vor dem Pipeline-Lauf.
+
+**Ablauf laut `events.log`:** Start 19:55:30, Mode-01-Inventar fertig nach 53 s, DID-Block 0x13xx nach weiteren
+19 s (256 DIDs, ~13,5/s, also nahe der Obergrenze 15/s), danach nichts mehr zu tun. 313 Anfragen, 0 Fehler, 0
+Pausen wegen fremder Tester, 2,6 s Pause wegen Volllast.
+
+**Gesundheit:** Lambda/KnockRetard 45,3/s (p90) gegen 45,25/s Vergleichsbasis (letzte 10 Logs ohne Kampagne),
+99,98 % der Poller-Anfragen binnen 60 ms beantwortet, 73 Öltemperatur-Werte. Keine Beeinträchtigung messbar.
+
+**Antwortverhalten des PCM:** Unbekannte DIDs bekommen sofort NRC 0x31 (requestOutOfRange), 255 von 256 im Block
+0x13xx; Schweigen kam nicht vor. Folge für Stufe 1: mit ~13,5 Anfragen/s braucht der volle Mode-22-Raum (65 536 DIDs)
+etwa **80 min Motorlauf** statt der geplanten 2,5–6 h. Im Block 0x13xx antwortet nur 0x1310 (Öltemperatur,
+Selbstkontrolle ok); 0x1301 gibt es am echten PCM nicht (war nur im Testsimulator).
+
+**Mode-01-Inventar:** 56 unterstützte PIDs (Basen 0x00–0xA0), jede einmal gelesen. Neu gegenüber dem, was der Pi
+pollt, u. a. 0x67/0x68 (Kühlmittel-/Ansaugtemperatur-Sensoren), 0x8E (Reibmoment), 0x9D/0x9E (Kraftstoff-/
+Abgasmassenstrom), **0xA4** und **0xA6**:
+- 0xA4 = `03 20 0B AF`: Gang 2, Übersetzung 2,991. Zeitgleich `MT_Gear_Actual` = 2, Kupplung los, 799/min bei
+  10,5 km/h. Kandidat H-P0-01 (Ist-Gang, nicht Empfehlung), braucht eine Zeitreihe.
+- 0xA6 = `00 1A 7C 8D` = 173 582,1 km, zeitgleich `C001_ODO` (0x40A) = 173 582 km. Hypothese H-P0-02 (Kilometerstand in
+  0,1 km, feiner als der CAN-Zähler).
+
+**Hypothesen an der Pilotfahrt:** 33 von 34 prüfbaren sofort sauber (H-A1-20, 0x4F0, im kurzen Log zu wenige
+Fenster). **H-A1-22 (0x4FE) meldete −2460 ppm**, stabil in jedem Fenster. Prüfung: nur 0x4FE betroffen, alle anderen
+15 PCM-IDs +4…+20 ppm; eine einfache Regression je Abschnitt (0–25 s vor der ersten Kampagnen-Anfrage, danach) gibt
+100,01 ms wie immer. Ursache ist ein **Messfehler in `can_sender_clock.period_windows`**: 0x4FE sendet beim Abstellen
+17–20 Null-Frames im 20-ms-Takt, im 12-min-Log senkten sie den Mittelwert der Abstände um 0,18 %, die Frame-Zählung
+im 60-s-Fenster verrutschte. In längeren Logs blieb der Effekt unter einem halben Frame und fiel nie auf. Fix: nur
+Abstände ±30 % um den Median mitteln; Selbsttest um genau diesen Fall erweitert (alte Fassung 99,757 ms, neue
+besteht). A1 neu gerechnet: Holdout (inzwischen 123 Logs) ergibt genau die 22 Register-IDs (+0x0FD), beste fremde
+ID 4 %, kleinste PCM-ID 45 %; danach auch an der Pilotfahrt alle 34 sauber. Verworfen als V-A1-02.
+
+**Bewertet:** Pilot erfolgreich, Gesundheit sauber. Stufe 1 (voller DID-Sweep) ist damit technisch bereit; Freigabe
+nur durch den Nutzer. 0xA4/0xA6 wären Kandidaten für die Hotlist (Stufe 3), um Zeitreihen zu bekommen.
+
+## PCM-Kampagne: Stufe 1 deployt (2026-11-22, spät)
+
+Freigabe des Nutzers nach der Pilotauswertung. Konfiguration `stage: 1`, sonst nichts geändert; Selbsttest grün,
+Planer am echten Pilotstand durchgespielt: Job J1, erste Anfrage DID 0x0300 (Prioritätsblöcke 03, 04, 09, 28, DA,
+F4, 0C, dann der Rest), Block 0x13 wird übersprungen. Deploy `a58710b`, Pi-Checkout sauber. Erwartet ~80 min
+Motorlauf; die Tagespipeline prüft je Fahrt Gesundheit und Fortschritt.
+
+## PCM-Kampagne: Community-DID-Listen eingesammelt (2026-11-22, spät)
+
+Auf Nutzerwunsch öffentliche Mazda-Mode-22-Listen geholt, als Namensvorschläge für Sweep-Treffer. Ergebnis:
+[`plans/pcm-community-dids.csv`](../plans/pcm-community-dids.csv), 353 Signale, davon 235 DIDs auf 0x7E0 (PCM).
+Quellen: **OBDb** (github.com/OBDb, Repos `Mazda-MX-5`, `Mazda-CX-5`, `Mazda-3`, Lizenz CC BY-SA 4.0;
+MX-5 nur 49 PCM-DIDs, CX-5/Mazda3 viel mehr, gleiche Skyactiv-PCM-Familie) und gist `agronick/…/pids.csv`
+(Torque-Liste Mazda3, eher Diesel; nur ergänzt, was OBDb nicht hat). Gesichtet, aber ohne neue DIDs:
+`gitgc/mx5-miata-nd2-obd-can` (ND2, reine Broadcast-Zuordnung + TPMS) und `drewid74/2024-nd3-mazda-obdii`.
+
+**Abgleich mit unserem Stand:**
+- 0x1310 Öltemperatur und 0x03EC (bei uns KnockRetard) stimmen **bis auf die Formel** mit OBDb überein
+  (`raw/100−40`, `signed16/512`). OBDb nennt 0x03EC „Ignition correction, cylinder 1“, also Zündkorrektur
+  Zylinder 1; passt zu unserem Befund, Vorzeichenfrage bleibt.
+- 0x4028 (am 12.09. konstant 88) = laut OBDb Batterie-Ladezustand in %, plausibel.
+- 0xF40C: F4xx ist der Spiegel der Mode-01-PIDs (F40C = Drehzahl). 0xF4A6 = Kilometerstand/10 stützt H-P0-02.
+- 0xDA86 steht in keiner Liste.
+
+**Vorbehalt:** Fremdlisten sind nur Kandidaten, kein Beleg. Ein Name aus der Liste wird erst nach den Beweisregeln
+(Plan, Regel 1–5) übernommen, also gegen unsere Anker und am Holdout. Viele Einträge stammen von Diesel/Turbo/
+Automatik und gibt es beim G184-Sauger mit Schaltgetriebe nicht; der Sweep zeigt, welche antworten.

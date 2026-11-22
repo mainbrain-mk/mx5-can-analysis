@@ -99,6 +99,27 @@ def render_markdown(run_report):
             lines.append(f"- Lenkwinkel-Modell: k1={st.get('k1')}, R²={st.get('r2')}, n={st.get('n')}")
         lines.append("")
 
+    pc = r.get("pcm_campaign")
+    if pc:
+        lines.append("## PCM-Kampagne")
+        for log_id, h in sorted((pc.get("health") or {}).items()):
+            ans = h["poller_answered"] / h["poller_req"] if h.get("poller_req") else 0
+            lines.append(f"- `{log_id}`: Motor {h['engine_s'] / 60:.0f} min, Lambda {h['lambda_hz_p90']:.1f}/s, "
+                         f"Klopfen {h['knock_hz_p90']:.1f}/s, Poller beantwortet {ans:.2%}, "
+                         f"Kampagne {int(h['campaign_req'])} Anfragen ({int(h['campaign_pos'])} positiv, "
+                         f"{int(h['campaign_nrc'])} NRC)")
+        pr = pc.get("progress")
+        if pr:
+            lines.append(f"- Pi-Stand: Mode-01-Inventar {'fertig' if pr['mode01_done'] else 'offen'} "
+                         f"({pr['mode01_supported']} PIDs), DID-Sweep {pr['sweep_blocks_done']}/256 Bloecke, "
+                         f"{pr['sweep_found']} DIDs gefunden, {len(pr['sweep_special'])} gesperrt/besonders, "
+                         f"{pr['sweep_silent']} ohne Antwort")
+        else:
+            lines.append("- Pi-Stand: noch keiner (Kampagne lief noch nicht)")
+        lines.append(f"- {pc.get('n_hypothesen', 0)} Hypothesen an den neuen Logs geprueft "
+                     "(Verstoesse stehen unten als Auffaelligkeit)")
+        lines.append("")
+
     findings = r.get("findings") or []
     if findings:
         lines.append("## Auffaelligkeiten")
