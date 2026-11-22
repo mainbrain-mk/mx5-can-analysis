@@ -6499,3 +6499,51 @@ dort kaum noch). Die Spitzen im 2. Gang liegen trotzdem bei 7400-7450/min, weil 
 **In der Simulation** (`spreewaldring_lap_simulation.py`, `LIMITER_*`, `limiter_factor()`): Faktor auf die
 Antriebskraft, ab Beginn linear auf 0 über 30/min (Gang 1/2) bzw. 230/min (Gang 3-6); Gang 5/6 wie Gang 4 angenommen.
 Die Momentuntergrenze beim Halten (5-30 %) fehlt. Ergebnis siehe `projekt-stand.md` (08.11.).
+
+### Batterie-Ladezustand: DID 0x4028 am PCM (2026-11-22)
+
+Frage des Nutzers: Haben wir den Ladezustand der Batterie in %? Bisher nur unbestätigte Kandidaten auf `0x45A`
+(`BattSensor_Byte4_maybe`, `BattSensor_Byte7_maybe`).
+
+- Im Datalake liegen alte Handy-Kanäle mit Ladezustand: `BatteryStateOfCharge` (OBD-Fusion-CSV, 20.–25.08.,
+  „Battery Estimated State Of Charge (%)“, 80–96 % ohne die 0-Init-Werte) und `BATT_SOC` (.dlg, 03./05./12.09.: 79, 94, 88).
+- Alle OBD-Anfragen in den CAN-Logs ab 12.09. ausgezählt (`7E0`/`7DF`). Selten gestellte Mode-22-DIDs: `0x4028`,
+  `0xDA86`, `0x032B`, `0xF40C` (je ~20 Mal, nur in `candump-2026-09-12_211833`, das ist die Fahrt mit `BATT_SOC` = 88).
+- **`0x4028` antwortet in allen 20 Fällen mit `62 40 28 58` → 0x58 = 88**, gleich dem App-Wert. 1 Byte, % direkt
+  (raw = %). Das ist eine Übereinstimmung an einem Wert in einer Fahrt, kein Verlauf. Die Skala ist deshalb plausibel,
+  aber nicht belegt (raw/1 oder z. B. raw·100/255 = 34,5 % wäre gegen die App falsch → raw/1).
+- Zum Vergleich in derselben Fahrt `0x45A`: Byte 7 = 0x9A–0x9E (154–158), Byte 4 = 0x3E–0x43. Keins davon ist
+  direkt 88. Byte 7 als Ladezustand bleibt offen, ein Faktor lässt sich aus einem Punkt nicht bestimmen.
+- Nebenbei: `0x032B` (0x1D–0x24) und `0xDA86` (0x7D–0x81) sind 1-Byte-Werte, `0xF40C` ist die Drehzahl (Mode-1-PID 0x0C
+  über Mode 22). Nicht weiter verfolgt.
+
+**Nächster Schritt (Nutzerentscheid):** `0x4028` in `tpms_poller.py` in die langsame 10-s-Gruppe aufnehmen. Dann gibt es
+einen Verlauf, um raw/1 zu bestätigen und Byte 7 auf `0x45A` dagegen zu kalibrieren.
+
+### Batterie-Ladezustand im Broadcast: 0x42B Byte 2, 0,5 %/LSB (2026-11-22, später)
+
+Auf Wunsch des Nutzers vor dem Pollen von `0x4028` zuerst im CAN-Stream gesucht. Ankerwert: 88 % in
+`candump-2026-09-12_211833` (DID `0x4028` und App-Kanal `BATT_SOC`, siehe Abschnitt davor).
+
+- **Fehlgriff zuerst:** `0x344` Byte 1 steht im Ankerlog zu 100 % auf 88, aber in allen 129 Logs ebenfalls
+  (11.09.–21.11.). Konstante, kein Ladezustand.
+- **Suche:** pro (ID, Byte) und Log den Median, dann Felder behalten, die innerhalb einer Fahrt ruhig sind
+  (Median-Std ≤ 2), zwischen Fahrten wechseln und im Ankerlog unter Skala 1 / 0,5 / 100/255 / 0,4 auf 88 ± 2 kommen.
+  Übrig: `0x42B` Byte 2 (×0,5) und `0x45B` Byte 1. `0x45B` Byte 1 ist ein Flag-Byte (meist 0/4, gelegentlich 255).
+- **`0x42B` Byte 2 × 0,5 = Ladezustand in %:**
+  - Ankerlog: Median 178 → 89 % (DID: 88 %, also eine Stufe Abweichung, 1-%-Auflösung der DID).
+  - Über alle Logs 74,5–99 %, viele Fahrten pendeln sich bei 180 = 90 % ein (die Handy-App zeigte im August meist
+    90–91 %). 254 = ungültig (vier Logs, ganze Fahrt konstant 254).
+  - **Laden sichtbar:** 26.10. drei Fahrten hintereinander 73,0 → 75,0 %, 75,0 → 76,5 %, 77,0 → 79,0 %, 02.10.
+    77,0 → 81,5 % in 48 min (~0,1 %/min). Dabei hält die Lichtmaschine 14,1–14,5 V (`DCDC_Voltage`).
+  - **Voll = kein Laden:** 03.11. bei 94–98 % nur 13,1–13,4 V, der Wert bleibt stehen oder sinkt um 0,5 %. Genau das
+    Verhalten einer geregelten Lichtmaschine (lädt nur bis zu einem Ziel-Ladezustand, darüber Spannung absenken).
+  - Zwischen zwei Fahrten springt er teils nach oben (03.11. morgens Ende 94 %, nachmittags Start 98 %). Vermutlich
+    korrigiert der Batteriesensor nach der Standzeit über die Ruhespannung. Nicht geprüft.
+- **DBC-Konflikt:** `EngineRPM_related_3_maybe` (`0x42B` 15|16, Motorola) liest Byte 1 und Byte 2 als ein 16-Bit-Wort.
+  Byte 1 ist das drehzahlnahe Feld, Byte 2 der Ladezustand. Das erklärt das schwache R² = 0,44 gegen die Drehzahl.
+  Richtig wäre: Byte 1 allein (15|8) und ein neues Signal Byte 2 (23|8, ×0,5, %).
+- `0x45A` Byte 7 läuft ähnlich langsam (133–170), passt aber nicht direkt zu 88 % und ist damit nicht der Ladezustand.
+
+Offen: Bestätigung über einen Verlauf (DID `0x4028` mitpollen oder Ladegerät über Nacht), DBC-Änderung und
+Datalake/Dash nach Nutzerentscheid.

@@ -190,6 +190,7 @@ def _clutch_gear_color(clutch_raw):
     f = min(1.0, (clutch_raw - CLUTCH_ACTIVE_RAW) / (CLUTCH_FULL_RAW - CLUTCH_ACTIVE_RAW))
     return tuple(a + (b - a) * f for a, b in zip(BABY_BLUE, NAVY))
 
+SOC_CAN_ID = 1067  # 0x42B BatterySOC
 OIL_RESPONSE_KEY = "2024"  # 0x7E8 als String, siehe can_backend.py-Snapshot-Keys "can_id:signal"
 FUEL_TANK_CAN_ID = 158
 CONSUMPTION_BAR_L100 = (4.0, 25.0)  # Verbrauchsbalken der KRAFTSTOFF-Kachel: leer .. voll (Nutzerwunsch 31.10.)
@@ -1161,7 +1162,8 @@ class DriveScreen(Screen):
         stat_col = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.2)
         self.coolant_card = MetricCard("WASSER", unit="°C")
         self.oil_card = MetricCard("ÖLTEMP.", unit="°C")
-        self.battery_card = MetricCard("BATTERIE", unit="V", value_fmt="{:.1f}")
+        # Ladezustand (0x42B, %) rechtsbuendig neben der Spannung (Nutzerwunsch 22.11.)
+        self.battery_card = MetricCard("BATTERIE", unit="V", value_fmt="{:.1f}", side=True)
         stat_col.add_widget(self.coolant_card)
         stat_col.add_widget(self.oil_card)
         stat_col.add_widget(self.battery_card)
@@ -1237,6 +1239,9 @@ class DriveScreen(Screen):
         self.oil_card.set_value(c.get(OIL_RESPONSE_KEY, "_OilTemp_derived", max_age=OIL_STALE_S))
         self.battery_card.set_value(
             c.get(138, "DCDC_Voltage"))  # Broadcast 0x08A statt PID 0x42 (26.09.)
+        soc = c.get(SOC_CAN_ID, "BatterySOC")
+        # 254 roh (127 %) = ungueltig, siehe DBC-Kommentar
+        self.battery_card.set_side("" if soc is None or soc > 100 else f"{soc:.0f}%")
 
         for key, spec in (("VL", "Tire1"), ("VR", "Tire2"), ("HL", "Tire3"), ("HR", "Tire4")):
             p = c.get(TPMS_CAN_ID, f"{spec}_Pressure", max_age=TPMS_STALE_S)

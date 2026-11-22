@@ -133,6 +133,7 @@ ABS_CAN_ID = 529
 WHEEL_SPEED_CAN_ID = 533  # 0x215 WheelSpeed_1-4 (VL, VR, HL, HR) fuer die Schlupfanzeige im Dash
 IAT_CAN_ID = 1274  # BO_ 1274 HS_PCM, Signal IAT_Sensor_No1
 LOAD_CAN_ID = 359   # BO_ 359 HS_PCM, Signal ActualEnginePercentTorque
+SOC_CAN_ID = 1067  # BO_ 1067 0x42B, Signal BatterySOC (Ladezustand %, 22.11.2026)
 DCDC_CAN_ID = 138   # BO_ 138 HS_DCDC, Signal DCDC_Voltage (Bordnetzspannung, ersetzt PID 0x42)
 # OBD-Anfragen nur zaehlen, fuer die Zustandszeile: 0x7DF = Handy-Init, 0x7E0 = Pi-Poller
 # (per SocketCAN-Loopback sichtbar) + Handy. Anlass: 27.09., Dash zeigte bei laufendem OBD
@@ -398,6 +399,7 @@ NEEDED_CAN_IDS = sorted({
     IAT_CAN_ID,
     LOAD_CAN_ID,
     DCDC_CAN_ID,
+    SOC_CAN_ID,
     *OBD_REQUEST_IDS,
 })
 
