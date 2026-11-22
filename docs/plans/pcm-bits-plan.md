@@ -209,6 +209,7 @@ dieses Konzept, `results/pcm_campaign/hypotheses.json` (Register mit Datum, Vorh
 | Kandidatensuche (Felder gegen DIDs) | offen, vor Freigabe Stufe 2 |
 | Aufgabe „process-new-mx5-logs“ | Schritt 5 ergänzt |
 | Pilot-Deploy | 22.11. abends nach Freigabe des Nutzers: `0cce4fe` auf dem Pi, Stufe 0 aktiv; vorher Integrationstest auf dem Pi (vcan9) bestanden |
+| Pilotfahrt | 22.11. 19:55, fertig nach 72 s; Gesundheit sauber; PCM antwortet unbekannten DIDs mit NRC 0x31, ~13,5/s, Stufe 1 also ~80 min Motorlauf; Kandidaten 0xA4 (Ist-Gang) und 0xA6 (km) |
 
 ## Bewusst weggelassen
 

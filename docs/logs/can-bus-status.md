@@ -6778,3 +6778,66 @@ ob das PCM bei unbekannten DIDs mit NRC antwortet oder schweigt (bestimmt die Da
 
 Offen, beim nächsten Inventurlauf: die andere Sitzung hat `0x42B` Byte 2 (Batterie-Ladezustand) in die DBC gebracht;
 die Bilanz 278 offene PCM-Bits ist darauf noch nicht nachgerechnet.
+
+## Tankstopp 22.11.: 35,63 l voll, Voll-bis-Voll 14.11.→22.11. (2026-11-22)
+
+**Angabe (Nutzer):** heute 35,63 l getankt (voll, wie immer). Zwischen `candump-2026-11-22_175159` (Ende 18:34,
+ODO 173552) und `_183708` (Start 18:37); das Backend hat den Stopp live erkannt (`refuel`, vorher 10,93 l).
+
+**Zwischenstopp 14.11. entdeckt:** Über 04.11.→22.11. zählt 0x420 64,5 l bei 969 km, mehr als ein Tank. Im
+Tankbuch springt der Stand am 14.11. zwischen `_104203` (Ende 10:48, 11,3 l) und `_105221` (Start 10:52, 45,0 l),
+Geber roh 5,6 → 36,2, ODO 173107/173108. **Einen `refuel`-Eintrag gibt es dafür nicht**, nur den Start mit 45 l
+(Ursache im Backend offen). Getankte Menge 14.11. unbekannt; damit ist Intervall H (04.→14.11.) offen.
+
+**Intervall I 14.11. 10:52 → 22.11. 18:34**, 16 Logs (`14_105221` … `22_175159`), Summierung wie bei G:
+
+| | Wert |
+|---|---|
+| Zählerschritte geloggt | 148 428 = 29,77 l bei 4985/l (395 km geloggt) |
+| ODO-Sprünge ohne Logger | 34 km (17.11. 17:37 → 18.11.), 14 km (18.→21.11.), 1 km (21.11.) = 49 km ≈ 3,7 l bei 7,5 l/100 km |
+| Summe | ≈ 33,5 l → **Rest −2,2 l** bei 4985/l, −1,7 l bei 4913/l; ≈ 4680 Schritte/l |
+
+- Wie G (−2,4 l) wieder deutlich im Minus, und zwar unabhängig von der Überfüllung am 04.11.: Laut der Regel vom
+  04.11. spricht das für eine kleinere Skala. Allerdings schließt auch 4913/l I nicht, und die 49 km ohne Logger
+  (11 % der Strecke) sind nur geschätzt. Keine Änderung an `FUEL_STEPS_PER_L` ohne Nutzerentscheid.
+- Die Resyncs am 21.11. (Tag nach dem Reifenwechsel) betreffen nur den Geberabgleich, nicht die Zählersumme.
+- **Nachtrag (Nutzer, 22.11.):** Die Menge vom 14.11. ist nicht bekannt. Intervall H (04.→14.11.) bleibt ohne
+  Voll-bis-Voll-Abgleich und zählt nur als Volltank-Anker für den Beginn von I.
+
+## PCM-Kampagne: Pilotfahrt ausgewertet (2026-11-22, abends)
+
+Fahrt `candump-2026-11-22_195529` (ca. 12 min, Motor 693 s), erste Fahrt mit Stufe 0. Zustand vom Pi
+(`canlogs/pcm_campaign/`), Auswertung mit `pcm_campaign_eval` (Gesundheit, Hypothesen) von Hand vor dem Pipeline-Lauf.
+
+**Ablauf laut `events.log`:** Start 19:55:30, Mode-01-Inventar fertig nach 53 s, DID-Block 0x13xx nach weiteren
+19 s (256 DIDs, ~13,5/s, also nahe der Obergrenze 15/s), danach nichts mehr zu tun. 313 Anfragen, 0 Fehler, 0
+Pausen wegen fremder Tester, 2,6 s Pause wegen Volllast.
+
+**Gesundheit:** Lambda/KnockRetard 45,3/s (p90) gegen 45,25/s Vergleichsbasis (letzte 10 Logs ohne Kampagne),
+99,98 % der Poller-Anfragen binnen 60 ms beantwortet, 73 Öltemperatur-Werte. Keine Beeinträchtigung messbar.
+
+**Antwortverhalten des PCM:** Unbekannte DIDs bekommen sofort NRC 0x31 (requestOutOfRange), 255 von 256 im Block
+0x13xx; Schweigen kam nicht vor. Folge für Stufe 1: mit ~13,5 Anfragen/s braucht der volle Mode-22-Raum (65 536 DIDs)
+etwa **80 min Motorlauf** statt der geplanten 2,5–6 h. Im Block 0x13xx antwortet nur 0x1310 (Öltemperatur,
+Selbstkontrolle ok); 0x1301 gibt es am echten PCM nicht (war nur im Testsimulator).
+
+**Mode-01-Inventar:** 56 unterstützte PIDs (Basen 0x00–0xA0), jede einmal gelesen. Neu gegenüber dem, was der Pi
+pollt, u. a. 0x67/0x68 (Kühlmittel-/Ansaugtemperatur-Sensoren), 0x8E (Reibmoment), 0x9D/0x9E (Kraftstoff-/
+Abgasmassenstrom), **0xA4** und **0xA6**:
+- 0xA4 = `03 20 0B AF`: Gang 2, Übersetzung 2,991. Zeitgleich `MT_Gear_Actual` = 2, Kupplung los, 799/min bei
+  10,5 km/h. Kandidat H-P0-01 (Ist-Gang, nicht Empfehlung), braucht eine Zeitreihe.
+- 0xA6 = `00 1A 7C 8D` = 173 582,1 km, zeitgleich `C001_ODO` (0x40A) = 173 582 km. Hypothese H-P0-02 (Kilometerstand in
+  0,1 km, feiner als der CAN-Zähler).
+
+**Hypothesen an der Pilotfahrt:** 33 von 34 prüfbaren sofort sauber (H-A1-20, 0x4F0, im kurzen Log zu wenige
+Fenster). **H-A1-22 (0x4FE) meldete −2460 ppm**, stabil in jedem Fenster. Prüfung: nur 0x4FE betroffen, alle anderen
+15 PCM-IDs +4…+20 ppm; eine einfache Regression je Abschnitt (0–25 s vor der ersten Kampagnen-Anfrage, danach) gibt
+100,01 ms wie immer. Ursache ist ein **Messfehler in `can_sender_clock.period_windows`**: 0x4FE sendet beim Abstellen
+17–20 Null-Frames im 20-ms-Takt, im 12-min-Log senkten sie den Mittelwert der Abstände um 0,18 %, die Frame-Zählung
+im 60-s-Fenster verrutschte. In längeren Logs blieb der Effekt unter einem halben Frame und fiel nie auf. Fix: nur
+Abstände ±30 % um den Median mitteln; Selbsttest um genau diesen Fall erweitert (alte Fassung 99,757 ms, neue
+besteht). A1 neu gerechnet: Holdout (inzwischen 123 Logs) ergibt genau die 22 Register-IDs (+0x0FD), beste fremde
+ID 4 %, kleinste PCM-ID 45 %; danach auch an der Pilotfahrt alle 34 sauber. Verworfen als V-A1-02.
+
+**Bewertet:** Pilot erfolgreich, Gesundheit sauber. Stufe 1 (voller DID-Sweep) ist damit technisch bereit; Freigabe
+nur durch den Nutzer. 0xA4/0xA6 wären Kandidaten für die Hotlist (Stufe 3), um Zeitreihen zu bekommen.

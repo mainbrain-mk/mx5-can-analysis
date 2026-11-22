@@ -52,7 +52,10 @@ def period_windows(t, win_s=WIN_S):
     t_med = np.median(dt)
     if t_med <= 0:
         return []
-    ok = dt < 1.5 * t_med                       # Luecken (verlorene Frames) nicht mitteln
+    # nur Abstaende nahe der Periode mitteln: Luecken (verlorene Frames) und Schwaelle kurzer Frames
+    # (0x4FE sendet beim Abstellen ~20 Null-Frames im 20-ms-Takt) verfaelschen sonst t_mean; in einem
+    # 12-min-Log (22.11. Pilot) waren das -0,18 % und k verrutschte im Fenster (-2460 ppm Scheinabweichung)
+    ok = np.abs(dt - t_med) < 0.3 * t_med
     # nur zyklische IDs: >= 80 % der Abstaende innerhalb +-30 % der mittleren Periode
     t_mean = np.mean(dt[ok])
     if np.mean(np.abs(dt - t_mean) < 0.3 * t_mean) < 0.8:
@@ -148,6 +151,12 @@ def self_test():
     for other, want in ((b, 0.0), (c, 0.0), (d, -25.0)):
         dev, _ = ratio_ppm(other[:m], a[:m])
         assert abs(np.median(dev) - want) < 1.5, (want, np.median(dev))
+    # kurzes 100-ms-Log mit Abstell-Schwall (17 Frames im 20-ms-Takt, wie 0x4FE am 22.11.)
+    t = np.arange(7240) * 0.1 * (1 + 40e-6) + rng.normal(0, 2e-4, 7240)
+    t = np.sort(np.concatenate([t, t[-1] + 0.021 * np.arange(1, 18)]))
+    e = per(t)
+    dev, _ = ratio_ppm(e, a[:len(e)])
+    assert abs(np.median(dev)) < 3, np.median(dev)
     assert period_windows(np.sort(rng.uniform(0, 1000, 5000))) == []    # nicht zyklisch
     print("self-test ok")
 

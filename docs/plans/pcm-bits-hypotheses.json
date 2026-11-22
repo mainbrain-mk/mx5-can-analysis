@@ -442,6 +442,30 @@
    },
    "stand": "bestaetigt",
    "beleg": "Taktdrift (scripts/can_sender_clock.py): Herleitung 12 Logs, Holdout 103 Logs mit festem Nennverhaeltnis; Trennung: PCM-IDs in >= 37 % der Logs |Abw.| <= 5 ppm, beste fremde ID <= 7 %. Kontrollen ABS/EPS decken sich mit der DBC"
+  },
+  {
+   "id": "H-P0-01",
+   "datum": "2026-11-22",
+   "aussage": "Mode 01 PID 0xA4 (SAE: Transmission Actual Gear) liefert beim ND-Schaltgetriebe den tatsaechlich eingelegten Gang (Byte B High-Nibble) und dessen Uebersetzung (C,D / 1000)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "bei periodischer Abfrage stimmt der Gang mit MT_Gear_Actual (0x0FD) und dem Drehzahl/Tempo-Gang ueberein, Uebersetzung je Gang konstant (2. Gang 2,991)"
+   },
+   "stand": "kandidat",
+   "beleg": "Pilot 22.11. (candump-2026-11-22_195529, t=53,5 s): 03 20 0B AF = Gang 2, 2,991; zeitgleich MT_Gear_Actual=2, Kupplung los, 799/min bei 10,5 km/h. Ein Messpunkt, Bestaetigung erst mit Zeitreihe (Hotlist, Stufe 3) an mehreren Tagen"
+  },
+  {
+   "id": "H-P0-02",
+   "datum": "2026-11-22",
+   "aussage": "Mode 01 PID 0xA6 = Kilometerstand in 0,1 km (4 Byte)",
+   "klasse": null,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "Wert/10 = C001_ODO (0x40A) auf 1 km, steigt mit der Fahrstrecke"
+   },
+   "stand": "hypothese",
+   "beleg": "Pilot 22.11.: 0x001A7C8D = 173582,1 km, zeitgleich C001_ODO = 173582 km. SAE-Standarddefinition, ein Messpunkt"
   }
  ],
  "verworfen": [
@@ -468,6 +492,12 @@
    "datum": "2026-11-22",
    "aussage": "0x4FA Byte6-7 sind Pruefsumme/Rauschen (can_open_fields-Klassifizierung)",
    "grund": "Multiplex mit 7 konstanten Seitenwerten (H-A2-05/06)"
+  },
+  {
+   "id": "V-A1-02",
+   "datum": "2026-11-22",
+   "aussage": "Pilotfahrt 22.11. abends: 0x4FE weicht -2460 ppm vom PCM-Takt ab (H-A1-22 verletzt)",
+   "grund": "Messfehler in period_windows: 0x4FE sendet beim Abstellen ~17-20 Null-Frames im 20-ms-Takt; im kurzen Log zogen sie die mittlere Periode um 0,18 % herunter und die Frame-Zaehlung im Fenster verrutschte. Einfache Regression je Abschnitt: 100,01 ms wie immer. Fix: nur Abstaende +-30 % um den Median mitteln; A1 neu gerechnet, Holdout (123 Logs) ergibt genau die 22 Register-IDs, beste fremde ID 4 %, kleinste PCM-ID 45 %"
   }
  ]
 }
