@@ -6841,3 +6841,10 @@ ID 4 %, kleinste PCM-ID 45 %; danach auch an der Pilotfahrt alle 34 sauber. Verw
 
 **Bewertet:** Pilot erfolgreich, Gesundheit sauber. Stufe 1 (voller DID-Sweep) ist damit technisch bereit; Freigabe
 nur durch den Nutzer. 0xA4/0xA6 wären Kandidaten für die Hotlist (Stufe 3), um Zeitreihen zu bekommen.
+
+## PCM-Kampagne: Stufe 1 deployt (2026-11-22, spät)
+
+Freigabe des Nutzers nach der Pilotauswertung. Konfiguration `stage: 1`, sonst nichts geändert; Selbsttest grün,
+Planer am echten Pilotstand durchgespielt: Job J1, erste Anfrage DID 0x0300 (Prioritätsblöcke 03, 04, 09, 28, DA,
+F4, 0C, dann der Rest), Block 0x13 wird übersprungen. Deploy `a58710b`, Pi-Checkout sauber. Erwartet ~80 min
+Motorlauf; die Tagespipeline prüft je Fahrt Gesundheit und Fortschritt.

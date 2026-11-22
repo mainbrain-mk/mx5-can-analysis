@@ -11,6 +11,10 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
+**Nachtrag 2026-11-22 (spät):** `deployed` = `a58710b`, PCM-Kampagne **Stufe 1** (voller Mode-22-DID-Sweep) nach
+Freigabe des Nutzers; setzt am Pilotstand an (erste Anfrage DID 0x0300, Block 0x13 erledigt). Erwartet ~80 min
+Motorlauf über die nächsten Fahrten. Sonst unverändert gegenüber `0cce4fe`.
+
 **Nachtrag 2026-11-22 (abends):** `deployed` = `0cce4fe` (Branch `pcm-bits-2026-11-22`, noch nicht in `main`; enthält
 den vorher deployten Stand `17fa36b` ECU-Discovery per Merge). Neu: PCM-Kampagne im `tpms_poller.py`, **Stufe 0 (Pilot)**
 aktiv laut `repo/scripts/pcm_campaign_config.json`: Mode-01-Inventar + DID-Block 0x13xx, höchstens 10 % Zeitanteil,
