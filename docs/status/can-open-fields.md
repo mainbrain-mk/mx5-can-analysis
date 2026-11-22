@@ -113,7 +113,8 @@ Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Pr
 | `DCDC_State_maybe` Wert 11 | selten, mit Byte4 = 248 | Start-/Sonderzustand | C1 |
 | `BattSensor_Current_raw_maybe` 0x45A 3\|12 | ~3665 Motor aus, ~3730 lädt, ~2900 beim Anlassen | Batteriestrom, Nullpunkt ~3690 | C1 Stromzange |
 | `BattSensor_Byte4_maybe` | 55–76, Kaltstart r=0,98 gegen IAT, steigt je Fahrt | zweite Temperatur oder SOC | C1, Ladegerät |
-| `BattSensor_Byte7_maybe` | 134–158, sinkt langsam je Fahrt | SOC/SOH | Ladegerät |
+| `BattSensor_Byte7_maybe` | 134–158, sinkt langsam je Fahrt | SOH? Ladezustand ist es nicht (der liegt auf **0x42B Byte 2 ×0,5 %**, 22.11.); am 12.09. 154–158 bei Ladezustand 88 % laut PCM-DID 0x4028 (22.11.) | Ladegerät |
+| **`0x42B` Byte 2** | 149–198, steigt bei 14,4 V, steht bei 13,1 V | **Batterie-Ladezustand, raw×0,5 %** (Anker 88 % via DID 0x4028, 22.11.); 254 = ungültig | 0x4028 mitpollen |
 | 0x4DF Byte0, Byte5 (DCDC, ~1,6 Hz) | beide steigen je Fahrt (z. B. 64→70, 25→37), beim Kaltstart eng an der Ansauglufttemperatur (r=0,980 bzw. 0,994), aber Steigung 1,44 bzw. 2,24 K/Schritt - keine Standard-Temperaturkodierung | Wandler- bzw. Kondensatortemperatur oder temperaturabhängige Grenzwerte | C1: Infrarot-Thermometer an Kondensator/Wandler nach Standzeit und nach Fahrt |
 | 0x4DF Byte2-4, Byte6 | wenige Werte, wechseln zyklisch (Byte6 6/134) | Multiplex-Seiten | – |
 
