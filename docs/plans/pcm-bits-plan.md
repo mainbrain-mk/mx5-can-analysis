@@ -208,7 +208,7 @@ dieses Konzept, `results/pcm_campaign/hypotheses.json` (Register mit Datum, Vorh
 | Pipeline-Schritt `pcm_campaign_eval.py` | gebaut, an echten Logs gelaufen; Vergleichsbasis steht |
 | Kandidatensuche (Felder gegen DIDs) | offen, vor Freigabe Stufe 2 |
 | Aufgabe „process-new-mx5-logs“ | Schritt 5 ergänzt |
-| Pilot-Deploy | offen, braucht Freigabe des Nutzers |
+| Pilot-Deploy | 22.11. abends nach Freigabe des Nutzers: `0cce4fe` auf dem Pi, Stufe 0 aktiv; vorher Integrationstest auf dem Pi (vcan9) bestanden |
 
 ## Bewusst weggelassen
 

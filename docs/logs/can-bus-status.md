@@ -6757,3 +6757,24 @@ Steuergerät) an 236 Anfrage-IDs 0x700–0x7F7, ohne 0x7DF und ohne bekannte Ant
 Antwort oder NRC auf 0x700–0x7FF mit Namen aus `MAZDA_ECU_NAMES` mit. Dauer ca. 40 s. Selbsttest erweitert,
 Schleife gegen einen simulierten Bus getestet. **Noch nicht am Auto gelaufen** (im Stand, Motor an).
 Neue Steuergeräte dann mit dem vorhandenen DID-Sweep abklopfen (Identität `F18x/F19x` zuerst).
+
+## PCM-Kampagne: Pilot (Stufe 0) deployt (2026-11-22, abends)
+
+Freigabe des Nutzers nach dem Ergebnis vom Nachmittag. Ablauf:
+
+- Auf dem Pi lief inzwischen `17fa36b` (ECU-Discovery aus einer anderen Sitzung, um 14:00 einmal gelaufen,
+  `RUN_PROBE` danach weg). Beide Stände per Merge zusammengeführt (`58bacbb`); einziger Konflikt war dieses
+  Logbuch (beide Abschnitte behalten, die Batterie-Abschnitte unter eigener `##`-Überschrift).
+- Tests auf dem Merge lokal grün (Poller, Backend, Session-Logger, Datalake, Pipeline, Kampagnen-Selbsttest).
+  Integrationstest lokal 40 s einmal knapp unter der Schwelle (Schweige-Fall 84 % < 85 %), mit 60 s 93 %: Rauschen
+  der kurzen Messung, kein Befund.
+- **Integrationstest auf dem Pi** mit echtem SocketCAN (`vcan9`, eigenes Interface, damit Dash/Sim nichts sehen;
+  neu `TEST_IFACE`/`TEST_CHANNEL`), 60 s je Szenario: Schnellgruppe aus 3156, mit Kampagne 2992 (95 %), PCM schweigt
+  2810 (89 %), Handy aktiv 0 Kampagnen-Anfragen; Pilot findet 0x1310/0x1301. Danach `vcan9` und Testkopie entfernt.
+- Deploy `0cce4fe` (Konfiguration `stage: 0`), Pi-Checkout sauber, Zustand landet in `canlogs/pcm_campaign/`.
+
+Nächste Prüfung in der Tagespipeline nach der ersten Fahrt: Gesundheit (Raten gegen die Vergleichsbasis 14.–21.11.),
+ob das PCM bei unbekannten DIDs mit NRC antwortet oder schweigt (bestimmt die Dauer von Stufe 1), Mode-01-Inventar.
+
+Offen, beim nächsten Inventurlauf: die andere Sitzung hat `0x42B` Byte 2 (Batterie-Ladezustand) in die DBC gebracht;
+die Bilanz 278 offene PCM-Bits ist darauf noch nicht nachgerechnet.

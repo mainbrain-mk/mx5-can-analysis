@@ -11,6 +11,14 @@ Reproduzierbarkeit beschreibt [`../../scripts/pi-config/SETUP.md`](../../scripts
 - `throttled=0x0`, keine failed units, `/media/root-ro` ro, Stick 2,7 GB belegt, 106 GB frei.
 - Alle Fahrt-Logs gepackt. Repo-Kopien der Overlay-Dateien sind identisch mit dem Unterbau.
 
+**Nachtrag 2026-11-22 (abends):** `deployed` = `0cce4fe` (Branch `pcm-bits-2026-11-22`, noch nicht in `main`; enthält
+den vorher deployten Stand `17fa36b` ECU-Discovery per Merge). Neu: PCM-Kampagne im `tpms_poller.py`, **Stufe 0 (Pilot)**
+aktiv laut `repo/scripts/pcm_campaign_config.json`: Mode-01-Inventar + DID-Block 0x13xx, höchstens 10 % Zeitanteil,
+15 Anfragen/s, Pause bei Handy-Anfragen. Zustand/Ereignisse auf dem Stick unter `canlogs/pcm_campaign/`
+(`state.json`, `events.log`). Notaus: `touch canlogs/pcm_campaign/STOP` (wirkt binnen 10 s) oder Konfiguration auf
+`stage: -1` deployen. Vorher auf dem Pi geprüft: Integrationstest auf `vcan9` (SocketCAN), `test_tpms_poller` grün.
+Dash/Backend nicht neu gestartet (unverändert bis auf die DBC, die erst beim nächsten Start gelesen wird).
+
 **Nachtrag 2026-11-18:** Log-Stick-Prüfung beim Boot in der SD-Basis (`canlogs-bootcheck.service`,
 `/usr/local/bin/canlogs-{bootcheck,autostart}.sh`, Autostart ruft nur noch `canlogs-autostart.sh`, `can-logger` mit
 `RequiresMountsFor`). Fehlt der Stick, gibt es eine Meldung auf dem Display und Diagnose unter
