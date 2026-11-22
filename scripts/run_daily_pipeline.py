@@ -664,8 +664,12 @@ def sync_can_logs_from_pi(errors):
     # clockstate-*.txt-Marker (session_logger.py schreibt einen pro Log,
     # siehe write_clock_marker) - klein, immer alle neuen mitnehmen statt
     # gezielt zu matchen.
+    # 22.11.: .log.gz ohne -mmin-Sperre - pack_logs() benennt erst nach fsync + gzip -t atomar
+    # um, eine .log.gz ist also immer fertig. Mit Sperre fehlten Logs, die der Pack-Timer kurz
+    # vor dem Lauf gepackt hatte (Pi bootet zu Hause, packt nach 10 min, Lauf kam 4 min danach).
     remote_cmd = (f"find {shlex.quote(PI_CANLOGS_DIR)} -maxdepth 1 "
-                  f"\\( \\( -name 'candump-*.log*' -o -name 'ifstats-*.txt' \\) -mmin +5 "
+                  f"\\( \\( -name 'candump-*.log' -o -name 'ifstats-*.txt' \\) -mmin +5 "
+                  f"-o -name 'candump-*.log.gz' "
                   f"-o -name 'clockstate-*.txt' -o -name 'clockjump-*.txt' \\) "
                   f"-printf '%f\\n'")
     try:

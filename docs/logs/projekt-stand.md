@@ -7629,3 +7629,75 @@ steht statt `script_error` ein Info-Befund `can_log_no_drive`. Ein im Stand lauf
 weiter als Fahrt-Log (das Signal ist dann da, die Analysen liefern 0 Ereignisse). Den
 Masse-Eintrag für 150439 (1177,7 kg, reine Tankbuch-/SOLO-Annahme) habe ich aus
 `data/log_mass_overrides.json` entfernt.
+
+## Reifenwechsel 20.11.2026: neue Falken-Winterreifen statt Hankook
+
+**Nutzerangabe 22.11.2026:** Am Freitag, 20.11., wurden neue **Falken EUROWINTER HS02 195/50 R16 88V**
+aufgezogen. Sie ersetzen die abgefahrenen Hankook W462 (Übergangssatz seit 01.10.).
+
+- **Logs:** letzter Log auf Hankook ist `candump-2026-11-18_155537`. Am 19./20.11. gibt es keine CAN-Logs.
+  Erster Log auf Falken ist `candump-2026-11-21_112203`. Für Auswertungen über mehrere Fahrten sind das drei Reifensätze:
+  NS-R2 bis 01.10., Hankook 02.10.–18.11., Falken ab 21.11.
+- **Abrollumfang:** Die Größe ist gleich (geometrischer Radius neu 0,3007 m wie bisher), aber jetzt mit vollem Profil statt
+  Verschleißgrenze. Der Umfang ist damit wieder minimal größer (Nutzerangabe). Größenordnung: Radius etwa 2–5 mm mehr,
+  also +0,7 bis +1,7 %. Die Profiltiefen (alt und neu) sind nicht gemessen.
+- **Erwartung, an den nächsten Logs zu prüfen:** Bei mehr Radius dreht das Rad pro km weniger oft. `VehicleSpeed` sollte
+  gegenüber GPS also etwas weniger zu hoch anzeigen als die bisherigen +2,9 %. Drehzahl/`VehicleSpeed` je Gang bleibt gleich,
+  weil das Steuergerät mit festem Umfang rechnet.
+- **Index:** V = 240 km/h statt H = 210 km/h. Tragfähigkeit 88 wie bisher.
+- **TPMS:** Prüfen, ob weiter alle vier `TirePressure_CAN_Tire1-4` kommen. Sind die Sensoren umgezogen oder neu?
+  Bei neuen Sensoren auch die Radzuordnung prüfen.
+- **Grip/Bestzeiten:** Das sind weiterhin Winterreifen. Die Regel „keine Bestzeit-/Grip-Rechnungen mit Winterreifen“
+  gilt vorerst weiter. Neu ist nur, dass das Profil voll ist statt abgefahren. Die Hankook-Kennwerte (Schwingung,
+  Kurven) gelten nicht automatisch für die Falken.
+
+### Nachtrag 22.11.: Falken im Vergleich Tacho/GPS (`VehicleSpeed` gegen Handy-GPS per Bluetooth)
+
+Methode: je Sekunde GPS/`VehicleSpeed`, nur bei mehr als 40 km/h, bei Δv < 1,5 km/h/s und mit sich änderndem GPS-Wert (gegen
+eingefrorene Fixe). Ausgewertet ist der Median je Log. Zum Vergleich dient nur die Zeit ab 07.11., weil ab da die GPS-Quelle
+dieselbe ist (Handy per Bluetooth).
+
+| | Hankook (07.–18.11., 20 Logs) | Falken (21.11., 2 Logs mit genug Daten) |
+|---|---|---|
+| GPS/VS je Log (lange Logs) | 0,9712–0,9740 | 0,9708 (`144702`), 0,9718 (`190853`) |
+| 40–70 km/h | 0,9707 | 0,9661 |
+| 70–100 km/h | 0,9715 | 0,9674 |
+| 100–130 km/h | 0,9731 | 0,9714 |
+| > 130 km/h | 0,9750 | 0,9717 |
+| Druck Tire1 (Median) | 2,00 bar | 2,25 bar |
+| Außentemperatur (Median) | 6,3 °C | 5,8 °C |
+
+**Befund:** Das frische Profil ist **nicht** zu sehen. In jedem Tempoband liegt GPS/VS mit den Falken 0,2–0,5 % **niedriger**.
+Der wirksame Abrollumfang ist also eher etwas kleiner, und der Tacho liest ~3,0 % statt ~2,8 % zu hoch. Der höhere Druck
+müsste den Radius eher vergrößern, erklärt es also nicht. Wahrscheinlicher: Der wirksame Rollradius hängt vor allem am
+Stahlgürtel und kaum an der Profiltiefe, weil weiche, tiefe Winterprofilblöcke im Latsch einfedern. Dazu kommen
+Durchmessertoleranzen zwischen Herstellern. Das passt auch zum 10.10.: Schon damals sank die Überlesung mit den Hankook
+kaum. Die Erklärung „abgefahren = 1,3 % kleiner“ war damit vermutlich falsch.
+**Grenzen:** ein Fahrtag, ~1100 s brauchbare Sekunden, neue Reifen fahren sich in den ersten 100–200 km noch ein.
+An den nächsten Fahrten wiederholen. Modell und 2,9-%-Rahmen bleiben unverändert.
+
+## Automatischer Lauf: 3 neue CAN-Logs uebernommen (2026-11-22)
+
+- `candump-2026-11-22_140014`, Masse=1247.2kg (Tank ~17.7 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-22_175159`, Masse=1242.9kg (Tank ~11.9 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-22_183708`, Masse=1266.5kg (Tank ~43.7 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- dgm_gap: candump-2026-11-22_140014 t=1285-1294s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-11-22_140014 t=1719-1734s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-11-22_140014 t=1760-1766s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+- dgm_gap: candump-2026-11-22_140014 t=2125-2131s: Segment ohne Steigungskorrektur (fehlende Hoehendaten-Kachel).
+
+## Pipeline: frisch gepackte CAN-Logs wurden übersehen (2026-11-22)
+
+Der geplante Lauf um 19:13 meldete „Keine neuen Logs gefunden.“, obwohl drei Fahrten von heute auf dem Pi
+lagen. Ursache: Der Pi bootete zu Hause um ~18:59, der Pack-Timer (`OnBootSec=10min`) packte die drei
+Rohlogs um 19:09/19:10, und `sync_can_logs_from_pi()` holt nur Dateien mit `-mmin +5`. Die Rohdateien
+gab es nicht mehr, die `.log.gz` waren noch zu frisch. Ein zweiter Lauf um 19:17 holte alle drei.
+**Fix:** Die 5-Minuten-Sperre gilt nur noch für rohe `candump-*.log` (candump könnte noch schreiben) und
+für `ifstats`. `.log.gz` wird immer geholt, denn `pack_logs()` benennt erst nach fsync + `gzip -t`
+atomar um, eine `.log.gz` ohne `.tmp` ist also fertig. Den find-Ausdruck habe ich gegen den Pi und an
+Testdateien geprüft (frische `.gz` wird geholt, frische Rohdatei und `.gz.tmp` nicht).
+**Restfall:** Läuft die Pipeline innerhalb von 5 Minuten nach Fahrtende, bevor gepackt ist, bleibt
+die Rohdatei bis zum nächsten Lauf liegen.

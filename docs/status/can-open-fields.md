@@ -13,7 +13,9 @@ bündelt die Tests zu einem Programm für den nächsten Fahrzeugtermin.
 waren es vor dem 26.09. **1311**, jetzt **1124**. Über alle Logs sind noch 221 Felder offen,
 die in mindestens der Hälfte der Logs variieren (`scripts/can_open_fields.py`,
 `results/can_open_fields.csv`): 32 Messwert-Felder (419 Bit), 42 Zustandsfelder, 128 Flags,
-10 Zähler, 9 Prüfsummen/Rauschen. Der Großteil der verbliebenen Messwert-Bits sitzt in
+10 Zähler, 9 Prüfsummen/Rauschen. **Nachgerechnet 22.11.** (DBC 242 Signale, davon 161 ohne
+`_maybe`/`_related`/`_raw`; IDs < 0x700 mit ≥ 50 Frames, Stichprobe 23 Logs): Referenzlog 1864 variierende Bits,
+909 zugeordnet (49 %), 422 sicher (23 %); über alle Logs in ≥ 50 % variierend 1935 Bits, 47 % zugeordnet. Der Großteil der verbliebenen Messwert-Bits sitzt in
 Kamera- (0x242-0x246) und Infotainment-Botschaften (0x3D2, 0x4FE) sowie in Zählern und
 Prüfsummen.
 
