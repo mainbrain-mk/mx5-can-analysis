@@ -139,7 +139,10 @@ def decode_obd_traffic(df: pd.DataFrame) -> pd.DataFrame:
         elif sid == 0x62 and len(payload) >= 4:
             id_ = (payload[1] << 8) | payload[2]
             raw = payload[3:]
-            out.append((t, ecu, "response", "mode22", id_, int.from_bytes(raw, "big"), len(raw)))
+            # Lange Mehrrahmen-Antworten (Kampagnen-Sweep, bis ~300 Byte) sind keine Zahl: als Int
+            # sprengen sie die DataFrame-Spalte (OverflowError, 23.11.). Rohbytes holt pcm_campaign_eval.
+            val = int.from_bytes(raw, "big") if len(raw) <= 8 else None
+            out.append((t, ecu, "response", "mode22", id_, val, len(raw)))
         elif sid == 0x22 and len(payload) >= 3:
             out.append((t, ecu, "request", "mode22", (payload[1] << 8) | payload[2], None, 0))
         elif sid == 0x01 and len(payload) >= 2:

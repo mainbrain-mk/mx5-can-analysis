@@ -6869,3 +6869,38 @@ MX-5 nur 49 PCM-DIDs, CX-5/Mazda3 viel mehr, gleiche Skyactiv-PCM-Familie) und g
 **Vorbehalt:** Fremdlisten sind nur Kandidaten, kein Beleg. Ein Name aus der Liste wird erst nach den Beweisregeln
 (Plan, Regel 1–5) übernommen, also gegen unsere Anker und am Holdout. Viele Einträge stammen von Diesel/Turbo/
 Automatik und gibt es beim G184-Sauger mit Schaltgetriebe nicht; der Sweep zeigt, welche antworten.
+
+## PCM-Kampagne: Stufe 1, zwei Fahrten am 23.11. (2026-11-23, Tageslauf)
+
+**Untersucht:** Fahrten 23.11. 08:14 (`candump-2026-11-23_081407`, 2203 s Motor) und 14:11 (`…_141117`, 1908 s),
+dazu der Pilot-Log 22.11. 19:55 jetzt auch über die Pipeline. Pi-Ereignisse: 27 259 bzw. 23 186 Anfragen,
+161 bzw. 6 positiv, 3 bzw. 1 ohne Antwort, 0 Fehler, 0 s Pause wegen fremdem Tester, je ~72 s Pause wegen
+Volllast/Start. Sweep-Stand 198/256 Blöcke, 168 DIDs mit positiver Antwort, kein gesperrter oder besonderer.
+Rest ~58 Blöcke ≈ 15 000 Anfragen ≈ 20 min Motorlauf bei ~12,6/s, also voraussichtlich nächste Fahrt fertig.
+
+**Gesundheit:** 141117 Lambda 41,3/s, Klopfen 41,2/s (p90) gegen ~45,2/s davor = 91 %, über der 85-%-Schwelle,
+wie im Integrationstest (92 %). Poller-Antwortquote 100 %. 081407 lief nicht durch den Parser (s. u.); eigene
+Zählung am Roh-candump: Klopf-DID 0x03EC 40,0/s über die Logdauer gegen 39,1/s bei 141117, also gleich.
+
+**Problem (nicht behoben, Grenze der Tagesaufgabe):** `can_log_parser.py` bricht an 081407 mit
+`OverflowError: int too large to convert to float` ab. Ursache: `obd_from_can.decode_obd_traffic()`
+(`scripts/obd_from_can.py:142`) macht aus jeder Mode-22-Antwort `int.from_bytes(raw)`; die Kampagne erzeugt jetzt
+Mehrrahmen-Antworten mit bis zu 307 Byte (0xDA9F 0x133, 0xDA9E 0x107, 0x053B 0x2A, 0xDAB5 0x23 …), das passt in
+keine DataFrame-Spalte. Damit fehlt 081407 im Datalake und in allen Tagesanalysen. In Stufe 2 (Rotation über alle
+positiven DIDs) träfe das jedes Log. Vor Stufe 2 reparieren (z. B. Rohwert > 8 Byte nur als Bytes/Hex führen).
+
+**Inventar (nur Einzelwerte, noch keine Zuordnung):** 168 DIDs, nach Block F4 57 (Mode-01-Spiegel), 03 35, DA 33,
+09 8, 04 5, 40 5, C1 5, Rest einzeln. 58 davon tragen einen Namen aus `pcm-community-dids.csv`. Als Anker für
+offene Flags interessant (Stufe 2): 0x0415 Öldruck, 0x0393/0x9800 Klimadruck, 0x099B Klimakompressor-Zustand,
+0x03B9 Lüfter-Tastgrad, 0x0316–0x0319 Nockenwellenverstellung, 0x0378/0x0304/0x16E8 Generatorsteuerung,
+0x280A Bremsdruck, 0x03BD Lambda-Regelkorrektur. Alles Kandidaten aus Fremdlisten, kein Registereintrag, solange
+keine Zeitreihe vorliegt (Regel 1/2).
+
+**Belegt/verworfen:** nichts; Register unverändert. 35 Hypothesen an den neuen Logs ohne Verstoß.
+
+**Nachtrag (2026-11-23, abends, Fix nach Ja des Nutzers):** `decode_obd_traffic()` gibt Mode-22-Antworten mit mehr als
+8 Byte jetzt mit `raw_value=None` aus (`n_bytes` bleibt). Kein Aufrufer braucht diese langen Antworten als Zahl,
+die Kampagnen-Auswertung holt sich die Rohbytes selbst über `_reassemble`. Danach habe ich die lokale Kopie von 081407
+beiseitegelegt und die Pipeline neu laufen lassen: Das Log ist jetzt im Datalake. PCM-Gesundheit: Lambda/Klopfen 42,4/s,
+das sind 94 %. Kampagne 27 258 Anfragen, 163 positiv, kein Hypothesenverstoß. Der erste Report des Tages liegt als
+`data/runs/2026-11-23/report_lauf1.md`.
