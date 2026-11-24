@@ -7762,3 +7762,29 @@ Auffaelligkeiten:
 
 Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Ampelstart mit Gripverlust beim Schalten 1→2 (Fahrt 2026-11-24 morgens)
+
+Nutzer meldete einen Ampelstart mit Gripverlust „im 2. Gang, letztes Drittel der Fahrt“. Log
+`candump-2026-11-24_082325`, t ≈ 2262–2268 s (≈ 09:01 Uhr). Einziger Vollgas-Start der Fahrt (alle Anfahrten:
+Radgeschwindigkeits-Spread sonst ≤ 1,7 km/h, kein TCS). Bedingungen: 2 °C Außentemperatur, Reifen HR 15 °C/2,17 bar,
+Falken HS02 seit 20.11. (vier Tage alt).
+
+Ablauf (WheelSpeed 1/2 = vorne, 3/4 = hinten; Gierrate +rechts, Lenkwinkel +links):
+- **1. Gang:** Gas ab 2262,4 s, ab 2265 s 100 %, bis in den Begrenzer (7469 U/min bei 56 km/h); Hinterrad-Schlupf
+  bis 13 %, `TCS_RequestActive` ab 2265,45 s, aber kein Eingriff-Bit.
+- **Schalten:** Kupplung 2266,17–2266,47 s getreten (~0,3 s), Gas schon ab 2266,38 s wieder 100 %, Kupplung in
+  ~0,1 s ganz losgelassen bei ~7000 U/min. Im 2. Gang passen 57 km/h zu ~4400 U/min, der Motor drehte ~6300.
+- **Gripverlust:** Hinterräder springen in 0,05 s von 57 auf 85–92 km/h, Schlupf bis **52 %**, über 10 % von
+  2266,55 bis 2267,00 s (0,45 s). Heck kommt nach rechts: Gierrate bis −14,4 °/s (links), Lenkung erst 12° links,
+  dann Gegenlenken bis 44,5° rechts; das Heck pendelt zurück (+11 °/s bei 2267,13 s), ab 2267,3 s ruhig.
+  Querbeschleunigung bleibt um 0, grob integrierter Schwimmwinkel ≈ 3°: kurzer Ausbrecher, kein Dreher.
+- **DSC/TCS:** `TCS_Active` (0x211 Bit 40) 2266,90–2267,05 s, DSC-Leuchte Wert 3 von 2266,75 bis 2268,45 s (in der
+  ganzen Fahrt sonst nur Lampentest), Momentanforderung bis zum Gaswegnehmen bei 2268,6 s: Drosselklappe nur
+  31–43 % bei 100 % Pedal. Beschleunigung im 2. Gang dabei höchstens 0,62 g.
+
+Deutung: kein Haftungsproblem „im 2. Gang“ an sich, sondern Kupplungsschuss beim Hochschalten mit vollem Gas und
+hoher Drehzahl. Die Drehzahl-Differenz (~1900 U/min) wird über die Hinterräder abgebaut. Kalte Luft und neue,
+noch nicht eingefahrene Winterreifen machen das wahrscheinlicher, belegt ist das an einem Ereignis nicht.
+Die TCS reagiert ~0,1 s nach Schlupfbeginn mit Anforderung, das Eingriff-Bit erst nach ~0,35 s, als das Heck
+schon kam; Gegenlenken war also Fahrerarbeit.
