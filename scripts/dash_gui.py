@@ -83,6 +83,7 @@ SIM_LOGS_REFRESH_S = 2.0
 POLL_INTERVAL_S = 0.2
 DRIVE_REFRESH_HZ = 30
 STATUS_BAR_REFRESH_S = 0.25  # Fusszeile (Uhr, Hz, NTP) braucht keine 30 Hz
+CONSUMPTION_REFRESH_S = 0.5  # Momentanverbrauch 2x/s wie der Bordcomputer (Nutzerwunsch 24.11.: sprang zu schnell)
 LIVE_STALE_S = 2.0
 
 NTP_SYNC_PATH = "/run/systemd/timesync/synchronized"
@@ -1104,6 +1105,7 @@ class DriveScreen(Screen):
         self._slip_since = None  # Beginn des laufenden Schlupfs
         self._slip_until = 0.0
         self._status_bar_due = 0.0
+        self._consumption_due = 0.0
 
         # Oben knapper gepolstert als unten - macht Platz fuer die groessere
         # Fusszeile (StatusBar), ohne die proportionalen Kacheln zu stauchen.
@@ -1296,15 +1298,18 @@ class DriveScreen(Screen):
         self.fuel_card.sub_label.text = "" if fuel_liters is None else f"{fuel_liters:.1f} l".replace(".", ",")
         # Fahrt l/100km, im Stand (Backend liefert dann kein l/100km) l/h wie der Bordcomputer.
         # Deckel 99,9: dreistellig wird neben "100%" zu eng
-        l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")
-        lh = c.get(COOLANT_TEMP_CAN_ID, "_FuelRate_lh_derived")
-        value, unit = (l100, "l/100km") if l100 is not None else (lh, "l/h")
-        if value is None:
-            self.fuel_card.set_side("")
-        else:
-            self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
-        lo, hi = CONSUMPTION_BAR_L100
-        self.consumption_bar.frac = 0.0 if l100 is None else max(0.0, min(1.0, (l100 - lo) / (hi - lo)))
+        self._consumption_due -= dt
+        if self._consumption_due <= 0:
+            self._consumption_due = CONSUMPTION_REFRESH_S
+            l100 = c.get(COOLANT_TEMP_CAN_ID, "_FuelConsumption_l100km_derived")
+            lh = c.get(COOLANT_TEMP_CAN_ID, "_FuelRate_lh_derived")
+            value, unit = (l100, "l/100km") if l100 is not None else (lh, "l/h")
+            if value is None:
+                self.fuel_card.set_side("")
+            else:
+                self.fuel_card.set_side(f"{min(value, 99.9):.1f}".replace(".", ","), unit)
+            lo, hi = CONSUMPTION_BAR_L100
+            self.consumption_bar.frac = 0.0 if l100 is None else max(0.0, min(1.0, (l100 - lo) / (hi - lo)))
 
         self._status_bar_due -= dt
         if self._status_bar_due <= 0:

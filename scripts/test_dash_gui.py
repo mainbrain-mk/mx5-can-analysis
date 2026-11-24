@@ -436,17 +436,19 @@ def test_fuel_card_shows_momentary_consumption_right_of_level():
     # Verbrauchsbalken sitzt direkt ueber dem Tankbalken (Kivy: children in umgekehrter Reihenfolge)
     assert screen.fuel_card.children[:2] == [screen.fuel_card.bar, screen.consumption_bar]
     client.set(1056, "_FuelRate_lh_derived", 0.84)
-    screen.refresh()
+    screen.refresh(dash_gui.CONSUMPTION_REFRESH_S)
     assert side() == ("7,2", "l/100km")   # Fahrt: l/100km hat Vorrang
     client.set(1056, "_FuelConsumption_l100km_derived", 30.0)
-    screen.refresh()
+    screen.refresh()                       # 2x/s: ein 30-Hz-Frame spaeter steht noch der alte Wert
+    assert side() == ("7,2", "l/100km")
+    screen.refresh(dash_gui.CONSUMPTION_REFRESH_S)
     assert screen.consumption_bar.frac == 1.0
     client.set(1056, "_FuelConsumption_l100km_derived", None)   # Stand
-    screen.refresh()
+    screen.refresh(dash_gui.CONSUMPTION_REFRESH_S)
     assert side() == ("0,8", "l/h")
     assert screen.consumption_bar.frac == 0.0                   # l/h hat keinen Balken
     client.set(1056, "_FuelRate_lh_derived", None)              # kein 0x420
-    screen.refresh()
+    screen.refresh(dash_gui.CONSUMPTION_REFRESH_S)
     assert side() == ("", "")
 
 
