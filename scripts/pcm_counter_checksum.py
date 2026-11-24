@@ -284,17 +284,16 @@ def _verify_one(path):
 
 def verify_all(paths, workers=None):
     """verify_log ueber viele Logs, parallel (Nutzerwunsch 22.11.: mehrere Kerne)."""
-    from concurrent.futures import ProcessPoolExecutor
+    from memguard import bounded_map
     res = {}
-    with ProcessPoolExecutor(max_workers=workers or max(1, (os.cpu_count() or 2) - 2)) as ex:
-        for i, (log, r) in enumerate(ex.map(_verify_one, paths)):
-            for k, v in r.items():
-                agg = res.setdefault(k, {"frames": 0, "bad": 0, "logs_bad": [], "step0": 0, "step2": 0})
-                agg["frames"] += v["frames"]
-                agg["bad"] += v["bad"]
-                agg["step0"] += v.get("step0", 0)
-                agg["step2"] += v.get("step2", 0)
-                if v["bad"]:
-                    agg["logs_bad"].append((log, v["bad"]))
-            print(f"{i + 1}/{len(paths)} {log}", flush=True)
+    for i, (log, r) in enumerate(bounded_map(_verify_one, paths, workers=workers)):
+        for k, v in r.items():
+            agg = res.setdefault(k, {"frames": 0, "bad": 0, "logs_bad": [], "step0": 0, "step2": 0})
+            agg["frames"] += v["frames"]
+            agg["bad"] += v["bad"]
+            agg["step0"] += v.get("step0", 0)
+            agg["step2"] += v.get("step2", 0)
+            if v["bad"]:
+                agg["logs_bad"].append((log, v["bad"]))
+        print(f"{i + 1}/{len(paths)} {log}", flush=True)
     return res

@@ -478,7 +478,6 @@ if __name__ == "__main__":
         if a == ["--all"]:
             import can_offline_lab as lab
             a = [os.path.basename(p)[:-4] for p in lab.logs()]
-        from concurrent.futures import ProcessPoolExecutor
-        with ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 2) - 2)) as ex:
-            list(ex.map(_one, a))
+        from memguard import bounded_map
+        list(bounded_map(_one, a))
         print(summary_line(aggregate()))

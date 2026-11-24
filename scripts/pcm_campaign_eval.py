@@ -306,7 +306,7 @@ def progress_from_state(state_dir=STATE_DIR):
 
 
 def main(log_ids, workers=None):
-    from concurrent.futures import ProcessPoolExecutor
+    from memguard import bounded_map
     register = load_register()
     rows = _read_health()
     # Bezug: fehlen Gesundheitswerte fuer die Logs davor, die letzten BASELINE_N nachrechnen
@@ -318,11 +318,10 @@ def main(log_ids, workers=None):
         prior = [l for l in all_logs if l < first][-BASELINE_N:]
         need |= {l for l in prior if l not in rows}
     results = {}
-    with ProcessPoolExecutor(max_workers=workers or max(1, (os.cpu_count() or 2) - 2)) as ex:
-        for log, h, checks in ex.map(analyse_log, sorted(need)):
-            if h is not None:
-                rows[log] = dict(h, log=log)
-            results[log] = checks
+    for log, h, checks in bounded_map(analyse_log, sorted(need), workers=workers):
+        if h is not None:
+            rows[log] = dict(h, log=log)
+        results[log] = checks
     _write_health(rows)
     findings = []
     with open(CHECKS_JSONL, "a") as fh:

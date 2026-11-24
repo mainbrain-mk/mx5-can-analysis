@@ -100,12 +100,11 @@ def _analyse_one(path):
 
 def analyse(paths, workers=None):
     """Je Log ein Prozess (Nutzerwunsch 22.11.: mehrere Kerne nutzen)."""
-    from concurrent.futures import ProcessPoolExecutor
+    from memguard import bounded_map
     rows = []
-    with ProcessPoolExecutor(max_workers=workers or max(1, (os.cpu_count() or 2) - 2)) as ex:
-        for i, r in enumerate(ex.map(_analyse_one, paths)):
-            rows += r
-            print(f"{i + 1}/{len(paths)}", flush=True)
+    for i, r in enumerate(bounded_map(_analyse_one, paths, workers=workers)):
+        rows += r
+        print(f"{i + 1}/{len(paths)}", flush=True)
     return pd.DataFrame(rows, columns=["log", "can_id", "t_mid", "period_s"])
 
 
