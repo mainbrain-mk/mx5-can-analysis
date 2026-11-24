@@ -11,6 +11,8 @@ Je Log (parallel, ein Prozess je Log):
      (docs/plans/pcm-bits-hypotheses.json) gegen dieses Log.
   3. Kampagnen-Antworten aus dem candump (Grundwahrheit, nicht state.json):
      results/pcm_campaign/responses/<log>.csv.gz (t, mode, id, ergebnis, payload).
+  4. Kandidatensuche offene PCM-Felder x Diagnosewerte (pcm_candidates.py), danach ueber alle Logs
+     aggregiert -> results/pcm_campaign/candidates_latest.json.
 Danach ueber alle neuen Logs: Befunde (warn/info) und Fortschritt aus dem vom Pi geholten
 state.json -> results/pcm_campaign/eval_latest.json, das run_daily_pipeline.py einliest.
 
@@ -207,6 +209,11 @@ def _analyse_log(log_id):
         fh.write("t,mode,id,ergebnis,payload\n")
         for e in camp:
             fh.write(f"{e[0]:.4f},{e[2]},{e[3] if e[3] < 0 else format(e[3], '04X')},{e[4]},{e[5]}\n")
+    try:                                    # Kandidatensuche (pcm_candidates.py); Fehler nur melden
+        import pcm_candidates
+        pcm_candidates.analyse(fr, ev, log_id)
+    except Exception as exc:
+        checks["_kandidaten_fehler"] = repr(exc)[:300]
     return log_id, h, checks
 
 
@@ -328,8 +335,20 @@ def main(log_ids, workers=None):
             findings += findings_for(log, rows[log], baseline(rows, log), results.get(log, {}), register)
     prog, ev_findings = progress_from_state()
     findings += ev_findings
+    for log in sorted(log_ids):
+        if "_kandidaten_fehler" in results.get(log, {}):
+            findings.append(("info", "pcm_candidates_error",
+                             f"{log}: Kandidatensuche fehlgeschlagen ({results[log]['_kandidaten_fehler']})"))
+    kand = None
+    try:
+        import pcm_candidates
+        agg = pcm_candidates.aggregate()
+        kand = {"zeile": pcm_candidates.summary_line(agg), "n": len(agg["kandidaten"]),
+                "n_konstant": len(agg["konstante_dids"])}
+    except Exception as exc:
+        findings.append(("info", "pcm_candidates_error", f"Kandidaten-Aggregation fehlgeschlagen ({exc!r})"[:300]))
     summary = {"logs": sorted(log_ids), "health": {l: rows[l] for l in sorted(log_ids) if l in rows},
-               "progress": prog, "findings": findings,
+               "progress": prog, "findings": findings, "kandidaten": kand,
                "hypothesen_geprueft": sorted({k for l in log_ids for k in results.get(l, {}) if not k.startswith("_")})}
     with open(os.path.join(OUT_DIR, "eval_latest.json"), "w") as fh:
         json.dump(summary, fh, indent=1, default=float)

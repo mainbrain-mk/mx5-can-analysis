@@ -1010,7 +1010,8 @@ def main():
         if run_script([PYTHON, "scripts/pcm_campaign_eval.py", *new_can_logs], errors) is not None:
             pcm = load_json("pcm_campaign/eval_latest.json") or {}
             pcm_campaign = {"progress": pcm.get("progress"), "health": pcm.get("health") or {},
-                            "n_hypothesen": len(pcm.get("hypothesen_geprueft") or [])}
+                            "n_hypothesen": len(pcm.get("hypothesen_geprueft") or []),
+                            "kandidaten": pcm.get("kandidaten")}
             pcm_findings = [pipeline_checks._finding(sev, cat, msg) for sev, cat, msg in pcm.get("findings") or []]
 
     step(13, "Befunde pruefen, Report schreiben")

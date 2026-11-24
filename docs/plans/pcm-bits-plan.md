@@ -209,11 +209,12 @@ dieses Konzept, `results/pcm_campaign/hypotheses.json` (Register mit Datum, Vorh
 | `pcm_campaign.py` + Poller | gebaut, Selbst- und Integrationstest grün, Konfiguration Stufe −1 (aus) |
 | `vcan0`-Test auf dem Pi | offen (Pi war im Auto) |
 | Pipeline-Schritt `pcm_campaign_eval.py` | gebaut, an echten Logs gelaufen; Vergleichsbasis steht |
-| Kandidatensuche (Felder gegen DIDs) | offen, vor Freigabe Stufe 2 |
+| Kandidatensuche (Felder gegen DIDs) | 24.11. gebaut: `scripts/pcm_candidates.py` (Selbsttest mit eingebauten Kopien und Scheinkorrelation), läuft je Log in `pcm_campaign_eval.py`, Aggregat `results/pcm_campaign/candidates_latest.json`, eine Zeile im Report |
+| Gruppeneinteilung Stufe 2 | 24.11.: `rotation_exclude` (38 DIDs: Kennungen, Masken, Poller-Doppel, DTC-Zähler) in `pcm_campaign_config.json`, 165 DIDs in 21 Gruppen zu 8, ein Umlauf ≈ 5¼ h Motorlauf; Stufe weiter 1, nicht deployt |
 | Aufgabe „process-new-mx5-logs“ | Schritt 5 ergänzt |
 | Pilot-Deploy | 22.11. abends nach Freigabe des Nutzers: `0cce4fe` auf dem Pi, Stufe 0 aktiv; vorher Integrationstest auf dem Pi (vcan9) bestanden |
 | Pilotfahrt | 22.11. 19:55, fertig nach 72 s; Gesundheit sauber; PCM antwortet unbekannten DIDs mit NRC 0x31, ~13,5/s, Stufe 1 also ~80 min Motorlauf; Kandidaten 0xA4 (Ist-Gang) und 0xA6 (km) |
-| Stufe 1 | 22.11. spät nach Freigabe des Nutzers deployt (`a58710b`), beginnt bei DID 0x0300 |
+| Stufe 1 | 22.11. spät nach Freigabe des Nutzers deployt (`a58710b`), beginnt bei DID 0x0300; **fertig 24.11. 08:45** (203 DIDs positiv, 8 stumm, 0xFDF0 NRC 0x22), Kampagne seitdem in Pause |
 
 ## Bewusst weggelassen
 

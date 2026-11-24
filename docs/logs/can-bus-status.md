@@ -6904,3 +6904,94 @@ die Kampagnen-Auswertung holt sich die Rohbytes selbst über `_reassemble`. Dana
 beiseitegelegt und die Pipeline neu laufen lassen: Das Log ist jetzt im Datalake. PCM-Gesundheit: Lambda/Klopfen 42,4/s,
 das sind 94 %. Kampagne 27 258 Anfragen, 163 positiv, kein Hypothesenverstoß. Der erste Report des Tages liegt als
 `data/runs/2026-11-23/report_lauf1.md`.
+
+## PCM-Kampagne: Stufe 1 fertig, Bilanz (2026-11-24, Tageslauf)
+
+**Untersucht:** Fahrten 24.11. 08:23 (`candump-2026-11-24_082325`, Motor 46 min) und 16:36 (`…_163639`, 41 min).
+Pi-Ereignisse: 08:45:13 „J1 fertig, weiter mit None“, also DID-Sweep 0x0000–0xFFFF komplett (256/256 Blöcke).
+Fahrt 1: 14 835 Anfragen, 39 positiv, 14 796 NRC, 4 ohne Antwort, 0 Fehler; Fahrt 2: Kampagne in Pause (Stufe 2 nicht
+freigegeben), 0 Anfragen, wie vorgesehen.
+
+**Gesundheit:** Lambda/Klopfen p90 43,8/s bzw. 44,3/s gegen ~45,2/s Vergleichsbasis (97 %/98 %), Poller-Antwortquote
+100,00 %, keine fremden Tester (0x7DF/Handy 0), keine Kampagnen-Fehler, keine `pcm_campaign_*`-Warnung. 082325 hat eine
+abgeschnittene candump-Zeile (Pipeline-Hinweis), ohne Folgen für die Auswertung.
+
+**Sweep-Ergebnis gesamt:** 203 DIDs mit positiver Antwort (gestern 168), 8 ohne Antwort (DA 2, DE 2, 05/C4/D9/F8 je 1),
+eine Besonderheit: 0xFDF0 antwortet mit NRC 0x22 (conditionsNotCorrect), also vorhanden, aber in der Default-Sitzung
+gesperrt; Sitzungswechsel sind laut Plan ausgeschlossen, bleibt so. Verteilung: F4 57 (Mode-01-Spiegel), 03 35, DA 33,
+F8 10, 09 8, F1 8, D9 7, DB 6, 04/40/C1 je 5, 20 4, Rest einzeln.
+
+Die 35 neuen DIDs von heute liegen fast alle im Bereich der Kennungen (D1, D9, DB, DD, DE, EF, F1, F8): Teilenummern
+(0xF111/F112/F113/F188 ASCII „PYFB-188K1-“, „PA9R-18881-B“, „PX43-18881-“, „PA9R-188K2-B“), Kalibrier-ID 0xF804,
+Steuergerätename 0xF80A „ECM-EngineControl“, Fahrgestellnummer (0xF190, 0xF802, auch am Anfang von 0xDE00; hier
+absichtlich nicht ausgeschrieben), 0xF166 `19121104` (vermutlich Datum), 0xD100 = 01 (aktive Sitzung = Default).
+Lange Blöcke 0xF808/0xF816–F819, 0xD983/D984, 0xDE01 sind Zähler-/Tabellenstrukturen. Als Zeitreihen-Anker für
+Broadcast-Bits taugen diese Kennungen nicht (konstant); Kandidaten für Stufe 2 bleiben die gestern genannten
+(0x0415, 0x0393/0x9800, 0x099B, 0x03B9, 0x0316–0x0319, 0x0378/0x0304/0x16E8, 0x280A, 0x03BD) plus die übrigen 03xx/04xx/DAxx.
+
+**Belegt/verworfen:** nichts; Register unverändert. 35 Hypothesen an beiden Logs ohne Verstoß. H-P0-01 (PID 0xA4 Gang)
+und H-P0-02 (PID 0xA6 km) brauchen Zeitreihen aus Stufe 2/3.
+
+### Bilanz bei Stufenwechsel (Stufe 1 → Pause)
+
+| Klasse | Bits | Stand |
+|---|---|---|
+| 1 Messwert | 0 neu aus der Kampagne | Anker erst mit Stufe 2 |
+| 2 Zustand/Flag | 0 neu | Strang A3 offen |
+| 3 Zähler/Prüfsumme | 48 (A2, 22.11.) | bestätigt, in der DBC |
+| 4 Konstante/Reserve | – | noch nicht getrennt gezählt |
+| 5 Rest | – | – |
+| offen | 278 (Stand 22.11.; 0x42B Byte 2 Ladezustand noch nicht abgezogen, nicht nachgerechnet) | |
+
+Fortschritt je ID unverändert gegenüber 22.11.: größte Reste 0x4DA 48, 0x4FE 48, 0x4D4 34, 0x42B 32 (minus Ladezustand),
+0x21F 27, 0x20A 20.
+
+**Vor Stufe 2 nötig (laut Plan, noch nicht gebaut):** Kandidatensuche offene Felder × gepollte DIDs in
+`pcm_campaign_eval.py` (Regeln 2–4, Gegenprobe mit Scheinkorrelation) und die Gruppeneinteilung der positiven DIDs
+(≥ 1 Hz je DID, Kennungen/Konstanten raus). Beides ist Arbeit an Kampagnenskripten, also nicht im Tageslauf.
+
+## PCM-Kampagne: Kandidatensuche und Gruppen für Stufe 2 gebaut (2026-11-24, abends)
+
+Nach Ja des Nutzers im Tageslauf („Ja, bauen“). Stufe bleibt 1, nichts deployt, nichts committet.
+
+**Kandidatensuche `scripts/pcm_candidates.py`** (läuft je Log in `pcm_campaign_eval.py`, Aggregat
+`results/pcm_campaign/candidates_latest.json`, eine Zeile im Tagesreport):
+- Anker: jede positive Diagnoseantwort im candump (Kampagne, Poller und früher das Handy), zerlegt in Bytes,
+  BE-Wörter, Gesamtwert (3–4 Byte) und Einzelbits; ≥ 50 Antworten je Log, bis 4000 gleichmäßig ausgedünnt.
+- Felder: feste offene Bits je PCM-ID aus der Feldinventur (`can_open_fields.csv`, ≥ 3 Logs) plus Bits von
+  `_maybe/_related/_raw`-Signalen, ohne bestätigte Signale; alle Teilfelder 1–16 Bit (Motorola). Fest statt je Log,
+  sonst verschwindet ein Feld, dessen oberstes Bit in einem Log konstant ist (im Selbsttest so passiert).
+- Je Paar: r auf Pegeln, r auf Änderungen (Regel 3), Bitgleichheit `Feld == (Anker >> s) & Maske` mit Frame
+  davor/danach (Rechentakt rutscht, H-A2-08; ohne das war eine eingebaute 12-Bit-Kopie nur 43 % gleich), Lag
+  −0,5…+0,5 s. Treffer je Log: ≥ 5 Wertwechsel und (≥ 95 % bitgleich oder r ≥ 0,9 und r_diff ≥ 0,5 und Breite passt).
+  Die Wechselregel kam vom ersten echten Lauf: Flags mit genau einem Wechsel „trafen“ Bit 5 der Öltemperatur
+  (eine Schwelle beim Warmlaufen), das ist keine Kopie.
+- Kandidat: trifft in **jedem** Log, in dem das Paar prüfbar war, in ≥ 2 Logs, Lag-Streuung ≤ 0,3 s.
+- Selbsttest: zwei eingebaute Kopien (12 Bit exakt, oberes Byte eines 16-Bit-Werts), ein Flag, ein Rauschbyte und
+  zwei unabhängige monotone Größen (r_pegel 0,998, r_diff 0,07) – Scheinkorrelation und Rauschen werden nicht
+  Kandidat, ein einzelnes Log reicht nicht.
+- Grenze: Bitgleichheit nur über Verschiebungen. Skalierte Abbilder (z. B. ×200/65536) findet nur die Korrelation;
+  die exakte Formel kommt aus der Prüfung von Hand.
+
+**Lauf über alle 140 Logs mit Ankern (8 Kerne, ~45 min):** 22 Kandidatenzeilen, alle aus vier Handy-Logs
+12.09./14.09. (081105, 163711, 173057, 211833), in denen der Dongle 0x0478 (CPP_PER_MZ) und 0xF4A4 abfragte. Gegen die
+Poller-Werte (Öl 0x1310, Klopfen 0x03EC, Lambda, MAF, TP, Kat-Temperatur) trägt **kein** offenes PCM-Feld. Von Hand
+geprüft, drei Hypothesen (Register, Herleitung nur an diesen Altlogs, Holdout = Stufe-2-Logs):
+- **H-B-01** 0x165 Byte6-7 = Ist-Übersetzung ×1000 wie Mode-01 A4 (1. 5087 … 6. 1000, Leerlauf ~970–990).
+  Byte6 == High-Byte 96,6–100 %, Byte7 == Low-Byte 95,7–98 %. Die DBC nennt Byte6 `MT_Gear_Position`; es ist das
+  High-Byte, 6. Gang und Leerlauf teilen 0x03. Stützt H-P0-01.
+- **H-B-03** 0x130 Byte7 (`Clutch_Pedal_Position_raw`) = round(W(0x0478)·200/65536), **bitgleich 99,6–99,9 %**, also
+  0,5 %/LSB; das macht die Kalibrierung vom 29.09. (`0,5·raw`) zur exakten Formel. Ein erster Gedanke „Bit 56 ist ein
+  eigenes Bit“ war falsch und ist nicht eingetragen.
+- **H-B-02** 0x166 Byte0 (`Clutch_Pedal_Position_related_2`) ≈ W·250/65536 (0..249, 0,4 %/LSB; DBC-Skala 1,25 passt
+  nicht), r 0,994–0,998, aber höchstens 95 % bitgleich, auch gegen 0x130 nicht (1,248·B7, 89 %). Weil 0x130 bei
+  derselben Abtastung 99,9 % schafft, ist das kein Abtastversatz: gefiltert, anders getaktet oder zweiter Sensor, offen.
+
+**Gruppen für Stufe 2** (`pcm_campaign_config.json`, `rotation_exclude`, 38 DIDs): Kennungen/Kalibrierdaten
+(D100, F110–F113, F163, F166, F188, F190, F800–F819), Mode-01-Masken und feste Angaben (F400/F420/…/F4A0, F41C, F451,
+F463), schon vom Poller gelesene Werte (03EC, 1310, F410, F411, F434, F43C, F444), DTC-Zähler (0202, F421, F430).
+Bleiben 165 DIDs in 21 Gruppen zu 8 (~1,6 Hz je DID), ein Umlauf ≈ 5¼ h Motorlauf; 0x0478 und 0xF4A4 sind drin.
+`Planner` mit `stage: 2` gegen den echten state.json geprüft (erste Anfrage 0x0301), `pcm_campaign.py --self-test` grün.
+Konstante DIDs schlägt die Aggregation nach dem ersten Umlauf zum Ausmustern vor (nur DIDs mit ≥ 50 Antworten je Log).
+
+**Bilanz:** Klasse 1 (Messwert) jetzt 3 Hypothesen über 32 Bits (0x165 B6–7, 0x166 B0, 0x130 B7), noch keine bestätigt.

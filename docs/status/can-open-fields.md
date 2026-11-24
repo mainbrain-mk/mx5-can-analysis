@@ -105,6 +105,10 @@ Alle Zähler laufen mit Schritt 0/1/2 (Rechentakt rutscht gegen den Sendeplan, 0
 teilen denselben Takt. Nebenbefund 0x202: Drehzahl intern 13 Bit, Pedal 10 Bit. **Bilanz 22.11.:** offene PCM-Bits (Felder in ≥ 10 % der
 Logs) 326 → 278; größte Reste 0x4DA 48, 0x4FE 48, 0x4D4 34, 0x42B 32, 0x21F 27, 0x20A 20.
 
+**Hypothesen aus der Kandidatensuche (24.11., Register H-B-*, Holdout ab Stufe 2 offen):** 0x165 Byte6-7 =
+Ist-Übersetzung ×1000 (Mode-01 A4; Byte6 = `MT_Gear_Position` ist nur das High-Byte); 0x130 Byte7 =
+round(CPP_PER_MZ-Wort·200/65536) bitgleich (0,5 %/LSB); 0x166 Byte0 ≈ 0,4 %/LSB (DBC-Skala 1,25 falsch), nicht bitgleich.
+
 ## B. Offene Werte mit beobachtetem Verhalten
 
 Nur Felder, die in vielen Logs variieren. Zähler (Schrittweite konstant) und Prüfsummen

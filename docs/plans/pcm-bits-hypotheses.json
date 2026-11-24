@@ -466,6 +466,42 @@
    },
    "stand": "hypothese",
    "beleg": "Pilot 22.11.: 0x001A7C8D = 173582,1 km, zeitgleich C001_ODO = 173582 km. SAE-Standarddefinition, ein Messpunkt"
+  },
+  {
+   "id": "H-B-01",
+   "datum": "2026-11-24",
+   "aussage": "0x165 Byte6-7 (55|16 BE) = Ist-Uebersetzung x1000 wie Mode-01 PID 0xA4 Byte C,D (DID 0xF4A4 Byte2-3): 1. 5087, 2. 2991, 3. 2035, 4. 1594, 5. 1286, 6. 1000, Leerlauf ~970-990 (gerechnet). Byte6 ist damit kein eigener Gang-Wert (DBC MT_Gear_Position), sondern das High-Byte; 6. Gang und Leerlauf teilen 0x03",
+   "klasse": 1,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "0x165 Byte6-7 == F4A4 Byte2-3 bitgleich in >= 95 % der F4A4-Antworten (Frame davor/danach zaehlt mit), in jedem Stufe-2-Log mit >= 50 Antworten, an >= 3 Tagen inkl. Kaltstart"
+   },
+   "stand": "hypothese",
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). Byte6 == C in 96,6-100 %, Byte7 == D in 95,7-98,0 % (naechster Frame); Gang-Kreuztabelle 2 Logs: jede Uebersetzung genau ein Byte7-High-Nibble. Stuetzt H-P0-01"
+  },
+  {
+   "id": "H-B-02",
+   "datum": "2026-11-24",
+   "aussage": "0x166 Byte0 (7|8, DBC Clutch_Pedal_Position_related_2) = Kupplungspedal 0..250, ~0,4 %/LSB (DBC-Skala 1,25 passt nicht), etwa W(0x0478)*250/65536; NICHT bitgleich, weder zu 0x0478 noch zu 0x130 Byte7 (beste Formel floor(W*250/65536) 90,7-94,7 %, gegen 0x130: 0x166 = 1,248*B7, 89 %) - gefiltert, anders getaktet oder zweiter Pedalsensor, offen",
+   "klasse": 1,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "r(0x166 Byte0, W(0x0478)) >= 0,99 und |Steigung - 250/65536| <= 2 % in jedem Stufe-2-Log mit >= 50 Antworten; Bereich 0..249/250"
+   },
+   "stand": "hypothese",
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). r 0,994-0,998, Bereich 0..249; dieselbe Abtastung gibt fuer 0x130 99,9 % Bitgleichheit, der Rest bei 0x166 ist also KEIN Abtastversatz"
+  },
+  {
+   "id": "H-B-03",
+   "datum": "2026-11-24",
+   "aussage": "0x130 Byte7 (63|8, DBC Clutch_Pedal_Position_raw) = round(W(0x0478) * 200 / 65536) bitgleich, also 0,5 %/LSB, 0..200 (bestaetigt die Kalibrierung CPP_PER_MZ% = 0,5*raw vom 29.09. als exakte Formel)",
+   "klasse": 1,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "0x130 Byte7 == round(W(0x0478)*200/65536) in >= 99 % (Frame davor/danach zaehlt mit) in jedem Stufe-2-Log mit >= 50 Antworten"
+   },
+   "stand": "hypothese",
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). 99,6-99,9 % bitgleich in allen 4 Logs, Maximum 200. Die Kandidatensuche nannte 63|7 und 63|2 (Teilfelder), die volle Formel kam aus der Pruefung von Hand"
   }
  ],
  "verworfen": [
