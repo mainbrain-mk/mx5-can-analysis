@@ -6995,3 +6995,14 @@ Bleiben 165 DIDs in 21 Gruppen zu 8 (~1,6 Hz je DID), ein Umlauf ≈ 5¼ h Motor
 Konstante DIDs schlägt die Aggregation nach dem ersten Umlauf zum Ausmustern vor (nur DIDs mit ≥ 50 Antworten je Log).
 
 **Bilanz:** Klasse 1 (Messwert) jetzt 3 Hypothesen über 32 Bits (0x165 B6–7, 0x166 B0, 0x130 B7), noch keine bestätigt.
+
+## PCM-Kampagne: Stufe 2 deployt (2026-11-24, abends)
+
+Freigabe des Nutzers („Ja, freigeben“). Konfiguration `stage: 2`, sonst nichts geändert; `pcm_campaign.py`,
+`pcm_candidates.py` und `pcm_campaign_eval.py` Selbsttest grün. Planer am frisch geholten Pi-`state.json`
+durchgespielt: Job J2, 21 Gruppen / 165 DIDs, erste Anfrage DID 0x0301. Commits `5dd171b` (Kandidatensuche, Doku)
+und `565b83a` (Stufe 2), Branch `pcm-bits-2026-11-22` auf GitHub, Deploy `565b83a`, Pi-Checkout sauber; der Poller
+liest die Konfiguration über den Symlink aus `repo/scripts/`. Beim Deploy lief kein `tpms_poller` (kein `can0`,
+nur die Nutzer-Simulation auf `vcan0`), Stufe 2 startet also mit der nächsten Zündung.
+Erwartet: Umlauf ≈ 5¼ h Motorlauf; die Tagespipeline prüft je Fahrt Gesundheit, die Kandidatensuche testet
+H-B-01..03 am Holdout und listet nach dem ersten Umlauf konstante DIDs zum Ausmustern.
