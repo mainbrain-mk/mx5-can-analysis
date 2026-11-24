@@ -371,6 +371,23 @@ def test_fuel_desaturation_is_second_anchor_and_survives_restart():
         assert not fuel.await_desat
 
 
+def test_consumption_meter_glides_instead_of_jumping():
+    """Verbrauch springt von 8 auf 16 l/100km: Anzeige gleitet hinterher statt zu springen."""
+    meter = can_backend.ConsumptionMeter()
+    dist = fuel = 0.0
+    per_frame_dist = 2.0 / can_backend.TRAVEL_M_PER_STEP          # 72 km/h
+    vals = []
+    for i in range(200):
+        l100_true = 8.0 if i < 100 else 16.0
+        dist += per_frame_dist
+        fuel += l100_true / 1e5 * 2.0 * can_backend.FUEL_STEPS_PER_L
+        vals.append(meter.update(bytes([0, int(dist) % 256, int(fuel) % 256]), i * 0.1)[0])
+    assert abs(vals[99] - 8.0) < 0.5, vals[99]
+    assert max(abs(b - a) for a, b in zip(vals[100:], vals[101:])) < 1.5   # keine grossen Stufen
+    assert vals[105] < 14.0, vals[105]                                     # noch unterwegs
+    assert abs(vals[-1] - 16.0) < 0.7, vals[-1]                            # nach 10 s angekommen
+
+
 def test_consumption_meter_l100km_with_counter_wrap():
     """72 km/h (20 m/s) bei 8 l/100km = 1,6 ml/s: beide 8-Bit-Zaehler laufen dabei ueber."""
     meter = can_backend.ConsumptionMeter()
@@ -412,4 +429,5 @@ if __name__ == "__main__":
     test_fuel_ledger_records_drive_and_sim_reads_start_liters()
     test_fuel_desaturation_is_second_anchor_and_survives_restart()
     test_consumption_meter_l100km_with_counter_wrap()
+    test_consumption_meter_glides_instead_of_jumping()
     print("ok")

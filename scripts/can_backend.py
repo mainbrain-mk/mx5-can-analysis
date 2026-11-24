@@ -125,7 +125,10 @@ COOLANT_TEMP_CAN_ID = 1056
 # umlaufend, 10 Hz - daraus der Momentanverbrauch, unabhaengig vom zu hohen VehicleSpeed.
 TRAVEL_M_PER_STEP = 0.1992
 FUEL_STEPS_PER_L = 4985.0
-CONSUMPTION_WINDOW_S = 2.0   # 31.10. 2 s -> 1 s (schneller); 24.11. zurueck auf 2 s, dafuer zeigt das Dash nur 2x/s neu
+CONSUMPTION_WINDOW_S = 1.0   # Nutzerwunsch 31.10.: schneller statt ruhiger (2 s zappelte halb so viel)
+# 24.11.: dahinter gleitender Mittelwert - 2-s-Fenster + 2-Hz-Anzeige wirkte traege und stufig.
+# Am Log 24.11. 082325: Sprung je Frame p90 2,8 -> 0,85 l/100km, Verzoegerung ~0,5 -> ~0,9 s.
+CONSUMPTION_EMA_TAU_S = 0.6
 CONSUMPTION_MIN_KMH = 4.0    # darunter zeigt das Dash l/h statt l/100km
 RCM_LATERAL_CAN_ID = 117
 RCM_LONGITUDINAL_CAN_ID = 118
@@ -413,12 +416,14 @@ def extract_brake_pct(data):
 
 
 class ConsumptionMeter:
-    """Momentanverbrauch aus den 0x420-Zaehlern ueber CONSUMPTION_WINDOW_S: (l/100km, l/h),
-    l/100km ist None unter CONSUMPTION_MIN_KMH (Stand) - dann zeigt das Dash l/h."""
+    """Momentanverbrauch aus den 0x420-Zaehlern ueber CONSUMPTION_WINDOW_S, dahinter gleitend
+    gemittelt (CONSUMPTION_EMA_TAU_S): (l/100km, l/h), l/100km ist None unter
+    CONSUMPTION_MIN_KMH (Stand) - dann zeigt das Dash l/h."""
 
     def __init__(self):
         self._last = None   # (t, weg_roh, kraftstoff_roh)
         self._hist = []     # (t, weg_summe, kraftstoff_summe)
+        self._t_ema = self._l100 = self._lh = None   # gleitender Mittelwert der Ausgabe
 
     def update(self, data, t):
         dist_raw, fuel_raw = data[1], data[2]
@@ -439,10 +444,16 @@ class ConsumptionMeter:
         t1, dist1, fuel1 = self._hist[-1]
         dist_m = (dist1 - dist0) * TRAVEL_M_PER_STEP
         if t1 - t0 < 0.5 * CONSUMPTION_WINDOW_S:
+            self._t_ema = self._l100 = self._lh = None
             return None, None
         litres = (fuel1 - fuel0) / FUEL_STEPS_PER_L
         l100 = None if dist_m < CONSUMPTION_MIN_KMH / 3.6 * (t1 - t0) else litres / (dist_m / 1e5)
-        return l100, litres / ((t1 - t0) / 3600)
+        lh = litres / ((t1 - t0) / 3600)
+        a = 1.0 - math.exp(-(t - self._t_ema) / CONSUMPTION_EMA_TAU_S) if self._t_ema is not None else 1.0
+        self._t_ema = t
+        self._l100 = None if l100 is None else l100 if self._l100 is None else self._l100 + a * (l100 - self._l100)
+        self._lh = lh if self._lh is None else self._lh + a * (lh - self._lh)
+        return self._l100, self._lh
 
 
 def can0_up(channel):
