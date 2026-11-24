@@ -52,7 +52,7 @@ import argparse
 import glob
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from memguard import bounded_map
 
 import numpy as np
 import pandas as pd
@@ -327,9 +327,8 @@ def main():
 
     if jobs > 1:
         print(f"  ({jobs} parallele Prozesse ueber {len(logs)} Logs)")
-        with ProcessPoolExecutor(max_workers=jobs) as pool:
-            frames = list(pool.map(_analyze_log_worker, logs,
-                                    [only_id] * len(logs), [args.correlate] * len(logs)))
+        frames = list(bounded_map(_analyze_log_worker, logs, [only_id] * len(logs),
+                                  [args.correlate] * len(logs), workers=jobs))
     else:
         our_db = load_db("hscan")
         frames = [analyze_log(p, our_db, only_id, correlate=args.correlate) for p in logs]

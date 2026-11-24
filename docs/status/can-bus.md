@@ -23,7 +23,7 @@ Auf dem Pi, **noch nicht während einer Fahrt gesehen**. Logbuch 31.10.
 
 **Status 2026-10-31 — Momentanverbrauch im Dash (Nutzerwunsch).** KRAFTSTOFF-Kachel zeigt rechts neben dem
 Füllstand den Verbrauch in gleicher Schriftgröße, die Einheit (`l/100km` bzw. `l/h`) klein mittig darunter. Darunter über dem gelben Tankbalken ein hellgelber Verbrauchsbalken 4,0–25 l/100km (im Stand leer). `can_backend.py` rechnet ihn aus 0x420 Byte2 (Kraftstoff, 4985 Schritte/l) und Byte1
-(Weg, 0,1992 m/Schritt) über 1 s, also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`
+(Weg, 0,1992 m/Schritt) über 1 s, dahinter seit 24.11. gleitender Mittelwert τ 0,6 s (`CONSUMPTION_EMA_TAU_S`, sprang sonst), also ohne den zu hohen `VehicleSpeed`; unter 4 km/h stattdessen `x,xl/h`
 (beides Nutzerwunsch), Anzeige gedeckelt bei 99,9. Seit 31.10. auf dem Pi, **noch nicht live während einer Fahrt gesehen**. Logbuch 31.10.
 
 **Status 2026-10-31 — Dekodierte Logs jetzt als Parquet.** `can_log_parser.py` schreibt `<log>_decoded.parquet`

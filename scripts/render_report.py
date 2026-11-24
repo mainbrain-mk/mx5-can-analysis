@@ -118,6 +118,9 @@ def render_markdown(run_report):
             lines.append("- Pi-Stand: noch keiner (Kampagne lief noch nicht)")
         lines.append(f"- {pc.get('n_hypothesen', 0)} Hypothesen an den neuen Logs geprueft "
                      "(Verstoesse stehen unten als Auffaelligkeit)")
+        if pc.get("kandidaten"):
+            lines.append(f"- {pc['kandidaten']['zeile']} (results/pcm_campaign/candidates_latest.json, "
+                         "Pruefung nach den Beweisregeln in der Aufgabe)")
         lines.append("")
 
     findings = r.get("findings") or []

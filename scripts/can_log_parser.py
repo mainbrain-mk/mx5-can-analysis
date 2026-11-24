@@ -309,11 +309,11 @@ def read_decoded(log_path, signals=None):
     (Fallback: alte *_decoded.csv, dort steht ein Enum-Name direkt in value). signals: nur
     diese Signale lesen (Reihenfolge bleibt). Fuers Reverse Engineering: pd.read_parquet geht
     hier nicht (kein pyarrow) - diese Funktion oder duckdb.sql("FROM '<datei>'") nutzen."""
-    import duckdb
+    from memguard import connect
     path = decoded_path(log_path)
     if not os.path.exists(path):
         return pd.read_csv(os.path.splitext(log_path)[0] + "_decoded.csv")
-    con = duckdb.connect()
+    con = connect()
     try:
         # ORDER BY Pflicht: eine lange IN-Liste wird zum Join und liefert parallel ungeordnet
         # (31.10. gefunden) - Leser verlassen sich auf die Datei-Reihenfolge.

@@ -7701,3 +7701,90 @@ atomar um, eine `.log.gz` ohne `.tmp` ist also fertig. Den find-Ausdruck habe ic
 Testdateien geprüft (frische `.gz` wird geholt, frische Rohdatei und `.gz.tmp` nicht).
 **Restfall:** Läuft die Pipeline innerhalb von 5 Minuten nach Fahrtende, bevor gepackt ist, bleibt
 die Rohdatei bis zum nächsten Lauf liegen.
+
+## Tacho/GPS mit den Falken, zweiter Fahrtag (2026-11-22)
+
+Gleiche Methode wie im Nachtrag vom 22.11. (GPS/`VehicleSpeed` je GPS-Fix, VS über ±0,5 s gemittelt, > 40 km/h,
+|Δv| < 1,5 km/h/s, GPS-Wert ändert sich), jetzt zusätzlich die drei Logs von heute. Die Methode reproduziert die
+Werte vom 21.11. auf ±0,07 % (0,9704/0,9712 statt 0,9708/0,9718).
+
+| | Hankook 07.–18.11. (19 Logs) | Falken 21.11. (2 Logs) | Falken 22.11. (3 Logs) |
+|---|---|---|---|
+| Sekunden | 14 918 | 1 145 | 3 612 |
+| GPS/VS gesamt | 0,9724 | 0,9707 | **0,9728** |
+| 40–70 km/h | 0,9707 | 0,9668 | 0,9707 |
+| 70–100 km/h | 0,9714 | 0,9676 | 0,9702 |
+| 100–130 km/h | 0,9733 | 0,9702 | 0,9726 |
+| > 130 km/h | 0,9750 | 0,9716 | 0,9743 |
+| je Log | 0,9710–0,9740 (lange Logs) | 0,9704 / 0,9712 | 0,9741 / 0,9708 / 0,9717 |
+| Druck Tire1 / Außentemp. | 1,99 bar / 6,0 °C | 2,27 bar / 6,1 °C | 2,29 bar / 5,0 °C |
+
+**Befund:** Mit dreimal so vielen Sekunden wie am 21.11. liegen die Falken **im Rahmen der Hankook**: gesamt
+0,9728 gegen 0,9724, je Band höchstens 0,12 % Abstand, je Log in derselben Streuung. Der Tacho liest also weiter ~2,8 %
+zu hoch (1/0,9726). Die 0,2–0,5 % niedrigeren Werte vom 21.11. waren ein Effekt der kleinen Stichprobe (vor allem
+`190853` mit 0,965 unter 100 km/h), kein Reifeneffekt. Die Deutung „wirksamer Radius kleiner, Tacho ~3,0 %“ aus dem
+Nachtrag ist damit überholt. Einen Unterschied zwischen abgefahrenem und neuem Profil zeigt die Messung nicht, also
+auch keinen größeren Abrollumfang. Modell und 2,9-%-Rahmen bleiben unverändert.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-23)
+
+- `candump-2026-11-22_195529`, Masse=1190.4kg (Tank ~42.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-23_141117`, Masse=1187.4kg (Tank ~38.2 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- script_error: .venv/bin/python scripts/can_log_parser.py data/can/candump-2026-11-23_081407.log: exit code 1: ne 1053, in convert_object_array
+    arrays = [convert(arr) for arr in content]
+              ~~~~~~~^^^^^
+  File "/home/manuel/claude/.venv/lib/python3.14/site-packages/pandas/core/internals/construction.py", line 1004, in convert
+    arr = lib.maybe_convert_objects(
+        arr,
+        try_float=coerce_float,
+        convert_to_nullable_dtype=to_nullable,
+    )
+  File "pandas/_libs/lib.pyx", line 2682, in pandas._libs.lib.maybe_convert_objects
+OverflowError: int too large to convert to float
+
+
+## Automatischer Lauf: 1 neue CAN-Logs uebernommen (2026-11-23)
+
+- `candump-2026-11-23_081407`, Masse=1189.3kg (Tank ~40.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- drivetrain_ratio: Median-Verhaeltnis gemessen/Modell der neuen Logs (Gaenge 2-5) 0.95 weicht um mehr als 0.05 vom Referenzwert 1.0 ab (n=3).
+- shift_record: Neue Bestzeit 2 -> 1 (downshift): 2.44s (vorher 2.90s), candump-2026-11-23_081407 @ t=1250.9s.
+
+## Automatischer Lauf: 2 neue CAN-Logs uebernommen (2026-11-24)
+
+- `candump-2026-11-24_082325`, Masse=1185.6kg (Tank ~35.7 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-24_163639`, Masse=1183.7kg (Tank ~33.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+
+## Ampelstart mit Gripverlust beim Schalten 1→2 (Fahrt 2026-11-24 morgens)
+
+Nutzer meldete einen Ampelstart mit Gripverlust „im 2. Gang, letztes Drittel der Fahrt“. Log
+`candump-2026-11-24_082325`, t ≈ 2262–2268 s (≈ 09:01 Uhr). Einziger Vollgas-Start der Fahrt (alle Anfahrten:
+Radgeschwindigkeits-Spread sonst ≤ 1,7 km/h, kein TCS). Bedingungen: 2 °C Außentemperatur, Reifen HR 15 °C/2,17 bar,
+Falken HS02 seit 20.11. (vier Tage alt).
+
+Ablauf (WheelSpeed 1/2 = vorne, 3/4 = hinten; Gierrate +rechts, Lenkwinkel +links):
+- **1. Gang:** Gas ab 2262,4 s, ab 2265 s 100 %, bis in den Begrenzer (7469 U/min bei 56 km/h); Hinterrad-Schlupf
+  bis 13 %, `TCS_RequestActive` ab 2265,45 s, aber kein Eingriff-Bit.
+- **Schalten:** Kupplung 2266,17–2266,47 s getreten (~0,3 s), Gas schon ab 2266,38 s wieder 100 %, Kupplung in
+  ~0,1 s ganz losgelassen bei ~7000 U/min. Im 2. Gang passen 57 km/h zu ~4400 U/min, der Motor drehte ~6300.
+- **Gripverlust:** Hinterräder springen in 0,05 s von 57 auf 85–92 km/h, Schlupf bis **52 %**, über 10 % von
+  2266,55 bis 2267,00 s (0,45 s). Heck kommt nach rechts: Gierrate bis −14,4 °/s (links), Lenkung erst 12° links,
+  dann Gegenlenken bis 44,5° rechts; das Heck pendelt zurück (+11 °/s bei 2267,13 s), ab 2267,3 s ruhig.
+  Querbeschleunigung bleibt um 0, grob integrierter Schwimmwinkel ≈ 3°: kurzer Ausbrecher, kein Dreher.
+- **DSC/TCS:** `TCS_Active` (0x211 Bit 40) 2266,90–2267,05 s, DSC-Leuchte Wert 3 von 2266,75 bis 2268,45 s (in der
+  ganzen Fahrt sonst nur Lampentest), Momentanforderung bis zum Gaswegnehmen bei 2268,6 s: Drosselklappe nur
+  31–43 % bei 100 % Pedal. Beschleunigung im 2. Gang dabei höchstens 0,62 g.
+
+Deutung: kein Haftungsproblem „im 2. Gang“ an sich, sondern Kupplungsschuss beim Hochschalten mit vollem Gas und
+hoher Drehzahl. Die Drehzahl-Differenz (~1900 U/min) wird über die Hinterräder abgebaut. Kalte Luft und neue,
+noch nicht eingefahrene Winterreifen machen das wahrscheinlicher, belegt ist das an einem Ereignis nicht.
+Die TCS reagiert ~0,1 s nach Schlupfbeginn mit Anforderung, das Eingriff-Bit erst nach ~0,35 s, als das Heck
+schon kam; Gegenlenken war also Fahrerarbeit.

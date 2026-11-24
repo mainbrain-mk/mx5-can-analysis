@@ -25,6 +25,19 @@ Die Doku ist zweistufig:
 den zugehörigen `docs/status/*.md` gleich mit aktualisieren (siehe
 Konventionen in `docs/README.md`).
 
+## RAM-Regel: kein Swap (seit 24.11.2026)
+
+Am 24.11. liefen 39 GB RAM + 7,7 GB Swap voll (Pools mit 6–7 Workern, jeder
+parst ein candump-Log in mehrere GB). Deshalb:
+- Parallel über viele Logs nur mit `memguard.bounded_map` (statt
+  `ProcessPoolExecutor.map`): ein weiterer Auftrag startet nur, wenn
+  danach noch `MEMGUARD_RESERVE_GB` (Default 8) frei sind.
+- DuckDB in Worker-Prozessen über `memguard.connect()` (memory_limit 4GB,
+  DuckDB lagert dann selbst auf Platte aus).
+- Große Läufe über `scripts/run_capped.sh <befehl>` starten (systemd-Scope,
+  `MemoryMax` 30G, kein Swap): bei Überschreitung stirbt nur dieser Lauf.
+- Vor großen Läufen `free -h` prüfen; neue Swap-Nutzung ist ein Fehler.
+
 ## Sonstiges
 
 - Doku und Commit-Messages sind überwiegend Deutsch, Code/Identifiers

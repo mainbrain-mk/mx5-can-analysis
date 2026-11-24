@@ -37,7 +37,7 @@ import argparse
 import glob
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from memguard import bounded_map
 
 import numpy as np
 import pandas as pd
@@ -219,8 +219,7 @@ def main():
 
     jobs = max(1, min(args.jobs, len(logs)))
     if jobs > 1:
-        with ProcessPoolExecutor(max_workers=jobs) as pool:
-            results = list(pool.map(_worker, logs))
+        results = list(bounded_map(_worker, logs, workers=jobs))
     else:
         results = [analyze_log(p) for p in logs]
 
