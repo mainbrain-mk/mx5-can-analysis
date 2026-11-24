@@ -125,7 +125,7 @@ COOLANT_TEMP_CAN_ID = 1056
 # umlaufend, 10 Hz - daraus der Momentanverbrauch, unabhaengig vom zu hohen VehicleSpeed.
 TRAVEL_M_PER_STEP = 0.1992
 FUEL_STEPS_PER_L = 4985.0
-CONSUMPTION_WINDOW_S = 1.0   # Nutzerwunsch 31.10.: schneller statt ruhiger (2 s zappelte halb so viel)
+CONSUMPTION_WINDOW_S = 1.5   # 31.10. 2 s -> 1 s (schneller), 24.11. 1,5 s: etwas ruhiger
 CONSUMPTION_MIN_KMH = 4.0    # darunter zeigt das Dash l/h statt l/100km
 RCM_LATERAL_CAN_ID = 117
 RCM_LONGITUDINAL_CAN_ID = 118
