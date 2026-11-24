@@ -7006,3 +7006,23 @@ liest die Konfiguration über den Symlink aus `repo/scripts/`. Beim Deploy lief 
 nur die Nutzer-Simulation auf `vcan0`), Stufe 2 startet also mit der nächsten Zündung.
 Erwartet: Umlauf ≈ 5¼ h Motorlauf; die Tagespipeline prüft je Fahrt Gesundheit, die Kandidatensuche testet
 H-B-01..03 am Holdout und listet nach dem ersten Umlauf konstante DIDs zum Ausmustern.
+
+## Dash: Momentanverbrauch gleitend statt springend (2026-11-24, abends)
+
+Nutzer: der Verbrauchswert in der KRAFTSTOFF-Kachel (rechts) aktualisiert sehr schnell und springt. Ursache:
+0x420 Byte2 kommt bei 10 Hz mit nur 0 oder 1 Schritt je Frame (Quantisierung), das 1-s-Kastenfenster setzt
+das in Stufen um. Nachgerechnet am Log `candump-2026-11-24_082325` (Sprung Frame zu Frame p90 / Verzögerung
+gegen zentriertes 1-s-Fenster):
+
+| Variante | Sprung p90 | Verzögerung |
+|---|---|---|
+| Kasten 1 s (bisher) | 2,8 l/100km | ~0,5 s |
+| Kasten 2 s | 1,6 | ~1,0 s |
+| EMA auf Zählerraten τ 1,0 s | 2,1 | ~0,5 s |
+| zwei EMAs τ 0,7 s | 0,72 | ~1,0 s |
+| **Kasten 1 s + EMA τ 0,6 s** | **0,85** | **~0,9 s** |
+
+Zwischenschritte (beide deployt, verworfen): erst 1,5 s Fenster (kaum Wirkung), dann 2 s + Dash-Anzeige nur
+2x/s — Nutzer: „wirkt träge, aber nicht geglättet“ (2-Hz-Stufen). Endstand `bb39441`: 1-s-Fenster, dahinter
+EMA τ 0,6 s auf l/100km und l/h, Anzeige wieder jeden Frame; Test `test_consumption_meter_glides_instead_of_jumping`.
+Auf dem Pi deployt, in der Simulation vom Nutzer für „viel besser“ befunden; **Fahrttest steht aus**.
