@@ -477,7 +477,7 @@
     "vorhersage": "0x165 Byte6-7 == F4A4 Byte2-3 bitgleich in >= 95 % der F4A4-Antworten (Frame davor/danach zaehlt mit), in jedem Stufe-2-Log mit >= 50 Antworten, an >= 3 Tagen inkl. Kaltstart"
    },
    "stand": "hypothese",
-   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). Byte6 == C in 96,6-100 %, Byte7 == D in 95,7-98,0 % (naechster Frame); Gang-Kreuztabelle 2 Logs: jede Uebersetzung genau ein Byte7-High-Nibble. Stuetzt H-P0-01"
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). Byte6 == C in 96,6-100 %, Byte7 == D in 95,7-98,0 % (naechster Frame); Gang-Kreuztabelle 2 Logs: jede Uebersetzung genau ein Byte7-High-Nibble. Stuetzt H-P0-01. 26.11. (Nutzerhinweis): 25.11. 08:06 und 26.11. 07:59 waren Kaltstarts (Kuehlmittel 3 bzw. 12 C, Oel 2,8 bzw. 0,1 C), aber 0x0478/0xF4A4 wurden in beiden Fahrten nicht abgefragt (Rotationsgruppen 03xx bzw. 20xx-DAxx) - zaehlt nicht als Kaltstart-Holdout. In Stufe 2 trifft eine Kaltstartfahrt die passende Gruppe nur zufaellig (~1/21 je Morgen); Kaltstart-Pruefung braucht die Hotlist (Stufe 3)"
   },
   {
    "id": "H-B-02",
@@ -489,7 +489,17 @@
     "vorhersage": "r(0x166 Byte0, W(0x0478)) >= 0,99 und |Steigung - 250/65536| <= 2 % in jedem Stufe-2-Log mit >= 50 Antworten; Bereich 0..249/250"
    },
    "stand": "hypothese",
-   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). r 0,994-0,998, Bereich 0..249; dieselbe Abtastung gibt fuer 0x130 99,9 % Bitgleichheit, der Rest bei 0x166 ist also KEIN Abtastversatz"
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). r 0,994-0,998, Bereich 0..249; dieselbe Abtastung gibt fuer 0x130 99,9 % Bitgleichheit, der Rest bei 0x166 ist also KEIN Abtastversatz. Holdout-Tag 1/3 am 25.11. erfuellt (Feld 'holdout'), Kaltstart steht noch aus. 26.11. (Nutzerhinweis): 25.11. 08:06 und 26.11. 07:59 waren Kaltstarts (Kuehlmittel 3 bzw. 12 C, Oel 2,8 bzw. 0,1 C), aber 0x0478/0xF4A4 wurden in beiden Fahrten nicht abgefragt (Rotationsgruppen 03xx bzw. 20xx-DAxx) - zaehlt nicht als Kaltstart-Holdout. In Stufe 2 trifft eine Kaltstartfahrt die passende Gruppe nur zufaellig (~1/21 je Morgen); Kaltstart-Pruefung braucht die Hotlist (Stufe 3)",
+   "holdout": [
+    {
+     "datum": "2026-11-25",
+     "log": "candump-2026-11-25_140441",
+     "kaltstart": false,
+     "n": 1413,
+     "ergebnis": "r 0,9927, Steigung 0,9914 x 250/65536 (-0,9 %), Byte0 max 249; floor-Formel 95,7 % gleich (weiter nicht bitgleich)",
+     "geprueft": "2026-11-26"
+    }
+   ]
   },
   {
    "id": "H-B-03",
@@ -501,7 +511,29 @@
     "vorhersage": "0x130 Byte7 == round(W(0x0478)*200/65536) in >= 99 % (Frame davor/danach zaehlt mit) in jedem Stufe-2-Log mit >= 50 Antworten"
    },
    "stand": "hypothese",
-   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). 99,6-99,9 % bitgleich in allen 4 Logs, Maximum 200. Die Kandidatensuche nannte 63|7 und 63|2 (Teilfelder), die volle Formel kam aus der Pruefung von Hand"
+   "beleg": "Kandidatensuche pcm_candidates.py, 24.11.; Herleitung NUR an Handy-Dongle-Logs 12.09./14.09. (081105, 163711, 173057, 211833), die 0x0478/0xF4A4 damals abfragten. Holdout = Stufe-2-Logs nach dem 24.11. (beide DIDs sind in der Rotation). 99,6-99,9 % bitgleich in allen 4 Logs, Maximum 200. Die Kandidatensuche nannte 63|7 und 63|2 (Teilfelder), die volle Formel kam aus der Pruefung von Hand. Holdout-Tag 1/3 am 25.11. erfuellt (Feld 'holdout'), Kaltstart steht noch aus. 26.11. (Nutzerhinweis): 25.11. 08:06 und 26.11. 07:59 waren Kaltstarts (Kuehlmittel 3 bzw. 12 C, Oel 2,8 bzw. 0,1 C), aber 0x0478/0xF4A4 wurden in beiden Fahrten nicht abgefragt (Rotationsgruppen 03xx bzw. 20xx-DAxx) - zaehlt nicht als Kaltstart-Holdout. In Stufe 2 trifft eine Kaltstartfahrt die passende Gruppe nur zufaellig (~1/21 je Morgen); Kaltstart-Pruefung braucht die Hotlist (Stufe 3)",
+   "holdout": [
+    {
+     "datum": "2026-11-25",
+     "log": "candump-2026-11-25_140441",
+     "kaltstart": false,
+     "n": 1413,
+     "ergebnis": "bitgleich 100,00 % (Frame davor/danach), B7 max 200",
+     "geprueft": "2026-11-26"
+    }
+   ]
+  },
+  {
+   "id": "H-B-04",
+   "datum": "2026-11-26",
+   "aussage": "0x4FA Byte3 Bit6 (30|1; Byte3 nimmt nur 0x00/0x40 an, nicht seitenabhaengig) ist ein Gaspedal-bezogenes Flag: P(1) steigt von ~0,02 bei Pedal < 20 % auf 0,83-0,92 bei Pedal >= 40 %; beste Einzelschwelle Pedal >= 31,5-32,5 % (APP aus 0x202, 2 Frames Lag) trifft 98,1-98,4 % der Frames bei 93-94 % Grundrate 0. Kein reiner Schwellwert (Anstiege auch bei Pedal 0-5 %, Pulse 3-5 Frames, P(1)=0,42 bei schnellem Pedal-Loslassen) - Mechanismus offen (Momentanforderung? Tip-in?)",
+   "klasse": 2,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "in jedem neuen Log mit Motorlauf >= 10 min: P(Bit30=1 | APP >= 40 %) >= 0,75 und P(Bit30=1 | APP < 20 %) <= 0,05 (APP aus 0x202 interpoliert); mit DID 0x0914 in der Rotation: P(1 | W(0x0914) >= 2048) >= 0,6"
+   },
+   "stand": "kandidat",
+   "beleg": "Kandidatensuche 26.11.: 0x4FA 30|1 gegen DID 0x0914 Byte0 Bit3 (OBDb: APP-Sensor-1-Spannung mV; Ruhe 789, Spitzen bis 3563), 97,3-99,1 % gleich in 140441/150042/151456 - aber v. a. Grundrate 0; Kreuztabelle: Anker=1 -> Feld=1 in 16/21, Anker=0 -> Feld=1 in 26/1395. Von Hand gegen APP (0x202, volle Rate) in 140441, 075954, 080625 nachgerechnet (Zahlen in 'aussage'). Herleitung an Logs 25./26.11.; Holdout = Logs nach dem 26.11.. Warmlauf-Grenzfall (26.11.): 25.11. 080625 bei Kuehlmittel < 80 C P(1|APP<20 %) = 0,10-0,12 (sonst 0,01), 26.11. 075954 dagegen 0,002-0,014; P(1|APP>=40 %) im Warmlauf 0,97-0,99. Beide Logs sind Herleitungslogs, Ursache des Ausreissers am 25.11. offen"
   }
  ],
  "verworfen": [
