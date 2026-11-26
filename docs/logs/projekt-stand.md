@@ -7788,3 +7788,18 @@ hoher Drehzahl. Die Drehzahl-Differenz (~1900 U/min) wird über die Hinterräder
 noch nicht eingefahrene Winterreifen machen das wahrscheinlicher, belegt ist das an einem Ereignis nicht.
 Die TCS reagiert ~0,1 s nach Schlupfbeginn mit Anforderung, das Eingriff-Bit erst nach ~0,35 s, als das Heck
 schon kam; Gegenlenken war also Fahrerarbeit.
+
+## Automatischer Lauf: 8 neue CAN-Logs uebernommen (2026-11-26)
+
+- `candump-2026-11-25_080625`, Masse=1181.8kg (Tank ~30.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-25_140441`, Masse=1180.3kg (Tank ~28.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-25_144806`, Masse=1179.9kg (Tank ~28.0 l (Tankbuch, Mittel Start/Ende), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-11-25_145228`, Masse=1179.9kg (Tank ~28.0 l (Tankbuch, Mittel Start/Ende), ohne 0x340-Belegungsdaten (SOLO-Annahme))
+- `candump-2026-11-25_150042`, Masse=1179.8kg (Tank ~28.0 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-25_151456`, Masse=1254.2kg (Tank ~27.2 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-25_155252`, Masse=1253.6kg (Tank ~26.4 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-26_075954`, Masse=1176.8kg (Tank ~23.9 l (kein Tankbuch-Eintrag, CAN Fuel_Tank Median 19.0 roh), Beifahrer 0% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- shift_record: Neue Bestzeit 4 -> 5 (upshift): 0.62s (vorher 0.90s), candump-2026-11-25_140441 @ t=1481.0s.

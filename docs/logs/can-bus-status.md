@@ -7026,3 +7026,56 @@ Zwischenschritte (beide deployt, verworfen): erst 1,5 s Fenster (kaum Wirkung), 
 2x/s — Nutzer: „wirkt träge, aber nicht geglättet“ (2-Hz-Stufen). Endstand `bb39441`: 1-s-Fenster, dahinter
 EMA τ 0,6 s auf l/100km und l/h, Anzeige wieder jeden Frame; Test `test_consumption_meter_glides_instead_of_jumping`.
 Auf dem Pi deployt, in der Simulation vom Nutzer für „viel besser“ befunden; **Fahrttest steht aus**.
+
+## PCM-Bits: Stufe 2, erste Holdout-Prüfung und Pedal-Flag 0x4FA (2026-11-26, Tageslauf)
+
+**Untersucht:** acht neue CAN-Logs 25.11. (080625, 140441, 144806, 145228, 150042, 151456, 155252) und 26.11.
+(075954). Stufe 2 (Anker-Rotation) läuft seit 25.11. 08:06: 74 870 Kampagnen-Anfragen in den Logs, alle positiv,
+0 NRC, 0 stumm, 0 Fehler. Rotation laut `state.json` in Gruppe 12 von 21 (erster Umlauf gut zur Hälfte).
+Die Fahrt 26.11. 17:20 (Pi-Ereignis bis 18:04) war beim Lauf noch nicht als candump abgeholt.
+
+**Gesundheit:** Lambda/Klopfen 40,6–45,4/s, Poller-Antwortquote 99,79–100,00 %, keine `pcm_campaign_*`-Warnung,
+keine fremden Tester, Pausen nur durch die App-Regeln (Pedal/Start, 27–74 s je Fahrt). 155252 hat eine abgeschnittene
+Zeile (Pipeline-Hinweis), ohne Folgen. In `events.log` stehen Zeilen mit Füllbytes vor einigen `start`-Einträgen
+(harte Abschaltung mitten im Schreiben, betrifft nur das Ereignisprotokoll, nicht `state.json`).
+
+**Hypothesen am Holdout:** 35 maschinenprüfbare Einträge an allen acht Logs ohne Verstoß. Die Kampagnen-Hypothesen
+prüft die Pipeline noch nicht selbst, deshalb von Hand (Scratch-Skript, Frame davor/danach):
+- **H-B-03** (0x130 Byte7 = round(W(0x0478)·200/65536)): 140441, 1413 Antworten, **100,00 % bitgleich**, Max 200.
+- **H-B-02** (0x166 Byte0 ≈ W·250/65536): r 0,9927, Steigung −0,9 % gegen 250/65536, Max 249; floor-Formel 95,7 %,
+  also weiterhin nicht bitgleich. Vorhersage erfüllt.
+- Damit Holdout-Tag 1 von 3 für beide; Kaltstart fehlt (140441 war die zweite Fahrt des Tages). H-B-01 (0xF4A4) und
+  H-P0-01/02 noch ohne Holdout, 0xF4A4 war in diesen Logs nicht an der Reihe.
+
+**Neuer Kandidat → H-B-04 (kandidat):** Die Kandidatensuche meldete 0x4FA 30|1 gegen DID 0x0914 Byte0 Bit3 (3 Logs,
+97–99 % gleich). Die Gleichheit kommt größtenteils von der Grundrate 0. Die Kreuztabelle zeigt trotzdem einen echten
+Zusammenhang: Anker=1 → Feld=1 in 16/21, Anker=0 → Feld=1 in 26/1395. 0x0914 ist laut OBDb die Spannung von APP-Sensor 1
+(Ruhe 789 mV, Spitzen bis 3,56 V). Gegenprobe mit dem Pedal aus 0x202 bei voller Rate (140441, 075954, 080625):
+Byte3 ist nur 0x00/0x40 und hängt nicht von der Seite ab. P(1) ≈ 0,02 bei Pedal < 20 %, 0,13 bei 20–40 %, 0,83–0,92 ab 40 %.
+Die beste Einzelschwelle (Pedal ≥ 31,5–32,5 %, Lag 2 Frames) trifft 98,1–98,4 % bei 93–94 % Grundrate. Für einen
+reinen Schwellwert reicht das **nicht**: Anstiege kommen auch bei Pedal 0–5 % vor, die Pulse dauern 3–5 Frames,
+und beim schnellen Loslassen ist P(1) = 0,42. Eingetragen als Klasse-2-Kandidat mit prüfbarer Vorhersage
+(P(1|APP ≥ 40 %) ≥ 0,75, P(1|APP < 20 %) ≤ 0,05), Mechanismus offen.
+
+**Belegt/verworfen:** nichts bestätigt, nichts verworfen. DBC und `status/can-open-fields.md` unverändert.
+
+### Nachtrag: Kaltstarts 25./26.11. (2026-11-26, auf Hinweis des Nutzers)
+
+Laut Nutzer wurde der Motor an beiden Morgen kalt gestartet. Die Daten bestätigen das:
+- **25.11. 08:06 (080625):** Kühlmittel 3 °C, Öl 2,8 °C, Kat −1 °C, Motorstart 1,3 s nach Logbeginn.
+- **26.11. 07:59 (075954):** Kühlmittel 12 °C, Öl 0,1 °C. Das Log beginnt aber erst bei laufendem Motor (1300/min,
+  Kat schon 378 °C), die ersten Sekunden fehlen also. Uhrsprung bei diesem Log korrigiert (−1,0 s).
+
+**Für H-B-01..03 zählen beide Fahrten nicht als Kaltstart-Holdout.** 0x0478 und 0xF4A4 standen nicht in den aktiven
+Rotationsgruppen, abgefragt wurden 0x0301–0x03BD bzw. 0x2028–0xDA83. In Stufe 2 trifft eine Kaltstartfahrt die
+passende Gruppe nur zufällig (15 min von ~5¼ h Umlauf, ≈ 1/21 je Morgen). Ein Kaltstart-Beleg braucht deshalb die
+Hotlist (Stufe 3) mit diesen DIDs.
+
+**H-B-04 im Warmlauf (Regel 5, Grenzfall):** Bei Pedal ≥ 40 % ist das Flag im Warmlauf in 97–99 % der Frames gesetzt,
+genauso eindeutig wie warm. Bei wenig Pedal (< 20 %) unterscheiden sich die beiden Morgen: am 25.11. war es unter
+80 °C Kühlmittel in 10–12 % der Frames gesetzt (warm 1 %), am 26.11. in 0,2–1,4 %. Im Register vermerkt, Ursache
+offen. Beide Logs sind Herleitungslogs, nicht Holdout.
+
+**Entscheid des Nutzers (26.11.):** Stufe 2 läuft weiter, vorerst keine Umstellung auf Stufe 3 mit Hotlist. Für H-B-01..03
+kommt der Kaltstart-Holdout damit nur, wenn eine Kaltstartfahrt zufällig die Gruppe mit 0x0478/0xF4A4 trifft. Den
+Hotlist-Vorschlag erst wieder aufbringen, wenn sich etwas ändert, z. B. der erste Umlauf fertig ist und die Bilanz ansteht.
