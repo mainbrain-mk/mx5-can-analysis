@@ -533,7 +533,31 @@
     "vorhersage": "in jedem neuen Log mit Motorlauf >= 10 min: P(Bit30=1 | APP >= 40 %) >= 0,75 und P(Bit30=1 | APP < 20 %) <= 0,05 (APP aus 0x202 interpoliert); mit DID 0x0914 in der Rotation: P(1 | W(0x0914) >= 2048) >= 0,6"
    },
    "stand": "kandidat",
-   "beleg": "Kandidatensuche 26.11.: 0x4FA 30|1 gegen DID 0x0914 Byte0 Bit3 (OBDb: APP-Sensor-1-Spannung mV; Ruhe 789, Spitzen bis 3563), 97,3-99,1 % gleich in 140441/150042/151456 - aber v. a. Grundrate 0; Kreuztabelle: Anker=1 -> Feld=1 in 16/21, Anker=0 -> Feld=1 in 26/1395. Von Hand gegen APP (0x202, volle Rate) in 140441, 075954, 080625 nachgerechnet (Zahlen in 'aussage'). Herleitung an Logs 25./26.11.; Holdout = Logs nach dem 26.11.. Warmlauf-Grenzfall (26.11.): 25.11. 080625 bei Kuehlmittel < 80 C P(1|APP<20 %) = 0,10-0,12 (sonst 0,01), 26.11. 075954 dagegen 0,002-0,014; P(1|APP>=40 %) im Warmlauf 0,97-0,99. Beide Logs sind Herleitungslogs, Ursache des Ausreissers am 25.11. offen"
+   "beleg": "Kandidatensuche 26.11.: 0x4FA 30|1 gegen DID 0x0914 Byte0 Bit3 (OBDb: APP-Sensor-1-Spannung mV; Ruhe 789, Spitzen bis 3563), 97,3-99,1 % gleich in 140441/150042/151456 - aber v. a. Grundrate 0; Kreuztabelle: Anker=1 -> Feld=1 in 16/21, Anker=0 -> Feld=1 in 26/1395. Von Hand gegen APP (0x202, volle Rate) in 140441, 075954, 080625 nachgerechnet (Zahlen in 'aussage'). Herleitung an Logs 25./26.11.; Holdout = Logs nach dem 26.11.. Warmlauf-Grenzfall (26.11.): 25.11. 080625 bei Kuehlmittel < 80 C P(1|APP<20 %) = 0,10-0,12 (sonst 0,01), 26.11. 075954 dagegen 0,002-0,014; P(1|APP>=40 %) im Warmlauf 0,97-0,99. Beide Logs sind Herleitungslogs, Ursache des Ausreissers am 25.11. offen | Holdout 27.11. (Vorhersage APP-Teil; Logs 26.11. 172045 sowie 27.11. 072029/152421/162628/164821, je >= 10 min Motor): P(1|APP>=40 %) 0,92-0,95 erfuellt in allen; P(1|APP<20 %) 0,026/0,033/0,036/0,038 erfuellt, 164821 0,054 VERLETZT (knapp; ohne 1 s nach APP>=20 % 0,046). Tiefpedal-Rate durchweg hoeher als bei der Herleitung. Kaltstart 072029 (Oel 0,5 degC): erste 10 min P(1|APP<20 %) 0,091, danach 0,012 - gleiches Muster wie 25.11., jetzt an einem Holdout-Log. Erklaerung siehe H-B-05 (absolute Last statt Pedal); H-B-04 bleibt als Pedal-Beschreibung stehen, die Vorhersage wird nicht nachtraeglich gelockert. | Nutzer 27.11.: Klima war am 27.11. nachmittags (162628/164821/172326) an - Zusatzlast passt qualitativ zur erhoehten Tiefpedal-Rate (164821 0,054), Ein/Aus-Zeiten unbekannt, kein CAN-Anker fuer den Kompressor; kein Beleg, nur plausibler Stoerfaktor."
+  },
+  {
+   "id": "H-B-05",
+   "datum": "2026-11-27",
+   "aussage": "0x4FA Byte3 Bit6 (30|1) = Schwellwert-Flag absolute Last (Mode-01-PID 0x43, DID 0xF443 Byte0-1 W, Last = W*100/255 %) >= ~50 % (W >= 128; bei Wmax 250 nicht von W-Bit7 unterscheidbar). Erklaert H-B-04: Pedal ist nur indirekt, Last bleibt beim Loslassen kurz hoch und ist im Warmlauf bei wenig Pedal hoeher. Hysterese/genaue Schwelle offen (beste Schwelle 120-128)",
+   "klasse": 2,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "in jedem neuen Log mit >= 200 F443-Antworten und Grundrate Bit30=1 >= 5 %: Bit30 (0x4FA-Frame davor) == (W(F443) >= 128) in >= 97 %; P(1 | W < 102, Last < 40 %) <= 0,02; P(1 | W >= 141, Last >= 55 %) >= 0,95"
+   },
+   "stand": "hypothese",
+   "beleg": "Kandidatensuche 27.11.: 0x4FA 30|1 gegen 22:F443 (W0 shift 7 / b1.7), exakt_min 0,995 in 2 Logs. Von Hand (scratch anchor.py, Frame davor): 164821 n=989, Grundrate 0,138, W>=128 trifft 98,79 %; 172326 n=211, Grundrate 0,081, 98,58 % (beste Schwelle 120: 99,05 %). P(1) je Lastband: < 40 % 0,00 (n=737/187), 40-50 % 0,05/0,30, 50-60 % 0,94/1,00, >= 60 % 1,00. Herleitung NUR 164821/172326 (27.11.); Holdout = Logs nach dem 27.11. mit F443 in der Rotation, >= 3 Tage inkl. Kaltstart. | Herleitungslogs 164821/172326 mit Klima an (Nutzer 27.11.); Holdout moeglichst auch ohne Klima."
+  },
+  {
+   "id": "H-B-06",
+   "datum": "2026-11-27",
+   "aussage": "0x130 Byte5-6 (47|16 BE, DBC EngineRPM_related_2) = Drehzahl / 2, also Skala 2,0 rpm/LSB statt der DBC-Skala 0,5 (dekodierter Wert = 0,2499 x EngineRPM 0x202). Kein bitgleiches Duplikat von F40C (Mode-01-PID 0x0C, rpm*4): floor(F40C/8) nur 51-54 % (Frame davor/danach), |d| <= 2 LSB in 92-94 % - Takt/Filter verschieden",
+   "klasse": 1,
+   "pruefung": {
+    "typ": "kampagne",
+    "vorhersage": "in jedem neuen Log mit Motorlauf >= 5 min: Median(W130 * 2 / EngineRPM_0x202) bei > 600 rpm in 0,995..1,005 und IQR < 0,002; mit F40C in der Rotation: |W130 - F40C/8| <= 2 in >= 90 % der Antworten"
+   },
+   "stand": "hypothese",
+   "beleg": "Kandidatensuche 27.11.: 0x130 43|9/44|9/47|11 gegen 22:F40C (r_pegel 0,9998-0,9999, r_diff 0,993-0,998) in 152421/162628. Von Hand: F40C 0x0BFE (767,5 rpm) <-> 0x130 B5-6 0x017F (383); decodiert 162628: EngineRPM_related_2/EngineRPM Median 0,24989, IQR 0,0002. Frueheres Logbuch (Zeile ~182) nannte '0x130 Byte5-6 ~ Drehzahl*2' - Skala in der DBC passt dazu nicht. Betrifft nur die Testmodus-Liste LIVE_SIGNALS (dash_gui/can_backend/status_gui), nicht die Fahranzeige; der Nutzer nutzt sie nicht, daher kein Sichtbeleg. DBC erst nach Bestaetigung aendern."
   }
  ],
  "verworfen": [

@@ -7803,3 +7803,24 @@ schon kam; Gegenlenken war also Fahrerarbeit.
 Auffaelligkeiten:
 - unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
 - shift_record: Neue Bestzeit 4 -> 5 (upshift): 0.62s (vorher 0.90s), candump-2026-11-25_140441 @ t=1481.0s.
+
+## Automatischer Lauf: 6 neue CAN-Logs uebernommen (2026-11-27)
+
+- `candump-2026-11-26_172045`, Masse=1175.8kg (Tank ~22.5 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-27_072029`, Masse=1174.1kg (Tank ~20.2 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-27_152421`, Masse=1172.4kg (Tank ~18.0 l (Tankbuch, Mittel Start/Ende), Beifahrer 0% der Fahrt (0x340))
+- `candump-2026-11-27_162628`, Masse=1246.0kg (Tank ~16.1 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-27_164821`, Masse=1244.9kg (Tank ~14.6 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+- `candump-2026-11-27_172326`, Masse=1244.3kg (Tank ~13.9 l (Tankbuch, Mittel Start/Ende), Beifahrer 100% der Fahrt (0x340))
+
+Auffaelligkeiten:
+- unmapped_channels: 110238 nicht zugeordnete Messwerte insgesamt, unbekannte Original-Spalten: ['Actual (AFR)', 'Brake Fluid Line Hydraulic Pressure (Raw Value) (bar)', 'Engine Revolutions Per Minute (RPM)', 'Unterstützter tatsächlicher Gangstatus des Getriebes', 'Vehicle Speed (km/h)'].
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-01 Taktabweichung +248.8 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-03 Taktabweichung +246.3 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-07 Taktabweichung +241.2 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-08 Taktabweichung +221.1 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-16 Taktabweichung -26.4 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-19 Taktabweichung -31.2 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-21 Taktabweichung -33.0 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_162628: H-A1-22 Taktabweichung -35.2 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)
+- pcm_sender_deviation: candump-2026-11-27_164821: H-A1-07 Taktabweichung -81.7 ppm (Einzellog, Rauschen bis ~20 ppm bei 10-Hz-Botschaften normal)

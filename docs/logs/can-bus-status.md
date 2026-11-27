@@ -7079,3 +7079,52 @@ offen. Beide Logs sind Herleitungslogs, nicht Holdout.
 **Entscheid des Nutzers (26.11.):** Stufe 2 läuft weiter, vorerst keine Umstellung auf Stufe 3 mit Hotlist. Für H-B-01..03
 kommt der Kaltstart-Holdout damit nur, wenn eine Kaltstartfahrt zufällig die Gruppe mit 0x0478/0xF4A4 trifft. Den
 Hotlist-Vorschlag erst wieder aufbringen, wenn sich etwas ändert, z. B. der erste Umlauf fertig ist und die Bilanz ansteht.
+
+## PCM-Bits: H-B-04 am Holdout, Lastflag 0x4FA, Skala 0x130-Drehzahl (2026-11-27, Tageslauf)
+
+**Untersucht:** sechs neue CAN-Logs, 26.11. 17:20 (172045) und 27.11. (072029 Kaltstart, 152421, 162628, 164821,
+172326; die letzten drei mit Beifahrer laut 0x340). Stufe 2: 81 264 Kampagnen-Anfragen in den Logs, alle positiv,
+0 NRC. Rotation laut `state.json` in Gruppe 18 von 21, abgefragt wurden heute 0xD988–0xF44C.
+
+**Gesundheit:** Lambda/Klopfen 39,9–42,5/s, Poller-Antwortquote 99,98–100,00 %, keine `pcm_campaign_*`-Warnung.
+`events.log` meldet für 072029 43 stumme Anfragen. Im candump ist jede Mode-22-Anfrage beantwortet, der candump endet
+12 s vor dem Sitzungsende (07:53:57 gegen 07:54:09). Die stummen Anfragen fallen also ins Abschalten, harmlos.
+Taktabweichungen +221…+249 ppm (H-A1-01/03/07/08) nur in 162628, als Einzellog-Hinweis gemeldet, nicht weiter verfolgt.
+
+**H-B-01..03:** kein Holdout, 0x0478/0xF4A4 waren nicht in den heutigen Gruppen.
+
+**H-B-04 (Pedal-Vorhersage) am Holdout** (Scratch-Skript, APP aus 0x202 als letzter Wert, ohne Lag):
+P(1 | APP ≥ 40 %) 0,92–0,95 in allen fünf Logs ≥ 10 min (erfüllt). P(1 | APP < 20 %) 0,026–0,038, **164821: 0,054,
+damit knapp verletzt** (ohne die Sekunde nach APP ≥ 20 %: 0,046). Die Tiefpedal-Rate liegt durchweg über der der
+Herleitung (~0,01–0,02). Kaltstart 072029 (Öl 0,5 °C, Kat −3 °C, Motorstart 1,2 s nach Logbeginn): erste 10 min
+P(1 | APP < 20 %) = 0,091, danach 0,012. Das ist dasselbe Muster wie am 25.11., jetzt an einem Holdout-Log. Die
+Vorhersage wird nicht nachträglich gelockert. H-B-04 bleibt Kandidat, Verstoß im Register vermerkt.
+
+**Neu → H-B-05 (hypothese):** Die Kandidatensuche meldete 0x4FA 30|1 gegen DID 0xF443 (Mode-01-PID 0x43, absolute Last,
+W·100/255 %). Von Hand, mit dem 0x4FA-Frame vor der Antwort: 164821 (n = 989, Grundrate 13,8 %) trifft Bit30 == (W ≥ 128)
+zu 98,79 %, 172326 (n = 211, Grundrate 8,1 %) zu 98,58 %, beste Schwelle dort 120 (99,05 %). P(1) je Lastband: unter 40 %
+0,00, 40–50 % 0,05/0,30, 50–60 % 0,94/1,00, ab 60 % 1,00. **Bit30 ist also ein Flag „absolute Last ≥ ~50 %“.** Das erklärt
+H-B-04: das Pedal wirkt nur indirekt, die Last bleibt beim Loslassen kurz hoch und ist im Warmlauf bei wenig Pedal höher.
+Bei W_max = 250 lässt sich die Schwelle 128 nicht von W-Bit7 trennen, eine Hysterese ist offen. Holdout: Logs nach dem 27.11.
+mit F443 in der Rotation.
+
+**Neu → H-B-06 (hypothese):** Die Kandidatensuche meldete 0x130 Teilfelder in Byte5–6 gegen 0xF40C (Drehzahl·4).
+Das ist das schon bekannte `EngineRPM_related_2`, aber dekodiert liegt es bei **0,2499 × EngineRPM (0x202)** (162628,
+IQR 0,0002). Die DBC-Skala 0,5 ist also um den Faktor 4 falsch, richtig sind 2 rpm/LSB. Gegen F40C nicht bitgleich
+(floor(F40C/8) 51–54 %, ±2 LSB 92–94 %), also eigener Takt bzw. Filter. Betroffen ist nur die Testmodus-Liste
+`LIVE_SIGNALS` („Drehzahl 0x130 (neu)“ in `dash_gui`/`can_backend`/`status_gui`), nicht die Fahranzeige. DBC erst nach Bestätigung ändern.
+
+**Zurückgestellt** (nächste Läufe): 0x130 Bit63 und 0x166 Bit6 gegen 0xDA02 b1.0 (2 Logs, 95–97 %), 0x42B Byte1
+(Bits 11–15) gegen 0xD993 Byte0 (2 Logs, r_pegel 0,96, nicht exakt), Einzelbits 0x130 40–42/52–55 gegen F40C (Teilbits der
+Drehzahl, kein eigener Befund).
+
+**Belegt/verworfen:** nichts bestätigt, nichts verworfen. DBC und `status/can-open-fields.md` unverändert.
+
+### Nachtrag: Antworten des Nutzers (2026-11-27)
+
+- Die Dash-Fahranzeige hat kein 0x130-Drehzahlfeld, nur die Testmodus-Liste. Ein Sichtbeleg für H-B-06 entfällt. Die
+  Hypothese bleibt offen, bis sie an neuen Logs bestätigt ist (Verhältnis zu 0x202 bzw. F40C).
+- **Am 27.11. nachmittags lief die Klimaanlage** (162628, 164821, 172326). Die Zusatzlast des Kompressors passt
+  qualitativ zur erhöhten Tiefpedal-Rate von H-B-04 (164821: 0,054) und dazu, dass Bit30 an der Last hängt (H-B-05).
+  Einen Beleg liefert das nicht: Ein-/Aus-Zeiten sind unbekannt und es gibt keinen CAN-Anker für den Kompressor. Für H-B-05
+  waren beide Herleitungslogs mit Klima, der Holdout sollte möglichst auch Fahrten ohne Klima enthalten.
